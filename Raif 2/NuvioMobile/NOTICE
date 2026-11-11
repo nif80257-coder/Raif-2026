@@ -1,0 +1,12 @@
+RAIF © 2026 RAIF
+
+RAIF is derived from NuvioMobile commit 39417082688d7659f3abbf081c0c1630778da1a8. The upstream project and its contributors retain their original copyright notices. This derivative remains licensed under GNU GPL-3.0; see LICENSE and https://www.gnu.org/licenses/gpl-3.0.html.
+
+Upstream source: https://github.com/NuvioMedia/NuvioMobile
+MPVKit source pinned by the upstream gitlink: da4b7da256a5d67dee74f576762ceb9067fc7a71. The selected MPVKit product is the LGPL variant; MPVKit documents its source and bundled libmpv/FFmpeg libraries under LGPL v3.0. Optional MPVKit GPL variants are subject to GPL v3.0. See the component package definitions and notices in MPVKit/Package.swift.
+
+mpv is used through MPVKit. See https://github.com/mpv-player/mpv/blob/master/Copyright for mpv copyright and license notices.
+FFmpeg is used through MPVKit. See https://ffmpeg.org/legal.html for FFmpeg copyright and license notices.
+
+Haze 1.7.3 is used for interface effects under Apache License 2.0: https://github.com/chrisbanes/haze/blob/1.7.3/LICENSE.
+Other direct and transitive dependency notices remain with their respective Gradle and Swift package metadata. This notice supplements, and does not replace, those notices or license texts.

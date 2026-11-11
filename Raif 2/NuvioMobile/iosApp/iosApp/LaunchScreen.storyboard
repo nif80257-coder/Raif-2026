@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="23094" targetRuntime="iOS.CocoaTouch" useAutolayout="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES" initialViewController="launch-controller">
+    <device id="retina6_12" orientation="portrait" appearance="dark"/>
+    <dependencies>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="23084"/>
+        <capability name="Safe area layout guides" minToolsVersion="9.0"/>
+        <capability name="System colors in document resources" minToolsVersion="11.0"/>
+    </dependencies>
+    <scenes>
+        <scene sceneID="launch-scene">
+            <objects>
+                <viewController id="launch-controller" sceneMemberID="viewController">
+                    <view key="view" contentMode="scaleToFill" id="launch-view">
+                        <rect key="frame" x="0.0" y="0.0" width="393" height="852"/>
+                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                        <subviews>
+                            <view contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="launch-lockup">
+                                <rect key="frame" x="86.5" y="356" width="220" height="140"/>
+                                <subviews>
+                                    <view contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="launch-mark">
+                                        <rect key="frame" x="66" y="0.0" width="88" height="88"/>
+                                        <subviews>
+                                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" text="▶" textAlignment="center" translatesAutoresizingMaskIntoConstraints="NO" id="launch-play">
+                                                <rect key="frame" x="0.0" y="0.0" width="88" height="88"/>
+                                                <fontDescription key="fontDescription" type="system" weight="semibold" pointSize="40"/>
+                                                <color key="textColor" red="0.839" green="0.604" blue="0.369" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                                                <nil key="highlightedColor"/>
+                                            </label>
+                                        </subviews>
+                                        <color key="backgroundColor" white="0.0" alpha="0.0" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                                        <constraints>
+                                            <constraint firstItem="launch-play" firstAttribute="centerX" secondItem="launch-mark" secondAttribute="centerX" id="play-center-x"/>
+                                            <constraint firstItem="launch-play" firstAttribute="centerY" secondItem="launch-mark" secondAttribute="centerY" id="play-center-y"/>
+                                            <constraint firstAttribute="width" constant="88" id="mark-width"/>
+                                            <constraint firstAttribute="height" constant="88" id="mark-height"/>
+                                        </constraints>
+                                    </view>
+                                    <label opaque="NO" userInteractionEnabled="NO" contentMode="left" text="RAIF" textAlignment="center" translatesAutoresizingMaskIntoConstraints="NO" id="launch-wordmark">
+                                        <rect key="frame" x="83.5" y="106" width="53" height="34"/>
+                                        <fontDescription key="fontDescription" type="system" weight="bold" pointSize="28"/>
+                                        <color key="textColor" white="0.953" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                                        <nil key="highlightedColor"/>
+                                    </label>
+                                </subviews>
+                                <constraints>
+                                    <constraint firstItem="launch-mark" firstAttribute="centerX" secondItem="launch-lockup" secondAttribute="centerX" id="lockup-mark-center-x"/>
+                                    <constraint firstItem="launch-mark" firstAttribute="top" secondItem="launch-lockup" secondAttribute="top" id="lockup-mark-top"/>
+                                    <constraint firstItem="launch-wordmark" firstAttribute="centerX" secondItem="launch-lockup" secondAttribute="centerX" id="lockup-wordmark-center-x"/>
+                                    <constraint firstItem="launch-wordmark" firstAttribute="top" secondItem="launch-mark" secondAttribute="bottom" constant="18" id="lockup-wordmark-top"/>
+                                    <constraint firstAttribute="width" constant="220" id="lockup-width"/>
+                                    <constraint firstAttribute="height" constant="140" id="lockup-height"/>
+                                </constraints>
+                            </view>
+                        </subviews>
+                        <color key="backgroundColor" red="0.043" green="0.051" blue="0.063" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                        <constraints>
+                            <constraint firstItem="launch-lockup" firstAttribute="centerX" secondItem="launch-view" secondAttribute="centerX" id="lockup-center-x"/>
+                            <constraint firstItem="launch-lockup" firstAttribute="centerY" secondItem="launch-view" secondAttribute="centerY" id="lockup-center-y"/>
+                        </constraints>
+                        <viewLayoutGuide key="safeArea" id="launch-safe-area"/>
+                    </view>
+                </viewController>
+                <placeholder placeholderIdentifier="IBFirstResponder" id="launch-first-responder" userLabel="First Responder" sceneMemberID="firstResponder"/>
+            </objects>
+        </scene>
+    </scenes>
+</document>
