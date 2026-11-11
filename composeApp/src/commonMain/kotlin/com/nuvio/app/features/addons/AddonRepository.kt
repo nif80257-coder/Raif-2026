@@ -57,6 +57,7 @@ object AddonRepository {
     private var initialized = false
     private var currentProfileId: Int = 1
     private val activeRefreshJobs = mutableMapOf<String, Job>()
+    private var defaultAddonSeedJob: Job? = null
     private val pushJobsByProfile = mutableMapOf<Int, Job>()
 
     fun initialize() {
@@ -500,6 +501,7 @@ object AddonRepository {
     private fun seedDefaultAddonsIfNeeded(profileId: Int) {
         if (isUsingPrimaryAddonsFromSecondaryProfile()) return
         if (AddonStorage.areDefaultAddonsSeeded(profileId)) return
+        if (defaultAddonSeedJob?.isActive == true) return
 
         val defaultUrls = DefaultAddonSources.mapTo(mutableSetOf()) { it.manifestUrl }
         val existingUrls = _uiState.value.addons.map { it.manifestUrl }
@@ -511,7 +513,8 @@ object AddonRepository {
             return
         }
 
-        scope.launch {
+        var seedJob: Job? = null
+        seedJob = scope.launch {
             DefaultAddonSources.forEach { source ->
                 if (currentProfileId != profileId) return@launch
                 if (_uiState.value.addons.any { it.manifestUrl == source.manifestUrl }) return@forEach
@@ -552,6 +555,7 @@ object AddonRepository {
             }
             log.i { "seedDefaultAddonsIfNeeded() — default add-ons in place" }
         }
+        defaultAddonSeedJob = seedJob
     }
 
     private fun persist() {

@@ -78,6 +78,7 @@ actual object PluginRepository {
     private var initialized = false
     private var currentProfileId = 1
     private val activeRefreshJobs = mutableMapOf<String, Job>()
+    private var defaultSeedJob: Job? = null
     private val persistenceGeneration = atomic(0L)
     private val persistenceRevision = atomic(0L)
     private val persistenceLock = SynchronizedObject()
@@ -511,6 +512,7 @@ actual object PluginRepository {
      */
     private fun seedDefaultRepositoriesIfNeeded(profileId: Int) {
         if (_uiState.value.defaultRepositoriesSeeded) return
+        if (defaultSeedJob?.isActive == true) return
 
         val existingUrls = _uiState.value.repositories.map { it.manifestUrl }
         val hasOwnRepositories = existingUrls.isNotEmpty() && existingUrls.any { it !in DefaultProviderRepositories }
@@ -522,7 +524,8 @@ actual object PluginRepository {
             return
         }
 
-        scope.launch {
+        var seedJob: Job? = null
+        seedJob = scope.launch {
             DefaultProviderRepositories.forEach { manifestUrl ->
                 if (currentProfileId != profileId) return@launch
                 if (_uiState.value.repositories.any { it.manifestUrl == manifestUrl }) return@forEach
@@ -554,6 +557,7 @@ actual object PluginRepository {
             pushToServer()
             log.i { "seedDefaultRepositoriesIfNeeded() — default repositories in place: $complete" }
         }
+        defaultSeedJob = seedJob
     }
 
     private fun pushToServer() {
