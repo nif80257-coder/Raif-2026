@@ -48,7 +48,7 @@ internal fun AppBrandWordmark(
 
     BoxWithConstraints(
         modifier = modifier.semantics {
-            this.contentDescription = contentDescription ?: "RAIF"
+            this.contentDescription = contentDescription ?: "Řaif"
         },
         contentAlignment = Alignment.CenterStart,
     ) {
@@ -98,7 +98,7 @@ private fun RaifWordmarkLine(
         color = ink,
     )
     Row(modifier = modifier, verticalAlignment = Alignment.Bottom) {
-        Text(text = "R", style = style)
+        Text(text = "Ř", style = style)
         PlayTriangle(
             modifier = Modifier
                 .padding(bottom = (wordSize.value * 0.2f).dp)
@@ -108,7 +108,7 @@ private fun RaifWordmarkLine(
                 ),
             color = accent,
         )
-        Text(text = "IF", style = style)
+        Text(text = "if", style = style)
     }
 }
 
