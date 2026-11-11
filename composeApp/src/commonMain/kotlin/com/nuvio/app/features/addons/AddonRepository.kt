@@ -548,8 +548,11 @@ object AddonRepository {
             queueAddonChanges(changedManifestUrls = defaultUrls)
             pushToServer()
             // Home shelves are built from the catalog settings, which otherwise only the settings
-            // screen refreshes; without this a first launch would still look empty.
-            HomeCatalogSettingsRepository.syncCatalogs(_uiState.value.addons.enabledAddons())
+            // screen refreshes; without this a first launch would still look empty. It publishes UI
+            // state, so it runs on the main dispatcher rather than this background one.
+            withContext(Dispatchers.Main) {
+                HomeCatalogSettingsRepository.syncCatalogs(_uiState.value.addons.enabledAddons())
+            }
             if (defaultUrls.all { it in seededUrls }) {
                 AddonStorage.markDefaultAddonsSeeded(profileId)
             }
