@@ -1,0 +1,94 @@
+name: Extract project source
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "RAIF-improved-under-100MB.part*.zip"
+      - "n/RAIF-improved-under-100MB.zip"
+      - ".github/workflows/extract-source.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Join split parts
+        run: |
+          shopt -s nullglob
+          parts=(RAIF-improved-under-100MB.part*.zip)
+          echo "found ${#parts[@]} part(s)"
+          if [ ${#parts[@]} -gt 0 ]; then
+            cat "${parts[@]}" > /tmp/joined.zip
+            ls -l /tmp/joined.zip
+            unzip -tq /tmp/joined.zip && echo "joined archive OK" || echo "joined archive INVALID"
+          fi
+          ls -l n/ 2>/dev/null || true
+          ls -l *.zip 2>/dev/null || true
+
+      - name: Extract archive
+        run: |
+          mkdir -p /tmp/out
+          extracted=0
+
+          if [ -f /tmp/joined.zip ] && unzip -tq /tmp/joined.zip; then
+            echo "== extracting joined archive =="
+            unzip -q /tmp/joined.zip -d /tmp/out && extracted=1
+          fi
+
+          if [ "$extracted" = "0" ] && [ -f n/RAIF-improved-under-100MB.zip ] && unzip -tq n/RAIF-improved-under-100MB.zip; then
+            echo "== extracting n/RAIF-improved-under-100MB.zip =="
+            unzip -q n/RAIF-improved-under-100MB.zip -d /tmp/out && extracted=1
+          fi
+
+          if [ "$extracted" = "0" ]; then
+            echo "== trying every part on its own =="
+            for f in RAIF-improved-under-100MB.part*.zip; do
+              d="/tmp/out/part-${f%.zip}"
+              mkdir -p "$d"
+              if unzip -q "$f" -d "$d"; then
+                echo "extracted $f"
+                extracted=1
+              else
+                echo "cannot extract $f"
+                rm -rf "$d"
+              fi
+            done
+          fi
+
+          find /tmp/out -name '__MACOSX' -type d -prune -exec rm -rf {} + 2>/dev/null || true
+          find /tmp/out -name '.DS_Store' -delete 2>/dev/null || true
+
+          echo "== size =="
+          du -sh /tmp/out
+          echo "== top of tree =="
+          find /tmp/out -maxdepth 3 | head -200
+
+          if [ "$extracted" = "0" ]; then
+            echo "::error::No archive could be extracted"
+            exit 1
+          fi
+
+      - name: Copy sources into the repository
+        run: |
+          shopt -s nullglob dotglob
+          cp -an /tmp/out/. . || true
+          echo "== working tree changes =="
+          git status --short | head -100
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --staged --quiet; then
+            echo "nothing new to commit"
+          else
+            git commit -m "Extract project source from uploaded archive"
+            git push
+          fi
