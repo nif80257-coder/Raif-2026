@@ -99,6 +99,13 @@ private val NuvioTypography: Typography
             fontWeight = FontWeight.SemiBold,
             letterSpacing = NuvioTokens.LetterSpacing.headline,
         ),
+        headlineSmall = TextStyle(
+            fontFamily = RaifDisplayFamily,
+            fontSize = NuvioTokens.Type.titleMd,
+            lineHeight = NuvioTokens.LineHeight.titleMd,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = NuvioTokens.LetterSpacing.headline,
+        ),
         titleLarge = TextStyle(
             fontFamily = JetBrainsSans,
             fontSize = NuvioTokens.Type.titleSm,

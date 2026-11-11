@@ -1,6 +1,7 @@
 package com.nuvio.app.core.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -146,7 +147,7 @@ fun NuvioPosterCard(
 
     Column(
         modifier = modifier.width(cardWidth),
-        verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s6),
+        verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8),
     ) {
         Box(
             modifier = Modifier
@@ -244,11 +245,21 @@ fun NuvioPosterCard(
             }
 
             NuvioPosterWatchedOverlay(isWatched = isWatched)
+
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .border(
+                        width = NuvioTokens.Border.hairline,
+                        color = tokens.colors.borderSubtle,
+                        shape = cardShape,
+                    ),
+            )
         }
         if (shouldShowTitleBelow) {
             Text(
                 text = title,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.titleSmall,
                 color = tokens.colors.textPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -289,7 +300,7 @@ private fun NuvioShelfSectionHeader(
             Text(
                 text = title,
                 modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.titleLarge,
+                style = MaterialTheme.typography.headlineSmall,
                 color = tokens.colors.textPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
