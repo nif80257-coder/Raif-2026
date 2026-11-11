@@ -1,0 +1,11 @@
+# Archives and uploads
+*.zip
+
+# macOS
+.DS_Store
+
+# Xcode
+xcuserdata/
+DerivedData/
+build/
+*.xcuserstate
