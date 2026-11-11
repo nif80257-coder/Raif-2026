@@ -4,6 +4,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -140,10 +141,12 @@ fun NuvioNavigationBar(
         contentAlignment = Alignment.BottomCenter,
     ) {
         // The floating pill
+        val tokens = MaterialTheme.nuvio
+        val pillShape = RoundedCornerShape(NuvioTokens.Radius.full)
         val pillModifier = Modifier
             .padding(horizontal = horizontalPadding)
             .fillMaxWidth()
-            .clip(RoundedCornerShape(NuvioTokens.Radius.full))
+            .clip(pillShape)
             .then(
                 if (hazeState != null) {
                     Modifier.hazeEffect(state = hazeState) {
@@ -153,7 +156,16 @@ fun NuvioNavigationBar(
                     Modifier
                 },
             )
-            .background(Color(0xFF1C1C1E).copy(alpha = if (hazeState != null) 0.55f else 0.82f))
+            .background(
+                tokens.colors.surfaceElevated.copy(
+                    alpha = if (hazeState != null) 0.62f else 0.94f,
+                ),
+            )
+            .border(
+                width = NuvioTokens.Border.hairline,
+                color = tokens.colors.borderDefault,
+                shape = pillShape,
+            )
 
         Box(modifier = pillModifier) {
             Row(

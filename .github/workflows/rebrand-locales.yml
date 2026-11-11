@@ -1,0 +1,44 @@
+name: Normalize the app brand in translations
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/rebrand-locales.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  rebrand:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Replace the legacy brand name in every locale
+        run: |
+          set -euo pipefail
+          files=$(find composeApp/src/commonMain/composeResources \
+            -name 'strings*.xml' -type f | sort)
+          echo "$files" | wc -l
+          for f in $files; do
+            perl -CSD -i -pe 's/\bRAIF\b/\x{158}aif/g' "$f"
+          done
+
+      - name: Report what is left
+        run: |
+          echo "== remaining legacy mentions =="
+          grep -rn '\bRAIF\b' composeApp/src/commonMain/composeResources || echo "none"
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --staged --quiet; then
+            echo "translations already normalized"
+          else
+            git commit -m "Normalize the app brand across all translations"
+            git push
+          fi
