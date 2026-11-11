@@ -32,6 +32,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.SearchOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -82,7 +83,7 @@ import com.nuvio.app.features.debrid.DebridSettingsRepository
 import com.nuvio.app.features.debrid.DirectDebridPlayableResult
 import com.nuvio.app.features.debrid.DirectDebridPlaybackResolver
 import com.nuvio.app.features.debrid.toastMessage
-import com.nuvio.app.features.player.PlayerSettingsRepository
+import com.nuvio.app.features.player.ExternalPlayerPlatform
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
 import com.nuvio.app.features.watched.WatchedRepository
@@ -132,10 +133,6 @@ fun StreamsScreen(
     val streamDisplaySettings by remember {
         StreamBadgeSettingsRepository.ensureLoaded()
         StreamBadgeSettingsRepository.uiState
-    }.collectAsStateWithLifecycle()
-    val playerSettings by remember {
-        PlayerSettingsRepository.ensureLoaded()
-        PlayerSettingsRepository.uiState
     }.collectAsStateWithLifecycle()
     val debridSettings by remember {
         DebridSettingsRepository.ensureLoaded()
@@ -302,7 +299,6 @@ fun StreamsScreen(
 
         StreamActionsSheet(
             stream = streamActionsTarget,
-            externalPlayerEnabled = playerSettings.externalPlayerEnabled,
             onDismiss = { streamActionsTarget = null },
             onCopyLink = { stream ->
                 val directUrl = stream.playableDirectUrl ?: stream.externalOpenUrl
@@ -949,7 +945,6 @@ private fun StreamSourceHeader(
 @Composable
 private fun StreamActionsSheet(
     stream: StreamItem?,
-    externalPlayerEnabled: Boolean,
     onDismiss: () -> Unit,
     onCopyLink: (StreamItem) -> Unit,
     onDownload: (StreamItem) -> Unit,
@@ -1011,17 +1006,28 @@ private fun StreamActionsSheet(
                     }
                 },
             )
-            NuvioBottomSheetActionRow(
-                icon = Icons.AutoMirrored.Rounded.OpenInNew,
-                title = stringResource(
-                    if (externalPlayerEnabled) {
-                        Res.string.streams_open_internal_player
-                    } else {
-                        Res.string.streams_open_external_player
+            // External playback leads: when a compatible player is installed it is offered before
+            // the built-in one, so playing into Infuse/VLC is one tap away from the source list.
+            val externalPlayers = remember {
+                ExternalPlayerPlatform.availablePlayers()
+            }
+            if (externalPlayers.isNotEmpty()) {
+                NuvioBottomSheetActionRow(
+                    icon = Icons.AutoMirrored.Rounded.OpenInNew,
+                    title = stringResource(Res.string.streams_open_external_player),
+                    onClick = {
+                        onOpen(stream, true)
+                        coroutineScope.launch {
+                            dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss)
+                        }
                     },
-                ),
+                )
+            }
+            NuvioBottomSheetActionRow(
+                icon = Icons.Rounded.PlayArrow,
+                title = stringResource(Res.string.streams_open_internal_player),
                 onClick = {
-                    onOpen(stream, !externalPlayerEnabled)
+                    onOpen(stream, false)
                     coroutineScope.launch {
                         dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss)
                     }
