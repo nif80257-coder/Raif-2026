@@ -6,6 +6,7 @@ import com.nuvio.app.core.auth.AuthState
 import com.nuvio.app.core.auth.isCurrentSupabaseAccount
 import com.nuvio.app.core.auth.requireSupabaseAccountUserId
 import com.nuvio.app.core.network.SupabaseProvider
+import com.nuvio.app.features.home.HomeCatalogSettingsRepository
 import com.nuvio.app.features.profiles.ProfileRepository
 import io.github.jan.supabase.postgrest.postgrest
 import kotlinx.coroutines.CoroutineScope
@@ -68,7 +69,12 @@ object AddonRepository {
         val storedUrls = dedupeManifestUrls(AddonStorage.loadInstalledAddonUrls(currentProfileId))
         val enabledByUrl = loadLocalEnabledStates()
         log.d { "initialize() — local addon count: ${storedUrls.size}" }
-        if (storedUrls.isEmpty()) return
+        if (storedUrls.isEmpty()) {
+            seedDefaultAddonsIfNeeded(currentProfileId)
+            return
+        }
+        // Top up anything the first attempt could not fetch (a launch made while offline, say).
+        seedDefaultAddonsIfNeeded(currentProfileId)
 
         val existingByUrl = _uiState.value.addons.associateBy(ManagedAddon::manifestUrl)
         _uiState.value = AddonsUiState(
@@ -483,6 +489,68 @@ object AddonRepository {
                     }
                 },
             )
+        }
+    }
+
+    /**
+     * Installs the bundled default add-ons the first time a profile has none, so the app opens on
+     * working catalogs instead of an empty home screen. The marker is persisted, so removing them
+     * afterwards is remembered and they never come back on their own.
+     */
+    private fun seedDefaultAddonsIfNeeded(profileId: Int) {
+        if (isUsingPrimaryAddonsFromSecondaryProfile()) return
+        if (AddonStorage.areDefaultAddonsSeeded(profileId)) return
+
+        val defaultUrls = DefaultAddonSources.mapTo(mutableSetOf()) { it.manifestUrl }
+        val existingUrls = _uiState.value.addons.map { it.manifestUrl }
+        val hasOwnAddons = existingUrls.isNotEmpty() && existingUrls.any { it !in defaultUrls }
+        if (hasOwnAddons || defaultUrls.all { it in existingUrls }) {
+            // Either the profile curated its own add-ons, or the defaults are already in place.
+            // Both mean there is nothing to seed, so remember that and stop trying.
+            AddonStorage.markDefaultAddonsSeeded(profileId)
+            return
+        }
+
+        scope.launch {
+            DefaultAddonSources.forEach { source ->
+                if (currentProfileId != profileId) return@launch
+                if (_uiState.value.addons.any { it.manifestUrl == source.manifestUrl }) return@forEach
+
+                val manifest = runCatching {
+                    AddonManifestParser.parse(
+                        manifestUrl = source.manifestUrl,
+                        payload = fetchAddonResponseText(source.manifestUrl),
+                    )
+                }.getOrNull() ?: return@forEach
+
+                _uiState.update { current ->
+                    current.copy(
+                        addons = current.addons + ManagedAddon(
+                            manifestUrl = source.manifestUrl,
+                            manifest = manifest,
+                            isRefreshing = false,
+                            errorMessage = null,
+                        ),
+                    )
+                }
+            }
+
+            val seededUrls = _uiState.value.addons.map { it.manifestUrl }
+            if (defaultUrls.any { it !in seededUrls }) {
+                log.w { "seedDefaultAddonsIfNeeded() — defaults incomplete; retrying on the next launch" }
+                if (seededUrls.isEmpty()) return@launch
+            }
+
+            persist()
+            queueAddonChanges(changedManifestUrls = defaultUrls)
+            pushToServer()
+            // Home shelves are built from the catalog settings, which otherwise only the settings
+            // screen refreshes; without this a first launch would still look empty.
+            HomeCatalogSettingsRepository.syncCatalogs(_uiState.value.addons.enabledAddons())
+            if (defaultUrls.all { it in seededUrls }) {
+                AddonStorage.markDefaultAddonsSeeded(profileId)
+            }
+            log.i { "seedDefaultAddonsIfNeeded() — default add-ons in place" }
         }
     }
 

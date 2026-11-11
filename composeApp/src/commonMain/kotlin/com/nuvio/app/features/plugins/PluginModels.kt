@@ -5,6 +5,15 @@ import kotlinx.serialization.Serializable
 
 internal const val PLUGIN_REPOSITORY_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1_000L
 
+/**
+ * Provider repositories installed automatically the first time a profile has none, so the source
+ * list is not empty out of the box. This is the upstream Nuvio provider repository; seeding runs
+ * once per profile, so removing it afterwards is remembered.
+ */
+internal val DefaultProviderRepositories: List<String> = listOf(
+    "https://raw.githubusercontent.com/tapframe/nuvio-providers/main/manifest.json",
+)
+
 internal fun isPluginRepositoryRefreshDue(
     lastUpdatedEpochMs: Long,
     nowEpochMs: Long,
@@ -102,6 +111,7 @@ data class PluginsUiState(
     val groupStreamsByRepository: Boolean = false,
     val repositories: List<PluginRepositoryItem> = emptyList(),
     val scrapers: List<PluginScraper> = emptyList(),
+    val defaultRepositoriesSeeded: Boolean = false,
 )
 
 sealed interface AddPluginRepositoryResult {
@@ -115,6 +125,7 @@ internal data class StoredPluginsState(
     val groupStreamsByRepository: Boolean = false,
     val repositories: List<StoredPluginRepository> = emptyList(),
     val scrapers: List<StoredPluginScraper> = emptyList(),
+    val defaultRepositoriesSeeded: Boolean = false,
 )
 
 @Serializable
@@ -165,6 +176,7 @@ internal fun PluginsUiState.toStoredPluginsState(): StoredPluginsState =
             )
         },
         scrapers = scrapers.map(PluginScraper::toStoredPluginScraper),
+        defaultRepositoriesSeeded = defaultRepositoriesSeeded,
     )
 
 internal fun PluginScraper.toStoredPluginScraper(): StoredPluginScraper =

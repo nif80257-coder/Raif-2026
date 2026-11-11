@@ -87,6 +87,7 @@ actual object PluginRepository {
         val effectiveProfileId = resolveEffectiveProfileId(ProfileRepository.activeProfileId)
         val shouldRefreshStoredRepos = !initialized || currentProfileId != effectiveProfileId
         ensureStateLoadedForProfile(effectiveProfileId)
+        seedDefaultRepositoriesIfNeeded(effectiveProfileId)
         if (!shouldRefreshStoredRepos) return
 
         val state = _uiState.value
@@ -161,6 +162,7 @@ actual object PluginRepository {
                 groupStreamsByRepository = _uiState.value.groupStreamsByRepository,
                 repositories = nextRepos,
                 scrapers = nextScrapers,
+                defaultRepositoriesSeeded = _uiState.value.defaultRepositoriesSeeded,
             )
             persist()
 
@@ -502,6 +504,58 @@ actual object PluginRepository {
         }
     }
 
+    /**
+     * Installs the bundled default provider repositories the first time a profile has none, so the
+     * source list works out of the box. The flag lives in the persisted state, so a repository the
+     * user removes afterwards is not added back.
+     */
+    private fun seedDefaultRepositoriesIfNeeded(profileId: Int) {
+        if (_uiState.value.defaultRepositoriesSeeded) return
+
+        val existingUrls = _uiState.value.repositories.map { it.manifestUrl }
+        val hasOwnRepositories = existingUrls.isNotEmpty() && existingUrls.any { it !in DefaultProviderRepositories }
+        if (hasOwnRepositories || DefaultProviderRepositories.all { it in existingUrls }) {
+            // Either the profile curated its own repositories, or the defaults are already in
+            // place. Both mean there is nothing to seed, so remember it and stop trying.
+            _uiState.update { it.copy(defaultRepositoriesSeeded = true) }
+            persist()
+            return
+        }
+
+        scope.launch {
+            DefaultProviderRepositories.forEach { manifestUrl ->
+                if (currentProfileId != profileId) return@launch
+                if (_uiState.value.repositories.any { it.manifestUrl == manifestUrl }) return@forEach
+
+                val result = runCatching {
+                    fetchRepositoryData(manifestUrl, _uiState.value.scrapers.associateBy { it.id })
+                }.getOrNull() ?: return@forEach
+
+                _uiState.update { state ->
+                    state.copy(
+                        repositories = state.repositories + result.first,
+                        scrapers = state.scrapers + result.second,
+                    )
+                }
+            }
+
+            val seededUrls = _uiState.value.repositories.map { it.manifestUrl }
+            if (seededUrls.isEmpty()) {
+                log.w { "seedDefaultRepositoriesIfNeeded() — nothing installed; retrying on the next launch" }
+                return@launch
+            }
+
+            val complete = DefaultProviderRepositories.all { it in seededUrls }
+            if (!complete) {
+                log.w { "seedDefaultRepositoriesIfNeeded() — defaults incomplete; retrying on the next launch" }
+            }
+            _uiState.update { it.copy(defaultRepositoriesSeeded = complete) }
+            persist()
+            pushToServer()
+            log.i { "seedDefaultRepositoriesIfNeeded() — default repositories in place: $complete" }
+        }
+    }
+
     private fun pushToServer() {
         scope.launch {
             runCatching {
@@ -629,6 +683,7 @@ actual object PluginRepository {
                     }
                     ?: emptyList(),
                 scrapers = scrapers,
+                defaultRepositoriesSeeded = stored?.defaultRepositoriesSeeded ?: false,
             ),
             requiresMigration = requiresMigration,
         )

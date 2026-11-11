@@ -8,6 +8,10 @@ internal expect object AddonStorage {
     fun loadPendingSyncPayload(accountId: String, profileId: Int): String?
     fun savePendingSyncPayload(accountId: String, profileId: Int, payload: String)
     fun clearPendingSyncPayload(accountId: String, profileId: Int)
+
+    /** True once the bundled default add-ons were installed for this profile. */
+    fun areDefaultAddonsSeeded(profileId: Int): Boolean
+    fun markDefaultAddonsSeeded(profileId: Int)
 }
 
 data class RawHttpResponse(
