@@ -175,21 +175,21 @@ object ThemeColors {
     )
 
     /**
-     * The RAIF identity: near-black graphite surfaces and a single copper accent, the colour of the
+     * The Řaif identity: near-black ink surfaces and a single warm brass accent taken from the
      * play mark inside the monogram. No gradients on chrome; the accent is reserved for the primary
      * action, progress and the active tab.
      */
     val Raif = ThemeColorPalette(
-        secondary = Color(0xFFD69A5E),
-        secondaryVariant = Color(0xFF8F6337),
-        nativeAccentHex = "#D69A5E",
-        onSecondary = Color(0xFF14171B),
-        onSecondaryVariant = Color(0xFFF3F0EA),
-        focusRing = Color(0xFFD69A5E),
-        focusBackground = Color(0xFF2A211A),
-        background = Color(0xFF0B0D10),
-        backgroundElevated = Color(0xFF14171B),
-        backgroundCard = Color(0xFF1A1E23),
+        secondary = Color(0xFFE3A15C),
+        secondaryVariant = Color(0xFF9A6A38),
+        nativeAccentHex = "#E3A15C",
+        onSecondary = Color(0xFF12100D),
+        onSecondaryVariant = Color(0xFFF6F1E8),
+        focusRing = Color(0xFFE3A15C),
+        focusBackground = Color(0xFF2B2118),
+        background = Color(0xFF070809),
+        backgroundElevated = Color(0xFF101316),
+        backgroundCard = Color(0xFF171B20),
     )
 
     fun getColorPalette(
