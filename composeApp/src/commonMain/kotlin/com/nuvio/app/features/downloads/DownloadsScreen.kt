@@ -42,6 +42,7 @@ import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.NuvioToastController
+import com.nuvio.app.core.ui.nuvio
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
 
@@ -215,8 +216,8 @@ private fun LazyListScope.downloadsRootContent(
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp, vertical = 6.dp)
                     .clickable { onOpenShow(item.parentMetaId, item.title) },
-                shape = MaterialTheme.shapes.medium,
-                color = MaterialTheme.colorScheme.surfaceContainer,
+                shape = MaterialTheme.nuvio.shapes.compactCard,
+                color = MaterialTheme.nuvio.colors.surface,
             ) {
                 Row(
                     modifier = Modifier
@@ -232,20 +233,20 @@ private fun LazyListScope.downloadsRootContent(
                         Text(
                             text = item.title,
                             style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
+                            color = MaterialTheme.nuvio.colors.textPrimary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
                             text = stringResource(Res.string.downloads_episode_count, episodes.size),
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = MaterialTheme.nuvio.colors.textSecondary,
                         )
                     }
                     Icon(
                         imageVector = Icons.Rounded.PlayArrow,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = MaterialTheme.nuvio.colors.textSecondary,
                     )
                 }
             }
@@ -263,7 +264,7 @@ private fun LazyListScope.downloadsRootContent(
                 Text(
                     text = stringResource(Res.string.downloads_empty_title),
                     style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MaterialTheme.nuvio.colors.textSecondary,
                 )
             }
         }
@@ -300,7 +301,7 @@ private fun LazyListScope.downloadsShowContent(
                 Text(
                     text = stringResource(Res.string.downloads_empty_episodes),
                     style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MaterialTheme.nuvio.colors.textSecondary,
                 )
             }
         }
@@ -356,8 +357,8 @@ private fun DownloadRow(
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 6.dp)
             .clickable(enabled = item.isPlayable, onClick = onOpen),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = MaterialTheme.nuvio.shapes.compactCard,
+        color = MaterialTheme.nuvio.colors.surfaceCard,
     ) {
         Column(
             modifier = Modifier
@@ -377,7 +378,7 @@ private fun DownloadRow(
                     Text(
                         text = displayTitle,
                         style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = MaterialTheme.nuvio.colors.textPrimary,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -385,14 +386,14 @@ private fun DownloadRow(
                     Text(
                         text = displaySubtitle,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = MaterialTheme.nuvio.colors.textSecondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
                         text = statusText(item),
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = MaterialTheme.nuvio.colors.textSecondary,
                     )
                 }
 
@@ -492,7 +493,7 @@ private fun SectionTitle(title: String) {
         text = title,
         modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
         style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        color = MaterialTheme.nuvio.colors.textSecondary,
         fontWeight = FontWeight.SemiBold,
     )
 }
