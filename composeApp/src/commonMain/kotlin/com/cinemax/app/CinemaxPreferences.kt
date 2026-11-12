@@ -13,6 +13,8 @@ data class CinemaxPreferences(
     val preferredAudioLanguage: String = "device",
     /** "small", "medium" or "large": the size of addon subtitles over the video. */
     val subtitleSize: String = "medium",
+    /** Playback speed remembered between episodes and launches (1f is normal). */
+    val preferredSpeed: Float = 1f,
     /** "mpv" (libmpv through MPVKit) or "system" (AVPlayer). */
     val preferredPlayer: String = "mpv"
 )
@@ -29,6 +31,7 @@ class CinemaxPreferencesStore(
         preferredSubtitleLanguage = settings.getString(SUBTITLE, "ar"),
         preferredAudioLanguage = settings.getString(AUDIO, "device"),
         subtitleSize = settings.getString(SUBTITLE_SIZE, "medium"),
+        preferredSpeed = settings.getFloat(SPEED, 1f),
         preferredPlayer = settings.getString(PLAYER, "mpv")
     )
 
@@ -41,6 +44,7 @@ class CinemaxPreferencesStore(
         settings.putString(SUBTITLE, value.preferredSubtitleLanguage)
         settings.putString(AUDIO, value.preferredAudioLanguage)
         settings.putString(SUBTITLE_SIZE, value.subtitleSize)
+        settings.putFloat(SPEED, value.preferredSpeed)
         settings.putString(PLAYER, value.preferredPlayer)
     }
 
@@ -53,6 +57,7 @@ class CinemaxPreferencesStore(
         const val SUBTITLE = "cinemax.subtitle.language"
         const val AUDIO = "cinemax.audio.language"
         const val SUBTITLE_SIZE = "cinemax.subtitle.size"
+        const val SPEED = "cinemax.playback.speed"
         const val PLAYER = "cinemax.playback.player"
     }
 }

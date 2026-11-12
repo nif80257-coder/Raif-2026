@@ -415,7 +415,7 @@ fun App() {
         playerMessage = null
         playerControls = null
         controlsVisible = true
-        playbackSpeed = 1f
+        playbackSpeed = preferences.preferredSpeed
         subtitleDelayMs = 0L
         hud = null
         val stream = playingStream ?: return@LaunchedEffect
@@ -913,6 +913,10 @@ fun App() {
                     onSpeed = { speed ->
                         playbackSpeed = speed
                         playerControls?.setSpeed(speed)
+                        if (preferences.preferredSpeed != speed) {
+                            preferences = preferences.copy(preferredSpeed = speed)
+                            preferencesStore.save(preferences)
+                        }
                     },
                     nextEpisodeLabel = if (nearEnd) upcomingEpisode?.let { episodeLabel(it) } else null,
                     onNextEpisode = if (nearEnd && upcomingEpisode != null) {
@@ -994,6 +998,14 @@ fun App() {
                                     selectedVideo = next
                                     activeSeason = next.season
                                     status = "الحلقة التالية: ${episodeLabel(next)}"
+                                } else {
+                                    // Nothing queued: leave the frozen last frame and
+                                    // return to the detail screen instead.
+                                    playbackUrl = null
+                                    playingItem = null
+                                    playingVideo = null
+                                    playingStream = null
+                                    showSubtitlePicker = false
                                 }
                             },
                             onError = { playerMessage = it },
