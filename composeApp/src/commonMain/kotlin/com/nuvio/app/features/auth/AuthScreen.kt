@@ -201,17 +201,22 @@ private fun largeAuthFormMetrics(scale: Float): AuthFormMetrics = LargeAuthFormM
 )
 
 @Composable
-fun AuthScreen(
-    modifier: Modifier = Modifier,
-) {
-    var accessGranted by rememberSaveable { mutableStateOf(false) }
-    if (!accessGranted) {
-        AccessCodeGate(
-            onUnlocked = { accessGranted = true },
-            modifier = modifier,
-        )
-        return
-    }
+fun AuthScreen(modifier: Modifier = Modifier) {
+    // Entry is the access code alone: a correct code opens a local session, no email needed.
+    AccessCodeGate(
+        onUnlocked = { AuthRepository.signInAnonymously() },
+        modifier = modifier,
+    )
+}
+
+/**
+ * The email sign-in and sign-up form. The app now enters with the access code instead, so this is
+ * kept unreferenced rather than deleted, in case accounts come back later.
+ */
+@Suppress("unused")
+@Composable
+private fun AuthFormScreen(modifier: Modifier = Modifier) {
+    val accessGranted = true
 
     val authError by AuthRepository.error.collectAsStateWithLifecycle()
     val passwordRecoveryPending by AuthRepository.passwordRecoveryPending.collectAsStateWithLifecycle()

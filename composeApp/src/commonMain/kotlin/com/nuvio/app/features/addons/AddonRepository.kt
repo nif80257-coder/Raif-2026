@@ -505,10 +505,8 @@ object AddonRepository {
 
         val defaultUrls = DefaultAddonSources.mapTo(mutableSetOf()) { it.manifestUrl }
         val existingUrls = _uiState.value.addons.map { it.manifestUrl }
-        val hasOwnAddons = existingUrls.isNotEmpty() && existingUrls.any { it !in defaultUrls }
-        if (hasOwnAddons || defaultUrls.all { it in existingUrls }) {
-            // Either the profile curated its own add-ons, or the defaults are already in place.
-            // Both mean there is nothing to seed, so remember that and stop trying.
+        if (defaultUrls.all { it in existingUrls }) {
+            // Every bundled add-on is already installed; remember it so this stops running.
             AddonStorage.markDefaultAddonsSeeded(profileId)
             return
         }
@@ -539,9 +537,12 @@ object AddonRepository {
             }
 
             val seededUrls = _uiState.value.addons.map { it.manifestUrl }
+            if (seededUrls.isEmpty()) {
+                log.w { "seedDefaultAddonsIfNeeded() — nothing installed; retrying on the next launch" }
+                return@launch
+            }
             if (defaultUrls.any { it !in seededUrls }) {
-                log.w { "seedDefaultAddonsIfNeeded() — defaults incomplete; retrying on the next launch" }
-                if (seededUrls.isEmpty()) return@launch
+                log.w { "seedDefaultAddonsIfNeeded() — some sources are unreachable this time" }
             }
 
             persist()
@@ -553,10 +554,8 @@ object AddonRepository {
             withContext(Dispatchers.Main) {
                 HomeCatalogSettingsRepository.syncCatalogs(_uiState.value.addons.enabledAddons())
             }
-            if (defaultUrls.all { it in seededUrls }) {
-                AddonStorage.markDefaultAddonsSeeded(profileId)
-            }
-            log.i { "seedDefaultAddonsIfNeeded() — default add-ons in place" }
+            AddonStorage.markDefaultAddonsSeeded(profileId)
+            log.i { "seedDefaultAddonsIfNeeded() — bundled add-ons installed" }
         }
         defaultAddonSeedJob = seedJob
     }
