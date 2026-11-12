@@ -100,7 +100,6 @@ import kotlin.math.sin
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.compose_auth_already_have_account
-import nuvio.composeapp.generated.resources.compose_auth_access_code_continue
 import nuvio.composeapp.generated.resources.compose_auth_access_code_error
 import nuvio.composeapp.generated.resources.compose_auth_access_code_label
 import nuvio.composeapp.generated.resources.compose_auth_access_code_subtitle

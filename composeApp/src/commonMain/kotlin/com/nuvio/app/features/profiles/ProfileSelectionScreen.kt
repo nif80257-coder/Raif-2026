@@ -65,7 +65,6 @@ import com.nuvio.app.core.ui.NuvioToastHost
 import com.nuvio.app.core.ui.LocalVerticalBarPadding
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.features.membership.CosmeticEntitlement
-import com.nuvio.app.features.settings.MemberBrandWordmark
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*

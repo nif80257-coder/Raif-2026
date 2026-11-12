@@ -133,7 +133,7 @@ private fun RaifWordmarkLine(
 }
 
 @Composable
-private fun PlayTriangle(
+internal fun PlayTriangle(
     modifier: Modifier,
     color: Color,
 ) {
