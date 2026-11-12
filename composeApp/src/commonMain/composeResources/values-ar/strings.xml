@@ -383,6 +383,11 @@
     <string name="compose_auth_terms_prefix">بإنشاء حساب، أوافق على</string>
     <string name="compose_auth_terms_link">الشروط</string>
     <string name="compose_auth_welcome_back">مرحبًا بعودتك</string>
+    <string name="compose_auth_access_code_title">دخول خاص</string>
+    <string name="compose_auth_access_code_subtitle">أدخل رمز الدخول للمتابعة إلى Řaif.</string>
+    <string name="compose_auth_access_code_label">رمز الدخول</string>
+    <string name="compose_auth_access_code_error">الرمز غير صحيح، حاول مرة أخرى.</string>
+    <string name="compose_auth_access_code_continue">متابعة</string>
     <string name="server_menu_content_description">خيارات الخادم</string>
     <string name="server_menu_official">استخدام الخادم الرسمي</string>
     <string name="server_menu_custom">الاتصال بخادم مخصص</string>

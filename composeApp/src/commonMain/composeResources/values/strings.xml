@@ -382,6 +382,11 @@
     <string name="compose_auth_terms_prefix">By signing up, I agree to the</string>
     <string name="compose_auth_terms_link">Terms</string>
     <string name="compose_auth_welcome_back">Welcome Back</string>
+    <string name="compose_auth_access_code_title">Private access</string>
+    <string name="compose_auth_access_code_subtitle">Enter your access code to continue to Řaif.</string>
+    <string name="compose_auth_access_code_label">Access code</string>
+    <string name="compose_auth_access_code_error">That code is not correct. Try again.</string>
+    <string name="compose_auth_access_code_continue">Continue</string>
     <string name="server_menu_content_description">Server options</string>
     <string name="server_menu_official">Use official server</string>
     <string name="server_menu_custom">Connect to custom server</string>

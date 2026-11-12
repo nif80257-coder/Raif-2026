@@ -95,6 +95,11 @@ import kotlin.math.sin
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.compose_auth_already_have_account
+import nuvio.composeapp.generated.resources.compose_auth_access_code_continue
+import nuvio.composeapp.generated.resources.compose_auth_access_code_error
+import nuvio.composeapp.generated.resources.compose_auth_access_code_label
+import nuvio.composeapp.generated.resources.compose_auth_access_code_subtitle
+import nuvio.composeapp.generated.resources.compose_auth_access_code_title
 import nuvio.composeapp.generated.resources.compose_auth_continue_without_account
 import nuvio.composeapp.generated.resources.compose_auth_create_account
 import nuvio.composeapp.generated.resources.compose_auth_dont_have_account
@@ -199,6 +204,15 @@ private fun largeAuthFormMetrics(scale: Float): AuthFormMetrics = LargeAuthFormM
 fun AuthScreen(
     modifier: Modifier = Modifier,
 ) {
+    var accessGranted by rememberSaveable { mutableStateOf(false) }
+    if (!accessGranted) {
+        AccessCodeGate(
+            onUnlocked = { accessGranted = true },
+            modifier = modifier,
+        )
+        return
+    }
+
     val authError by AuthRepository.error.collectAsStateWithLifecycle()
     val passwordRecoveryPending by AuthRepository.passwordRecoveryPending.collectAsStateWithLifecycle()
     val deviceLinkAuthState by DeviceLinkAuthRepository.state.collectAsStateWithLifecycle()
@@ -1414,3 +1428,133 @@ private fun LayoutCoordinates.boundsInRoot(): Rect {
         bottom = position.y + size.height,
     )
 }
+
+
+/**
+ * The first screen of the app: a private access code has to be entered before the sign-in and
+ * sign-up form is shown.
+ */
+@Composable
+private fun AccessCodeGate(
+    onUnlocked: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var code by rememberSaveable { mutableStateOf("") }
+    var hasError by rememberSaveable { mutableStateOf(false) }
+
+    fun submit() {
+        if (code == ACCESS_CODE) onUnlocked() else hasError = true
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .authGradientBackground(largeScreen = false),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            modifier = Modifier
+                .widthIn(max = 420.dp)
+                .fillMaxWidth()
+                .padding(horizontal = 28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                text = "Řaif",
+                style = MaterialTheme.typography.displaySmall,
+                color = MaterialTheme.colorScheme.onBackground,
+                fontWeight = FontWeight.Black,
+                letterSpacing = (-1).sp,
+            )
+            Spacer(Modifier.height(14.dp))
+            Text(
+                text = stringResource(Res.string.compose_auth_access_code_title),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onBackground,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = stringResource(Res.string.compose_auth_access_code_subtitle),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                textAlign = TextAlign.Center,
+            )
+
+            Spacer(Modifier.height(28.dp))
+            Text(
+                text = stringResource(Res.string.compose_auth_access_code_label),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 4.dp, bottom = 8.dp),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.55f),
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.35f))
+                    .border(
+                        width = 1.dp,
+                        color = if (hasError) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f)
+                        },
+                        shape = RoundedCornerShape(18.dp),
+                    )
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                BasicTextField(
+                    value = code,
+                    onValueChange = { value ->
+                        code = value.filter(Char::isDigit).take(ACCESS_CODE.length + 1)
+                        hasError = false
+                    },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.headlineMedium.copy(
+                        color = MaterialTheme.colorScheme.onBackground,
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = 8.sp,
+                        textAlign = TextAlign.Center,
+                    ),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.NumberPassword,
+                        imeAction = ImeAction.Done,
+                    ),
+                    keyboardActions = KeyboardActions(onDone = { submit() }),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            if (hasError) {
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    text = stringResource(Res.string.compose_auth_access_code_error),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+
+            Spacer(Modifier.height(22.dp))
+            Button(
+                onClick = { submit() },
+                enabled = code.isNotBlank(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                shape = RoundedCornerShape(16.dp),
+            ) {
+                Text(
+                    text = stringResource(Res.string.compose_auth_access_code_continue),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
+    }
+}
+
+private const val ACCESS_CODE = "305"
