@@ -76,6 +76,7 @@ import com.nuvio.app.core.ui.nuvioConsumePointerEvents
 import com.nuvio.app.core.ui.shimmer
 import com.nuvio.app.core.ui.LocalVerticalBarPadding
 import com.nuvio.app.core.ui.nuvioHorizontalScrollBleed
+import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.features.cloud.CloudLibraryFile
 import com.nuvio.app.features.cloud.CloudLibraryItem
 import com.nuvio.app.features.cloud.CloudLibraryItemType
@@ -313,7 +314,7 @@ fun LibraryScreen(
                     Box(
                         modifier = Modifier
                             .matchParentSize()
-                            .background(MaterialTheme.colorScheme.background)
+                            .background(MaterialTheme.nuvio.colors.background)
                             .nuvioConsumePointerEvents(),
                     )
                     androidx.compose.foundation.layout.Column(
@@ -340,7 +341,7 @@ fun LibraryScreen(
                                             Icon(
                                                 imageVector = Icons.Rounded.Favorite,
                                                 contentDescription = stringResource(Res.string.favorites_title),
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                tint = MaterialTheme.nuvio.colors.textSecondary,
                                             )
                                         }
                                     }
@@ -371,7 +372,7 @@ fun LibraryScreen(
                                                 } else {
                                                     stringResource(Res.string.library_layout_show_horizontal)
                                                 },
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                tint = MaterialTheme.nuvio.colors.textSecondary,
                                             )
                                         }
                                     }
@@ -858,7 +859,7 @@ private fun CloudLibraryToolbar(
                 Icon(
                     imageVector = Icons.Rounded.Refresh,
                     contentDescription = stringResource(Res.string.cloud_library_refresh),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = MaterialTheme.nuvio.colors.textSecondary,
                 )
             }
         }
