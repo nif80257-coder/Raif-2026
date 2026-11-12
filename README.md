@@ -47,26 +47,3 @@ The shared application uses Kotlin Multiplatform and Compose Multiplatform; the 
 ## Distribution
 
 Development installs are signed through the project's FreeMilk account against a registered iPhone; the build is a Release `iphoneos` archive of `iosApp/iosApp.xcodeproj`, and the install link points at the uploaded `.ipa`. This is not an App Store release, and Apple's device and provisioning limits still apply.
-
-## Build for the iOS Simulator
-
-Requirements: macOS, Xcode, and Java 17 or newer.
-
-```bash
-git submodule update --init --depth 1 MPVKit
-./scripts/prepare-ios-dependencies.sh
-touch local.properties
-env NUVIO_IOS_DISTRIBUTION=full xcodebuild \
-  -project iosApp/iosApp.xcodeproj \
-  -scheme iosApp \
-  -configuration Debug \
-  -sdk iphonesimulator \
-  -derivedDataPath build/ios-derived-full-simulator \
-  'PRODUCT_NAME=$(TARGET_NAME)' \
-  CODE_SIGNING_ALLOWED=NO \
-  build
-```
-
-The dependency preparation script downloads NuvioEngine.xcframework 0.1.6 and verifies its SHA-256 before use. `local.properties` may remain empty for a basic simulator build; keep any local credentials out of version control.
-
-The shared application uses Kotlin Multiplatform and Compose Multiplatform; the iOS shell and media playback use SwiftUI/UIKit and MPVKit.
