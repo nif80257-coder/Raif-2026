@@ -905,6 +905,7 @@ fun CinemaxDetailScreen(
     lastPlayedUrl: String?,
     providerIssues: List<String>,
     resumeLabel: String?,
+    episodeProgress: Map<String, Float>,
     onToggleFavorite: () -> Unit,
     onSelectVideo: (StremioVideo) -> Unit,
     onSeason: (Int) -> Unit,
@@ -1008,6 +1009,7 @@ fun CinemaxDetailScreen(
                     EpisodeCard(
                         episode = episode,
                         selected = selectedVideo?.id == episode.id,
+                        progress = episodeProgress[episode.id] ?: 0f,
                         accent = accent,
                         onClick = { onSelectVideo(episode) }
                     )
@@ -1089,6 +1091,7 @@ fun CinemaxDetailScreen(
 private fun EpisodeCard(
     episode: StremioVideo,
     selected: Boolean,
+    progress: Float,
     accent: Color,
     onClick: () -> Unit
 ) {
@@ -1123,6 +1126,18 @@ private fun EpisodeCard(
             episode.overview?.takeIf { it.isNotBlank() }?.let {
                 Text(it, color = CinemaxPalette.textMuted, fontSize = 11.sp, maxLines = 2)
             }
+            if (progress > 0.01f) {
+                Spacer(Modifier.height(4.dp))
+                LinearProgressIndicator(
+                    progress = { progress.coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp)),
+                    color = accent,
+                    trackColor = CinemaxPalette.surfaceHigh
+                )
+            }
+        }
+        if (progress >= 0.95f) {
+            Text("✓", color = accent, fontSize = 14.sp)
         }
     }
 }
@@ -1449,6 +1464,16 @@ fun CinemaxSettingsScreen(
                 onClick = { onPreferences(preferences.copy(preferredAudioLanguage = "en")) },
                 label = { Text("English") }
             )
+        }
+        Text("حجم ترجمة الإضافات", fontSize = 13.sp, color = CinemaxPalette.text)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("small" to "صغير", "medium" to "وسط", "large" to "كبير").forEach { (value, label) ->
+                FilterChip(
+                    selected = preferences.subtitleSize == value,
+                    onClick = { onPreferences(preferences.copy(subtitleSize = value)) },
+                    label = { Text(label, fontSize = 11.sp) }
+                )
+            }
         }
 
         Spacer(Modifier.height(8.dp))

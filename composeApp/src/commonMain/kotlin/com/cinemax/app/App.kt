@@ -843,6 +843,7 @@ fun App() {
                         lastPlayedUrl = lastPlayedUrl,
                         providerIssues = providerIssues,
                         resumeLabel = resumeProgress?.let { "من ${formatClock(it.positionMillis)}" },
+                        episodeProgress = watchProgressItems.associate { it.key to it.progressFraction },
                         onToggleFavorite = {
                             hapticTap()
                             if (item.id in favoriteIds) {
@@ -996,7 +997,11 @@ fun App() {
                             Text(
                                 cue,
                                 color = Color.White,
-                                fontSize = 15.sp,
+                                fontSize = when (preferences.subtitleSize) {
+                                    "small" -> 13.sp
+                                    "large" -> 21.sp
+                                    else -> 16.sp
+                                },
                                 fontWeight = FontWeight.SemiBold,
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier

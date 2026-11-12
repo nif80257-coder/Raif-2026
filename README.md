@@ -17,6 +17,7 @@ CINEMAX is an early-stage, Arabic-first iPhone streaming client built with Kotli
 - Home extras: the hero backdrop gets a slow Ken Burns zoom, a shimmer skeleton replaces the spinner while a catalog loads, and a "فيلم الليلة" card picks a title you have not started yet with a "بدّل" shuffle.
 - Search has أفلام / مسلسلات type chips, so a series query searches series catalogs instead of the addon's first (usually movie) catalog.
 - The detail screen's main button becomes "▶ أكمل من 12:34" when a stored resume position exists for that title.
+- Episode list shows a progress bar for each episode you have started and a ✓ once you finished it, and the settings sheet sizes addon subtitles (صغير / وسط / كبير).
 - Search tab keeps the last eight queries as one-tap chips with a "مسح السجل" action.
 - Shared Arabic-first Compose interface with responsive media cards, remote poster artwork, and persistent appearance/playback preferences.
 - CINEMAX visual identity with an iOS AppIcon generated from the shared SVG brand mark.
