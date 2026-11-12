@@ -182,6 +182,19 @@ internal fun PlayerTimeline(
                                     )
                                 }
                             }
+                            // Playhead: without it the bar gives no hint of where the
+                            // handle is, and dragging it feels blind.
+                            val playedFraction = (state.value / rangeEnd).coerceIn(0f, 1f)
+                            val knobRadius = if (isInteracting) 9.dp.toPx() else 6.dp.toPx()
+                            drawCircle(
+                                color = Color.White,
+                                radius = knobRadius,
+                                center = Offset(
+                                    x = (size.width * playedFraction)
+                                        .coerceIn(knobRadius, (size.width - knobRadius).coerceAtLeast(knobRadius)),
+                                    y = trackOrigin.y + trackHeight / 2f,
+                                ),
+                            )
                         },
                 )
             },
