@@ -90,7 +90,7 @@ object PartyRepository {
     init {
         scope.launch {
             AuthRepository.state.collect { auth ->
-                val signedIn = auth is AuthState.Authenticated && !auth.isAnonymous
+                val signedIn = auth is AuthState.Authenticated
                 if (!signedIn && _state.value.party != null) {
                     mutex.withLock { stopSession() }
                 }
@@ -108,8 +108,14 @@ object PartyRepository {
     val isSupported: Boolean
         get() = available.value
 
+    /**
+     * Watch parties are keyed on the device id the party RPCs take, not on an
+     * account, so any signed-in session is enough: the app's access-code entry
+     * creates an anonymous one, and gating on a non-anonymous account here is
+     * what left the party screen permanently blocked.
+     */
     val canUse: Boolean
-        get() = isSupported && (AuthRepository.state.value as? AuthState.Authenticated)?.isAnonymous == false
+        get() = isSupported && AuthRepository.state.value is AuthState.Authenticated
 
     fun nowMs(): Long = clock.nowMs()
 

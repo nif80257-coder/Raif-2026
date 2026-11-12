@@ -62,7 +62,7 @@ object PartyCompanion {
     init {
         scope.launch {
             AuthRepository.state.collect { auth ->
-                val signedIn = auth is AuthState.Authenticated && !auth.isAnonymous
+                val signedIn = auth is AuthState.Authenticated
                 if (!signedIn) end(null)
             }
         }
