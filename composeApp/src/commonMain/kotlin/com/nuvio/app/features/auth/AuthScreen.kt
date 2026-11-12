@@ -1,6 +1,7 @@
 package com.nuvio.app.features.auth
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -10,6 +11,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -64,6 +67,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -87,6 +91,7 @@ import com.nuvio.app.core.auth.AuthRepository
 import com.nuvio.app.core.auth.DeviceLinkAuthRepository
 import com.nuvio.app.core.auth.DeviceLinkAuthState
 import com.nuvio.app.core.build.AppFeaturePolicy
+import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.features.settings.AppBrandWordmark
 import kotlin.math.abs
 import kotlin.math.cos
@@ -1444,6 +1449,7 @@ private fun AccessCodeGate(
     onUnlocked: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val tokens = MaterialTheme.nuvio
     var code by rememberSaveable { mutableStateOf("") }
     var hasError by rememberSaveable { mutableStateOf(false) }
 
@@ -1451,10 +1457,35 @@ private fun AccessCodeGate(
         if (code == ACCESS_CODE) onUnlocked() else hasError = true
     }
 
+    fun press(digit: Char) {
+        if (code.length >= ACCESS_CODE.length) return
+        hasError = false
+        val next = code + digit
+        code = next
+        if (next.length == ACCESS_CODE.length) submit()
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
-            .authGradientBackground(largeScreen = false),
+            .background(tokens.colors.background)
+            .drawBehind {
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        0f to tokens.colors.accent.copy(alpha = 0.10f),
+                        0.5f to Color.Transparent,
+                    ),
+                )
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(tokens.colors.accent.copy(alpha = 0.20f), Color.Transparent),
+                        center = Offset(size.width / 2f, size.height * 0.16f),
+                        radius = size.minDimension * 0.95f,
+                    ),
+                    radius = size.minDimension * 0.95f,
+                    center = Offset(size.width / 2f, size.height * 0.16f),
+                )
+            },
         contentAlignment = Alignment.Center,
     ) {
         Column(
@@ -1466,99 +1497,159 @@ private fun AccessCodeGate(
         ) {
             Text(
                 text = "Řaif",
-                style = MaterialTheme.typography.displaySmall,
-                color = MaterialTheme.colorScheme.onBackground,
+                style = MaterialTheme.typography.displayLarge,
+                color = tokens.colors.textPrimary,
                 fontWeight = FontWeight.Black,
-                letterSpacing = (-1).sp,
+                letterSpacing = (-2).sp,
             )
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(10.dp))
+            Box(
+                modifier = Modifier
+                    .width(44.dp)
+                    .height(3.dp)
+                    .clip(RoundedCornerShape(percent = 50))
+                    .background(tokens.colors.accent),
+            )
+            Spacer(Modifier.height(28.dp))
             Text(
                 text = stringResource(Res.string.compose_auth_access_code_title),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onBackground,
+                style = MaterialTheme.typography.headlineSmall,
+                color = tokens.colors.textPrimary,
                 fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
             )
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(8.dp))
             Text(
                 text = stringResource(Res.string.compose_auth_access_code_subtitle),
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                color = tokens.colors.textMuted,
                 textAlign = TextAlign.Center,
             )
 
-            Spacer(Modifier.height(28.dp))
-            Text(
-                text = stringResource(Res.string.compose_auth_access_code_label),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 4.dp, bottom = 8.dp),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.55f),
-            )
+            Spacer(Modifier.height(32.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                repeat(ACCESS_CODE.length) { index ->
+                    val filled = index < code.length
+                    val active = index == code.length && !hasError
+                    val shape = RoundedCornerShape(18.dp)
+                    Box(
+                        modifier = Modifier
+                            .size(width = 58.dp, height = 70.dp)
+                            .clip(shape)
+                            .background(tokens.colors.surfaceCard)
+                            .border(
+                                width = if (filled || active) 1.5.dp else 1.dp,
+                                color = when {
+                                    hasError -> tokens.colors.danger
+                                    filled -> tokens.colors.accent
+                                    active -> tokens.colors.accent.copy(alpha = 0.6f)
+                                    else -> tokens.colors.borderDefault
+                                },
+                                shape = shape,
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (filled) {
+                            Text(
+                                text = code[index].toString(),
+                                style = MaterialTheme.typography.headlineMedium,
+                                color = tokens.colors.textPrimary,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        } else if (active) {
+                            Box(
+                                modifier = Modifier
+                                    .width(2.dp)
+                                    .height(26.dp)
+                                    .clip(RoundedCornerShape(percent = 50))
+                                    .background(tokens.colors.accent),
+                            )
+                        }
+                    }
+                }
+            }
             Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.35f))
-                    .border(
-                        width = 1.dp,
-                        color = if (hasError) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f)
-                        },
-                        shape = RoundedCornerShape(18.dp),
-                    )
-                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                modifier = Modifier.height(24.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                BasicTextField(
-                    value = code,
-                    onValueChange = { value ->
-                        code = value.filter(Char::isDigit).take(ACCESS_CODE.length + 1)
-                        hasError = false
-                    },
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.headlineMedium.copy(
-                        color = MaterialTheme.colorScheme.onBackground,
-                        fontWeight = FontWeight.SemiBold,
-                        letterSpacing = 8.sp,
+                if (hasError) {
+                    Text(
+                        text = stringResource(Res.string.compose_auth_access_code_error),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = tokens.colors.danger,
                         textAlign = TextAlign.Center,
-                    ),
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.NumberPassword,
-                        imeAction = ImeAction.Done,
-                    ),
-                    keyboardActions = KeyboardActions(onDone = { submit() }),
+                    )
+                }
+            }
+            val keys = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "C", "0", "⌫")
+            keys.chunked(3).forEach { row ->
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                )
-            }
-            if (hasError) {
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    text = stringResource(Res.string.compose_auth_access_code_error),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-
-            Spacer(Modifier.height(22.dp))
-            Button(
-                onClick = { submit() },
-                enabled = code.isNotBlank(),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp),
-                shape = RoundedCornerShape(16.dp),
-            ) {
-                Text(
-                    text = stringResource(Res.string.compose_auth_access_code_continue),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    row.forEach { key ->
+                        KeypadKey(
+                            label = key,
+                            modifier = Modifier.weight(1f),
+                            onClick = {
+                                when (key) {
+                                    "C" -> {
+                                        code = ""
+                                        hasError = false
+                                    }
+                                    "⌫" -> {
+                                        code = code.dropLast(1)
+                                        hasError = false
+                                    }
+                                    else -> press(key.first())
+                                }
+                            },
+                        )
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
             }
         }
+    }
+}
+
+@Composable
+private fun KeypadKey(
+    label: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+    val shape = RoundedCornerShape(20.dp)
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.94f else 1f,
+        label = "keypad_key_press",
+    )
+    Box(
+        modifier = modifier
+            .height(62.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clip(shape)
+            .background(tokens.colors.surfaceCard)
+            .border(tokens.borders.thin, tokens.colors.borderDefault, shape)
+            .clickable(
+                interactionSource = interaction,
+                indication = null,
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.headlineSmall,
+            color = if (label == "⌫" || label == "C") tokens.colors.textSecondary else tokens.colors.textPrimary,
+            fontWeight = FontWeight.Medium,
+        )
     }
 }
 
