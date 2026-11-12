@@ -319,8 +319,8 @@ fun HomeHeroSection(
                                 .clickable(enabled = onItemClick != null) {
                                     onItemClick?.invoke(currentItem)
                                 },
-                            color = MaterialTheme.colorScheme.onBackground,
-                            contentColor = MaterialTheme.colorScheme.background,
+                            color = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
                             shape = RoundedCornerShape(40.dp),
                         ) {
                             Text(
@@ -352,7 +352,13 @@ fun HomeHeroSection(
                                             }
                                         }
                                         .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.onBackground)
+                                        .background(
+                                            if (activeFraction > 0.5f) {
+                                                MaterialTheme.colorScheme.primary
+                                            } else {
+                                                MaterialTheme.colorScheme.onBackground
+                                            },
+                                        )
                                         .graphicsLayer {
                                             alpha = 0.35f + (0.57f * activeFraction)
                                         }

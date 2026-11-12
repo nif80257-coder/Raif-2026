@@ -360,7 +360,7 @@ fun NuvioInputField(
         colors = OutlinedTextFieldDefaults.colors(
             focusedBorderColor = tokens.colors.borderFocus,
             unfocusedBorderColor = tokens.colors.borderDefault,
-            focusedContainerColor = tokens.colors.surfaceCard,
+            focusedContainerColor = tokens.colors.surfaceElevated,
             unfocusedContainerColor = tokens.colors.surfaceCard,
             cursorColor = tokens.colors.accent,
         ),

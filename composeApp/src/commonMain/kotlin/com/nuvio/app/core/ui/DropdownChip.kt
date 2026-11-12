@@ -1,6 +1,7 @@
 package com.nuvio.app.core.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
@@ -55,8 +57,13 @@ fun NuvioDropdownChip(
 
     Row(
         modifier = modifier
-            .clip(tokens.shapes.compactCard)
-            .background(tokens.colors.surface)
+            .clip(RoundedCornerShape(percent = 50))
+            .background(tokens.colors.surfaceCard)
+            .border(
+                width = tokens.borders.hairline,
+                color = if (enabled) tokens.colors.borderDefault else tokens.colors.borderSubtle,
+                shape = RoundedCornerShape(percent = 50),
+            )
             .then(
                 if (enabled) {
                     Modifier.clickable { isSheetVisible = true }
@@ -64,6 +71,7 @@ fun NuvioDropdownChip(
                     Modifier
                 },
             )
+            .heightIn(min = NuvioTokens.Space.s36)
             .padding(horizontal = NuvioTokens.Space.s12, vertical = tokens.components.chipVerticalPadding),
         horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s6),
         verticalAlignment = Alignment.CenterVertically,
