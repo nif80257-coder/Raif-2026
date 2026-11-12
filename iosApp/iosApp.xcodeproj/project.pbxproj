@@ -463,7 +463,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 0.8.2;
-				PRODUCT_BUNDLE_IDENTIFIER = com.raif.stream.downloadswidgetextension.downloadswidgetextension;
+				PRODUCT_BUNDLE_IDENTIFIER = com.raif.stream.downloadswidgetextension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -489,7 +489,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 0.8.2;
-				PRODUCT_BUNDLE_IDENTIFIER = com.raif.stream.downloadswidgetextension.downloadswidgetextension;
+				PRODUCT_BUNDLE_IDENTIFIER = com.raif.stream.downloadswidgetextension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -514,7 +514,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.raif.app.SubtitleTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.raif.stream.SubtitleTests;
 				PRODUCT_MODULE_NAME = SubtitleTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -563,7 +563,7 @@
 					"-framework",
 					SystemConfiguration,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.raif.stream.downloadswidgetextension;
+				PRODUCT_BUNDLE_IDENTIFIER = com.raif.stream;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -609,7 +609,7 @@
 					"-framework",
 					SystemConfiguration,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.raif.stream.downloadswidgetextension;
+				PRODUCT_BUNDLE_IDENTIFIER = com.raif.stream;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -696,7 +696,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.raif.app.SubtitleTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.raif.stream.SubtitleTests;
 				PRODUCT_MODULE_NAME = SubtitleTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
