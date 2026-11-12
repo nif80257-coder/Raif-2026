@@ -6,9 +6,9 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-class CinemaxPreferencesStoreTest {
+public class CinemaxPreferencesStoreTest {
     @Test
-    fun savesAndRestoresAppearanceAndPlaybackPreferences() {
+    public fun savesAndRestoresAppearanceAndPlaybackPreferences() {
         val store = CinemaxPreferencesStore(MapSettings())
         val expected = CinemaxPreferences(
             accent = "Blue",
@@ -17,7 +17,10 @@ class CinemaxPreferencesStoreTest {
             rememberPlaybackPosition = false,
             autoplayNextEpisode = true,
             preferredSubtitleLanguage = "en",
-            preferredAudioLanguage = "ar"
+            preferredAudioLanguage = "ar",
+            subtitleSize = "large",
+            preferredSpeed = 1.25f,
+            preferredPlayer = "system"
         )
 
         store.save(expected)
@@ -26,7 +29,15 @@ class CinemaxPreferencesStoreTest {
     }
 
     @Test
-    fun missingPreferencesUseSafeDefaults() {
+    public fun playbackSpeedRoundTripsOnItsOwn() {
+        val store = CinemaxPreferencesStore(MapSettings())
+        store.save(CinemaxPreferences(preferredSpeed = 1.5f))
+
+        assertEquals(1.5f, store.load().preferredSpeed)
+    }
+
+    @Test
+    public fun missingPreferencesUseSafeDefaults() {
         val preferences = CinemaxPreferencesStore(MapSettings()).load()
 
         assertEquals("Violet", preferences.accent)
@@ -35,5 +46,8 @@ class CinemaxPreferencesStoreTest {
         assertTrue(preferences.rememberPlaybackPosition)
         assertFalse(preferences.autoplayNextEpisode)
         assertEquals("ar", preferences.preferredSubtitleLanguage)
+        assertEquals("medium", preferences.subtitleSize)
+        assertEquals(1f, preferences.preferredSpeed)
+        assertEquals("mpv", preferences.preferredPlayer)
     }
 }
