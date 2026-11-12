@@ -1,5 +1,9 @@
 package com.cinemax.app
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -147,6 +151,8 @@ fun App() {
     var lastPlayedUrl by remember { mutableStateOf<String?>(null) }
     var providerIssues by remember { mutableStateOf<List<String>>(emptyList()) }
     var tonightPick by remember { mutableStateOf<StremioMetaPreview?>(null) }
+    // The last opened title, kept so the detail screen can fade out after closing.
+    var lastDetailItem by remember { mutableStateOf<StremioMetaPreview?>(null) }
     val homeShelves = remember { mutableStateListOf<CinemaxShelf>() }
     var libraryFilter by remember { mutableStateOf("all") }
     val watchProgressItems = remember { mutableStateListOf<WatchProgress>().apply { addAll(watchProgressStore.load()) } }
@@ -367,6 +373,10 @@ fun App() {
                 subtitleBusy = false
             }
         }
+    }
+
+    LaunchedEffect(selectedItem) {
+        if (selectedItem != null) lastDetailItem = selectedItem
     }
 
     /** Loads the first few catalogs of an addon so home shows more than one shelf. */
@@ -825,8 +835,13 @@ fun App() {
                 )
             }
 
-            if (playbackUrl == null) {
-                selectedItem?.let { item ->
+            AnimatedVisibility(
+                visible = playbackUrl == null && selectedItem != null,
+                enter = fadeIn(tween(220)),
+                exit = fadeOut(tween(160))
+            ) {
+                val item = lastDetailItem
+                if (item != null) {
                     val resumeProgress = watchProgressItems.firstOrNull { it.item.id == item.id }
                     CinemaxDetailScreen(
                         item = item,
