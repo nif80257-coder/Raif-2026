@@ -1,17 +1,21 @@
 package com.nuvio.app.features.settings
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -29,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.isSpecified
 import androidx.compose.ui.unit.sp
 import com.nuvio.app.core.ui.RaifDisplayFamily
+import com.nuvio.app.core.ui.nuvio
 
 /**
  * The RAIF lockup, drawn from the app's own name: an R whose bowl is the sweep of the Arabic ra and
@@ -43,8 +48,9 @@ internal fun AppBrandWordmark(
     modifier: Modifier = Modifier,
     contentDescription: String? = null,
 ) {
-    val accent = MaterialTheme.colorScheme.primary
-    val ink = MaterialTheme.colorScheme.onSurface
+    val tokens = MaterialTheme.nuvio
+    val accent = tokens.colors.accent
+    val ink = tokens.colors.textPrimary
 
     BoxWithConstraints(
         modifier = modifier.semantics {
@@ -64,18 +70,32 @@ internal fun AppBrandWordmark(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(lockupHeight * 0.15f),
             ) {
-                RaifMonogram(
+                Box(
                     modifier = Modifier
                         .size(monogramSize)
-                        .clearAndSetSemantics {},
-                    accentColor = accent,
-                    lineColor = ink,
-                )
-                RaifWordmarkLine(
+                        .clearAndSetSemantics {}
+                        .clip(RoundedCornerShape(percent = 32))
+                        .background(accent),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    PlayTriangle(
+                        modifier = Modifier.size(
+                            width = monogramSize * 0.36f,
+                            height = monogramSize * 0.40f,
+                        ),
+                        color = tokens.colors.onAccent,
+                    )
+                }
+                Text(
+                    text = "Řaif",
                     modifier = Modifier.clearAndSetSemantics {},
-                    wordSize = wordSize,
-                    ink = ink,
-                    accent = accent,
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        fontFamily = RaifDisplayFamily,
+                        fontSize = (wordSize.value * 1.25f).sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = (-0.5).sp,
+                        color = ink,
+                    ),
                 )
             }
         }
