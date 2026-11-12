@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material3.BasicAlertDialog
@@ -138,11 +139,18 @@ fun DialogButton(
         DialogButtonStyle.Destructive -> tokens.colors.danger
     }
     val contentColor = if (style == DialogButtonStyle.Secondary) tokens.colors.textPrimary else tokens.colors.onAccent
+    val shape = RoundedCornerShape(percent = 50)
+    val edge = if (style == DialogButtonStyle.Secondary) {
+        BorderStroke(tokens.borders.thin, tokens.colors.borderDefault)
+    } else {
+        null
+    }
     Button(
         onClick = onClick,
         modifier = modifier.heightIn(min = NuvioTokens.Space.s48),
         enabled = enabled && !loading,
-        shape = tokens.shapes.button,
+        shape = shape,
+        border = edge,
         colors = ButtonDefaults.buttonColors(
             containerColor = containerColor,
             contentColor = contentColor,

@@ -265,6 +265,7 @@ private fun PartyContent(
             .padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
+        PartyHeroCard(party)
         var lastBehindMs by remember { mutableStateOf(0L) }
         if (behindMs != null) lastBehindMs = behindMs
         AnimatedVisibility(

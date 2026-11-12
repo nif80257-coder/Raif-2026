@@ -13,6 +13,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -484,13 +485,16 @@ internal fun PartyTabs(
     modifier: Modifier = Modifier,
 ) {
     val tokens = MaterialTheme.nuvio
+    val trackShape = RoundedCornerShape(percent = 50)
+    val thumbShape = RoundedCornerShape(percent = 50)
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .height(40.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .height(44.dp)
+            .clip(trackShape)
             .background(tokens.colors.surfaceCard)
-            .padding(3.dp),
+            .border(tokens.borders.thin, tokens.colors.borderDefault, trackShape)
+            .padding(4.dp),
     ) {
         val segment = maxWidth / 2
         val offset by animateDpAsState(
@@ -502,8 +506,9 @@ internal fun PartyTabs(
                 .offset { IntOffset(offset.roundToPx(), 0) }
                 .width(segment)
                 .fillMaxHeight()
-                .clip(RoundedCornerShape(9.dp))
-                .background(tokens.colors.textPrimary.copy(alpha = 0.12f)),
+                .clip(thumbShape)
+                .background(tokens.colors.accent.copy(alpha = 0.18f))
+                .border(tokens.borders.thin, tokens.colors.accent.copy(alpha = 0.5f), thumbShape),
         )
         Row(modifier = Modifier.fillMaxSize()) {
             PartyTab(
@@ -530,12 +535,12 @@ private fun RowScope.PartyTab(
     onClick: () -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
-    val color by animateColorAsState(if (selected) tokens.colors.textPrimary else tokens.colors.textSecondary)
+    val color by animateColorAsState(if (selected) tokens.colors.accent else tokens.colors.textSecondary)
     Row(
         modifier = Modifier
             .weight(1f)
             .fillMaxHeight()
-            .clip(RoundedCornerShape(9.dp))
+            .clip(RoundedCornerShape(percent = 50))
             .clickable(onClick = onClick),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,

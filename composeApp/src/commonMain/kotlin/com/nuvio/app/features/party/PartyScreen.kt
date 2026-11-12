@@ -11,6 +11,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,9 +27,11 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.History
@@ -45,6 +48,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -75,6 +79,7 @@ import nuvio.composeapp.generated.resources.party_join_action
 import nuvio.composeapp.generated.resources.party_join_description
 import nuvio.composeapp.generated.resources.party_join_title
 import nuvio.composeapp.generated.resources.party_joined_title
+import nuvio.composeapp.generated.resources.party_reconnecting
 import nuvio.composeapp.generated.resources.party_seats
 import nuvio.composeapp.generated.resources.party_title
 import nuvio.composeapp.generated.resources.party_watch_with_party
@@ -625,6 +630,80 @@ private fun JoinedContent(party: ActiveParty) {
 }
 
 @Composable
+internal fun PartyHeroCard(party: ActiveParty) {
+    val tokens = MaterialTheme.nuvio
+    val media = party.media
+    val shape = RoundedCornerShape(22.dp)
+    val poster = media.poster?.takeIf { it.isNotBlank() }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(tokens.colors.surfaceCard)
+            .border(tokens.borders.thin, tokens.colors.borderDefault, shape)
+            .padding(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .width(64.dp)
+                .height(96.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(tokens.colors.surfaceElevated),
+        ) {
+            if (poster != null) {
+                AsyncImage(
+                    model = poster,
+                    contentDescription = media.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                text = media.title.ifBlank { stringResource(Res.string.party_title) },
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = tokens.colors.textPrimary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            media.episodeLabel()?.let { label ->
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = tokens.colors.textSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = stringResource(Res.string.party_seats, party.members.size, party.maxMembers),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = tokens.colors.textMuted,
+                )
+                if (!party.connected) {
+                    Text(
+                        text = stringResource(Res.string.party_reconnecting),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = tokens.colors.accent,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun PartyContent(
     party: ActiveParty,
     onWatch: (PartyMedia) -> Unit,
@@ -636,7 +715,7 @@ private fun PartyContent(
             .padding(top = 8.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(24.dp),
     ) {
-        MediaHeader(party.media)
+        PartyHeroCard(party)
         PartyOverview(
             party = party,
             ringColor = tokens.colors.background,
