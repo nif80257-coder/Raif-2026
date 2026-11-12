@@ -49,6 +49,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -62,6 +63,7 @@ import coil3.compose.AsyncImage
 import com.nuvio.app.core.ui.NuvioBackButton
 import com.nuvio.app.core.ui.NuvioToastHost
 import com.nuvio.app.core.ui.LocalVerticalBarPadding
+import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.features.membership.CosmeticEntitlement
 import com.nuvio.app.features.settings.MemberBrandWordmark
 import kotlinx.coroutines.delay
@@ -84,6 +86,19 @@ fun ProfileSelectionScreen(
     val scope = rememberCoroutineScope()
     var pinDialogProfile by remember { mutableStateOf<NuvioProfile?>(null) }
     var isEditMode by remember { mutableStateOf(false) }
+    val tokens = MaterialTheme.nuvio
+    val defaultProfileName = stringResource(Res.string.profile_label_number, 1)
+
+    LaunchedEffect(profileState.profiles.size) {
+        if (!interactionEnabled || profileState.profiles.isNotEmpty()) return@LaunchedEffect
+        delay(400)
+        if (ProfileRepository.state.value.profiles.isNotEmpty()) return@LaunchedEffect
+        ProfileRepository.createProfile(
+            name = defaultProfileName,
+            avatarColorHex = "#E3A15C",
+        )
+        ProfileRepository.pullProfiles()
+    }
 
     val titleAlpha = remember { Animatable(0f) }
     val titleOffset = remember { Animatable(20f) }
@@ -121,9 +136,36 @@ fun ProfileSelectionScreen(
             .fillMaxSize(),
     ) {
         val isTabletLayout = maxWidth >= 768.dp
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(tokens.colors.background),
+        )
         ProfileBackgroundBackdrop(
             profile = backgroundProfile,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer { alpha = 0.5f },
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        0f to tokens.colors.background.copy(alpha = 0.55f),
+                        0.4f to tokens.colors.background.copy(alpha = 0.82f),
+                        1f to tokens.colors.background,
+                    ),
+                ),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(tokens.colors.accent.copy(alpha = 0.16f), Color.Transparent),
+                    ),
+                ),
         )
 
         AnimatedVisibility(
@@ -149,12 +191,26 @@ fun ProfileSelectionScreen(
             ) {
                 Spacer(modifier = Modifier.height(if (isTabletLayout) 0.dp else 60.dp))
 
-                MemberBrandWordmark(
-                    height = if (isTabletLayout) 42.dp else 34.dp,
+                Text(
+                    text = "Řaif",
+                    style = MaterialTheme.typography.displayLarge,
+                    color = tokens.colors.textPrimary,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = (-2).sp,
                     modifier = Modifier.graphicsLayer {
                         alpha = titleAlpha.value
                         translationY = titleOffset.value
                     },
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Box(
+                    modifier = Modifier
+                        .width(40.dp)
+                        .height(3.dp)
+                        .clip(RoundedCornerShape(percent = 50))
+                        .background(tokens.colors.accent),
                 )
 
                 Spacer(modifier = Modifier.height(if (isTabletLayout) 22.dp else 18.dp))
@@ -165,7 +221,7 @@ fun ProfileSelectionScreen(
                         fontSize = 30.sp,
                         letterSpacing = 0.sp,
                     ),
-                    color = MaterialTheme.colorScheme.onBackground,
+                    color = tokens.colors.textPrimary,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.graphicsLayer {
                         alpha = titleAlpha.value
@@ -212,6 +268,31 @@ fun ProfileSelectionScreen(
                         }
                     }
                 } else {
+                    if (profiles.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(percent = 50))
+                                .background(tokens.colors.accent)
+                                .clickable {
+                                    scope.launch {
+                                        ProfileRepository.createProfile(
+                                            name = defaultProfileName,
+                                            avatarColorHex = "#E3A15C",
+                                        )
+                                        ProfileRepository.pullProfiles()
+                                    }
+                                }
+                                .padding(horizontal = 28.dp, vertical = 14.dp),
+                        ) {
+                            Text(
+                                text = stringResource(Res.string.compose_profile_add_profile),
+                                style = MaterialTheme.typography.titleMedium,
+                                color = tokens.colors.onAccent,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(32.dp))
+                    }
                     Column(
                         verticalArrangement = Arrangement.spacedBy(20.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -261,19 +342,19 @@ fun ProfileSelectionScreen(
                 Box(
                     modifier = Modifier
                         .graphicsLayer { alpha = manageAlpha.value }
-                        .clip(RoundedCornerShape(24.dp))
+                        .clip(RoundedCornerShape(percent = 50))
                         .background(
-                            if (isEditMode) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                            if (isEditMode) tokens.colors.accent.copy(alpha = 0.16f)
                             else Color.Transparent,
                         )
                         .border(
-                            width = 1.dp,
-                            color = if (isEditMode) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
-                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
-                            shape = RoundedCornerShape(24.dp),
+                            width = tokens.borders.thin,
+                            color = if (isEditMode) tokens.colors.accent.copy(alpha = 0.5f)
+                            else tokens.colors.borderDefault,
+                            shape = RoundedCornerShape(percent = 50),
                         )
                         .clickable(enabled = interactionEnabled) { isEditMode = !isEditMode }
-                        .padding(horizontal = 24.dp, vertical = 10.dp),
+                        .padding(horizontal = 26.dp, vertical = 12.dp),
                 ) {
                     Text(
                         text = if (isEditMode) {
@@ -282,8 +363,7 @@ fun ProfileSelectionScreen(
                             stringResource(Res.string.profile_manage_profiles)
                         },
                         style = MaterialTheme.typography.bodyLarge,
-                        color = if (isEditMode) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = if (isEditMode) tokens.colors.accent else tokens.colors.textSecondary,
                         fontWeight = FontWeight.SemiBold,
                     )
                 }
@@ -434,14 +514,14 @@ private fun ProfileAvatarCard(
                         .align(Alignment.BottomEnd)
                         .size(34.dp)
                         .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary)
-                        .border(2.dp, MaterialTheme.colorScheme.background, CircleShape),
+                        .background(MaterialTheme.nuvio.colors.accent)
+                        .border(2.dp, MaterialTheme.nuvio.colors.background, CircleShape),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.Edit,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimary,
+                        tint = MaterialTheme.nuvio.colors.onAccent,
                         modifier = Modifier.size(16.dp),
                     )
                 }
@@ -453,14 +533,14 @@ private fun ProfileAvatarCard(
                         .align(Alignment.BottomEnd)
                         .size(30.dp)
                         .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .border(2.dp, MaterialTheme.colorScheme.background, CircleShape),
+                        .background(MaterialTheme.nuvio.colors.surfaceElevated)
+                        .border(2.dp, MaterialTheme.nuvio.colors.background, CircleShape),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.Lock,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = MaterialTheme.nuvio.colors.textSecondary,
                         modifier = Modifier.size(14.dp),
                     )
                 }
@@ -474,7 +554,7 @@ private fun ProfileAvatarCard(
                 stringResource(Res.string.profile_label_number, profile.profileIndex)
             },
             style = MaterialTheme.typography.bodyLarge.copy(fontSize = 16.sp),
-            color = MaterialTheme.colorScheme.onSurface,
+            color = MaterialTheme.nuvio.colors.textPrimary,
             fontWeight = FontWeight.SemiBold,
             textAlign = TextAlign.Center,
             maxLines = 1,
@@ -489,6 +569,7 @@ private fun AddProfileCard(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
+    val tokens = MaterialTheme.nuvio
     val animAlpha = remember { Animatable(0f) }
     val animScale = remember { Animatable(0.85f) }
     val animOffset = remember { Animatable(30f) }
@@ -531,10 +612,10 @@ private fun AddProfileCard(
                 modifier = Modifier
                     .size(100.dp)
                     .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    .background(MaterialTheme.nuvio.colors.surfaceCard)
                     .border(
-                        2.dp,
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f),
+                        tokens.borders.thin,
+                        MaterialTheme.nuvio.colors.borderStrong,
                         CircleShape,
                     ),
                 contentAlignment = Alignment.Center,
@@ -542,7 +623,7 @@ private fun AddProfileCard(
                 Icon(
                     imageVector = Icons.Rounded.Add,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    tint = MaterialTheme.nuvio.colors.textSecondary,
                     modifier = Modifier.size(40.dp),
                 )
             }
@@ -553,7 +634,7 @@ private fun AddProfileCard(
         Text(
             text = stringResource(Res.string.compose_profile_add_profile),
             style = MaterialTheme.typography.bodyLarge.copy(fontSize = 16.sp),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = MaterialTheme.nuvio.colors.textSecondary,
             fontWeight = FontWeight.SemiBold,
             textAlign = TextAlign.Center,
         )
