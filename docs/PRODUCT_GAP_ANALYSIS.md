@@ -7,21 +7,33 @@ Reference products reviewed: Nuvio Mobile (official product page and current mob
 - OLED-black option and compact media-card density.
 - Poster artwork and rating presentation in catalog cards.
 - Persistent settings for appearance, resume preference, autoplay preference, and preferred audio/subtitle languages.
-- Shared brand mark, Android launcher vector, and generated iOS AppIcon pipeline.
+- Generated iOS AppIcon pipeline from the shared brand mark.
 - Settings sections for appearance, playback, languages, and addon management.
+- Season/episode browsing inside the item sheet and per-episode continue-watching entries.
+- Source aggregation across every installed addon declaring the `stream` resource for the item's type, with addon labels on each source.
+- Correct Stremio extra-segment encoding (`search=…&skip=…` in one path segment), which search and pagination need to work against real addons.
+- Nuvio provider repositories: installation, per-provider enable switches, and a JavaScriptCore runtime that runs bundled `getStreams` scripts and merges their streams with Stremio results.
+- Optional TMDB key resolving IMDb ids to the TMDB ids Nuvio providers take, cached locally.
+- iOS-only target: the Android application module, sources and CI workflow were removed.
+- Cross-addon search: one query fans out to every installed addon with a search-capable catalog, deduplicated and labelled by addon.
+- Automatic next-episode playback after the current episode ends, driven by the real AVPlayer end-of-item notification and the stored preference.
+- Playback audio session, item cleanup on close, and refreshed addon descriptors at launch.
+- Stremio `subtitles` protocol support: addon-level and stream-level subtitle lists, SRT/WebVTT parsing and an in-player subtitle overlay with automatic language selection.
+- Embedded (in-file) subtitle tracks: libmpv's track list is reported to the shared UI, listed in the same picker under "ترجمات مدمجة في الفيديو نفسه", and selected by track id with an ordinal fallback; the preferred language picks one automatically when no addon subtitle matches.
+- Stream `behaviorHints` support: request headers for proxied sources, plus explicit messages for unsupported containers (MKV/AVI/WebM) and AVPlayer failures instead of a silent black screen.
 
 ## Gap matrix
 
 | Capability | Nuvio | Stremio | CINEMAX status |
 | --- | --- | --- | --- |
-| Mobile-first catalog browsing | Yes | Yes | Basic catalog cards; more screen polish needed |
+| Mobile-first catalog browsing | Yes | Yes | Catalog cards, season/episode picker, and cross-addon search |
 | Artwork, ratings, metadata | Yes | Yes | Posters, available metadata and ratings from addon responses; rating sources not aggregated |\n| Custom subtitle appearance and font/render modes | Yes | Addon/player dependent | Not implemented |\n| Player engine fallback and playback diagnostics | Yes | Player dependent | Native AVPlayer / Media3 only; no fallback policy |\n| Chapters and chapter markers | Yes | Addon dependent | Not implemented |\n| Picture-in-picture | Platform support | Platform support | Not yet verified end-to-end |
-| Addon catalogs | Yes | Core model | Stremio manifest/catalog support; no Nuvio JS runtime |
+| Addon catalogs | Yes | Core model | Stremio manifest/catalog support; Nuvio providers (fetch-based) run in JavaScriptCore; cheerio/crypto-js providers still unsupported |
 | Cross-device sync | Account sync | Account sync | Not implemented |
 | Multiple profiles | Yes | Limited/account based | Not implemented |
-| Continue watching/history | Yes | Yes | Preference saved; watch history/progress backend not implemented |
-| Subtitle discovery and selection | Yes | Addon based | Not implemented in player |
-| Audio/subtitle track controls | Yes | Yes | Not exposed yet |
+| Continue watching/history | Yes | Yes | Local continue-watching with per-episode resume for series; no account sync |
+| Subtitle discovery and selection | Yes | Addon based | External subtitles from `subtitles` addons and streams, parsed (SRT/VTT) and rendered over the video; plus the file's own embedded tracks, listed and selected in the same picker |
+| Audio/subtitle track controls | Yes | Yes | Preferred languages are applied to AVPlayer media selection and to embedded tracks; subtitles can be overridden per track in the picker, audio still by preference only |
 | Intro/recap/outro skipping | Yes | Addon dependent | Not implemented |
 | External player selection | Yes | Supported workflows | Not implemented |
 | Playback speed/PiP/gestures | Platform-specific | Platform-specific | Not implemented in shared controls |

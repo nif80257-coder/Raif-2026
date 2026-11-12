@@ -1,31 +1,54 @@
 # CINEMAX
 
-CINEMAX is an early-stage, Arabic-first, cross-platform media client project built with Kotlin Multiplatform and Compose Multiplatform.
+CINEMAX is an early-stage, Arabic-first iPhone streaming client built with Kotlin Multiplatform and Compose Multiplatform. The Android target has been removed: the app targets iOS only.
 
 ## Implemented in the current repository
-- Shared Arabic-first Compose interface with responsive media cards, remote poster artwork, and a persistent appearance/playback settings sheet.
-- CINEMAX visual identity with custom Android launcher vector and an iOS AppIcon generated from the shared SVG brand mark.
+- Nuvio-style shell: a floating pill tab bar (الرئيسية / بحث / مكتبتي / الإعدادات), a full-screen detail screen with backdrop, seasons, episodes and sources, and a full-screen player instead of dialogs.
+- Home feed with an auto-advancing hero pager (dots whose active dot is a bar), a continue-watching row of landscape cards with progress and time-left pills, and one poster shelf per catalog. A search tab, a library tab (in progress + saved) and a settings tab complete the four destinations.
+- Full-screen player with the chrome the Nuvio player has: the overlay hides itself after four seconds and a tap brings it back, a seek bar with real positions, speed chips (×0.5 to ×2), a next-episode card in the last 45 seconds, and subtitle delay (±0.5 s) in the subtitle sheet.
+- Native playback gestures on the video surface itself (Compose cannot receive touches over a UIKit-hosted view, so the mpv controller owns them): single tap toggles the overlay, double tap seeks ±10 s, a horizontal drag scrubs, and a vertical drag sets the volume (right half) or screen brightness (left half), each with a heads-up readout.
+- Picture-in-picture on the AVPlayer path, haptic feedback on tab changes and saving a title, and a press-scale animation on posters.
+- Source sheet ranked like Nuvio's: direct links first, then by resolution and format (4K, 1080p, HDR, HEVC), a "مباشر" filter that hides torrent-only entries, and a "آخر رابط" pill on the link that played last for that title, pinned to the top.
+- Nuvio provider diagnostics: a provider that throws or times out is reported in the source sheet ("مصادر Nuvio تعذّرت") with its reason instead of failing silently, and installed provider repositories refresh at launch.
+- Safe-area handling on every screen: the tab bar, the detail sheet header, the player chrome and the four tabs respect the notch and the home indicator instead of drawing under them.
+- Choosing a season selects that season's first episode, so the source list matches what the user is looking at; the search tab explains that a catalog addon is needed instead of doing nothing; closing the player also closes the subtitle sheet.
+- Home shows up to five shelves, one per catalog the active addon declares (movies, series, popular…), each loaded in parallel, instead of a single shelf.
+- The library has أفلام / مسلسلات filters that apply to both saved titles and continue-watching, with a clear empty state per filter.
+- Home extras: the hero backdrop gets a slow Ken Burns zoom, a shimmer skeleton replaces the spinner while a catalog loads, and a "فيلم الليلة" card picks a title you have not started yet with a "بدّل" shuffle.
+- Search has أفلام / مسلسلات type chips, so a series query searches series catalogs instead of the addon's first (usually movie) catalog.
+- The detail screen's main button becomes "▶ أكمل من 12:34" when a stored resume position exists for that title.
+- Search tab keeps the last eight queries as one-tap chips with a "مسح السجل" action.
+- Shared Arabic-first Compose interface with responsive media cards, remote poster artwork, and persistent appearance/playback preferences.
+- CINEMAX visual identity with an iOS AppIcon generated from the shared SVG brand mark.
 - Persistent user preferences for accent color, OLED black background, compact cards, resume preference, autoplay preference, and preferred subtitle/audio languages.
-- Shared Compose UI shell with Arabic labels.
-- Android Activity/manifest and iOS Compose view-controller entry point.
+- iOS-only target: the Android application module, its sources and CI workflow were removed; the iOS Compose view controller is the only platform entry point.
 - Stremio manifest, catalog, metadata and stream models.
 - HTTPS manifest URL validation, preservation of addon configuration query tokens, and encoded Stremio resource paths.
 - HTTP repository methods for manifests, catalogs (including declared search extras), metadata details, and streams.
 - Add-on installation, switching/removal, persistent descriptors, catalog switching, search extras, and pagination when declared by the addon.
-- Shared stream selection with native Android Media3 and iOS AVPlayer playback for secure direct media URLs.
-- Nuvio provider abstraction and explicit security gate. Executable JavaScript providers remain disabled until a real sandbox is integrated.
-- Shared protocol tests and an Android GitHub Actions build workflow.
+- Cross-addon search: one query searches every installed addon whose catalog declares a `search` extra, results deduplicated and labelled with the addon they came from.
+- Season and episode browsing for series, with per-episode source requests (`tt1234:1:2` instead of the series id) and per-episode continue-watching entries.
+- Automatic next-episode playback when the current episode ends and the preference is on.
+- Source aggregation from every installed addon that declares the `stream` resource for the item's type (honouring `idPrefixes`), instead of only the active catalog addon; a failing addon does not hide the others' sources.
+- Nuvio provider support: install a provider repository (`manifest.json` with `scrapers`), enable individual providers, and run their bundled CommonJS `getStreams(tmdbId, mediaType, season, episode)` scripts in JavaScriptCore on iOS.
+- Nuvio results are merged with Stremio results in one source list, each labelled with its addon or provider.
+- Optional TMDB API key that resolves IMDb ids to TMDB ids (cached locally) so Nuvio providers receive the ids they expect.
+- Playback runs on libmpv (MPVKit) through a Swift bridge registered at launch, so MKV, AVI, HEVC and the other common containers play with hardware decoding; AVPlayer remains the fallback if the bridge is absent. Audio session, progress reporting, end-of-item detection and cleanup are shared by both.
+- Source quality/format badges (4K, 1080p, HDR, HEVC, CAM, REMUX) read from the stream description, and an empty-source message that names how many addons and Nuvio providers were asked.
+- Subtitle support: the player collects subtitles from the `subtitles` resource of every addon and from the stream's own `subtitles` list, downloads the chosen file, parses SRT/WebVTT and renders it over the video, auto-selecting the preferred language. The same picker lists the subtitle tracks embedded in the video file itself (internal MKV/MP4 tracks), which libmpv renders with their own styling; an embedded track matching the preferred language is selected when no addon subtitle was found, and choosing one of the two kinds replaces the other.
+- Streams that declare `behaviorHints.proxyHeaders` play with those HTTP headers, and a source the fallback AVPlayer cannot open (MKV, AVI, …) says so instead of showing a silent black screen; playback errors are shown in the player.
+- Subtitle and audio language preferences are applied to the playable in-stream tracks when the stream exposes them.
+- Stored addon descriptors are refreshed from their manifests at launch, so addons installed earlier gain resource/type/id-prefix and catalog data.
+- Shared protocol tests and iOS GitHub Actions workflows for the app build and the shared unit tests.
+- An in-app roadmap screen (Settings → خطة التطوير) that renders the phased plan for reaching Nuvio-level polish; the long-form version is `docs/ROADMAP_NUVIO.md`.
 
-## Not complete yet
-This repository is not yet a release-ready streaming application. A native SwiftUI iOS app shell and XcodeGen project definition now live in `iosApp/`, with a macOS GitHub Actions workflow that builds unsigned iOS Simulator and iPhone app artifacts. Cross-addon search aggregation, functional playback-position persistence, automatic next-episode sequencing, external subtitle selection, audio/subtitle track application, richer playback controls, Nuvio repository discovery/JS sandbox, account sync, profiles, intro/recap/outro skip services, accessibility/localization polish, Apple signing, and end-to-end physical-device testing remain to be implemented. Some preferences are currently saved for when their corresponding playback capabilities are completed; they are not presented as already active features.
+## Known limitations
+- Nuvio providers may `require` two bundled modules, which the runtime now provides through a shim shipped as `iosApp/Sources/nuvio-compat.js` and evaluated in its own guarded step (a failure there leaves `require` untouched): a static-HTML `cheerio` subset (tag/class/id/attribute selectors, `find`, `text`, `html`, `attr`, `each`, `map`, `first/last/eq`, `children`, `parent`, `next`, `hasClass`) and the `crypto-js` surface most scrapers use (`MD5`, `SHA256`, hex and base64 encodings). `tools/nuvio-compat.test.js` checks the same file with Node against known MD5/SHA-256 vectors and scraping patterns. Providers that need a real DOM or a full crypto library still fail, and only `fetch`-based providers were the previous limit.
+- Nuvio providers need TMDB ids. Without a TMDB key, the raw item id is passed through, so many providers will find nothing for IMDb-based catalogs.
+- If the mpv bridge is unavailable (for example a build without the Swift package), the AVPlayer fallback cannot decode MKV/AVI/WebM. ASS/SSA styling is only applied to embedded tracks, which libmpv draws itself; external subtitle files are rendered from parsed SRT/WebVTT cues, so their override tags and positioning are ignored. Profiles and account sync, intro/recap/outro skip services, Apple signing, and end-to-end physical-device testing remain to be implemented.
 
 ## Build
-Requirements: JDK 17+, Android SDK, and macOS/Xcode for iOS. See `iosApp/README.md` for the native iOS build commands. The iOS CI workflow builds device and simulator frameworks, combines them into an XCFramework, generates the Xcode project with XcodeGen, and packages unsigned Simulator and iPhone `.app` outputs. The iPhone output is not signed and is not directly installable or distributable.
-
-The Android CI workflow runs:
-`gradle :composeApp:testDebugUnitTest`
-`gradle :composeApp:assembleDebug`
-and uploads the debug APK as a workflow artifact.
+Requirements: macOS with Xcode 16+ and JDK 17+. `iosApp/CINEMAX.xcodeproj` is generated from `iosApp/project.yml` with XcodeGen and kept in the repository as generated output; its "Build CinemaxKit" run script links the static Kotlin framework with the committed Gradle wrapper, so the app can be built without a manual Gradle step (see `iosApp/README.md`). The iOS CI workflow builds the device and simulator frameworks, regenerates the project with XcodeGen, and packages unsigned Simulator and iPhone `.app` outputs. The iPhone output is not signed and is not directly installable or distributable.
 
 ## Optional signed iOS release
 
@@ -39,4 +62,4 @@ A manual workflow named **iOS signed release** is available under GitHub Actions
 The certificate and provisioning profile must belong to the same Apple Developer team and match the app's bundle identifier. Add secrets in the repository's **Settings → Secrets and variables → Actions**, then run **Actions → iOS signed release → Run workflow**. Never commit signing certificates, provisioning profiles, passwords, or private keys to the repository. Without these owner-provided Apple signing assets, the workflow intentionally stops before signing.
 
 ## Compatibility and safety
-Stremio addons are remote HTTP services; their responses are parsed as data and never evaluated as code. Compatibility is provider-specific and must be tested. Nuvio plugins are a different executable JavaScript format; do not execute them without a hardened sandbox, explicit consent, and strict limits. Use only content sources you are authorized to access. CINEMAX does not host media.
+Stremio addons are remote HTTP services; their responses are parsed as data and never evaluated as code. Nuvio providers are executable JavaScript: they run only after the user enables them, inside a JavaScriptCore context with no filesystem, keychain or native API access, HTTPS-only `fetch`, bounded timers and timeouts, and unsupported modules rejected. Their output is still parsed as data. Compatibility is provider-specific and must be tested. Use only content sources you are authorized to access. CINEMAX does not host media.

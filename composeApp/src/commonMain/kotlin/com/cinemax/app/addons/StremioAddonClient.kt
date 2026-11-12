@@ -1,7 +1,6 @@
 package com.cinemax.app.addons
 
 import io.ktor.http.Url
-import io.ktor.http.encodeURLPathPart
 
 /**
  * Protocol boundary for Stremio-compatible HTTP addons.
@@ -28,8 +27,9 @@ object StremioAddonClient {
     }
 
     /**
-     * Builds a Stremio resource URL. Extra arguments are path segments in the
-     * protocol's key=value form and are encoded independently to prevent path injection.
+     * Builds a Stremio resource URL. The protocol takes all extra arguments in a
+     * single path segment as `key=value&key=value`, and every key and value is
+     * encoded independently to prevent path injection.
      */
     fun resourceUrl(
         baseManifestUrl: String,
@@ -47,22 +47,56 @@ object StremioAddonClient {
         val path = buildString {
             append(base)
             append("/")
-            append(resource.encodeURLPathPart())
+            append(encodeSegment(resource))
             append("/")
-            append(type.encodeURLPathPart())
+            append(encodeSegment(type))
             append("/")
-            append(id.encodeURLPathPart())
-            extra.entries.sortedBy { it.key }.forEach { (key, value) ->
-                require(key.isNotBlank()) { "Extra argument key cannot be blank" }
+            // Series and episode ids keep their colons ("tt0944947:1:2"), which
+            // addons match literally.
+            append(encodeSegment(id, keepColon = true))
+            if (extra.isNotEmpty()) {
                 append("/")
-                append(key.encodeURLPathPart())
-                append("=")
-                append(value.encodeURLPathPart().replace("&", "%26").replace("=", "%3D"))
+                append(extraPathSegment(extra))
             }
             append(".json")
         }
         return path + query
     }
+
+    private const val UNRESERVED = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
+    private const val HEX = "0123456789ABCDEF"
+
+    /**
+     * Percent-encodes one path segment over its UTF-8 bytes. Done here instead of
+     * through the HTTP client so the exact wire form Stremio addons match is
+     * guaranteed: unreserved characters stay, spaces become %20, and colons can be
+     * kept for episode ids.
+     */
+    private fun encodeSegment(value: String, keepColon: Boolean = false): String = buildString {
+        for (byte in value.encodeToByteArray()) {
+            val code = byte.toInt() and 0xFF
+            val symbol = code.toChar()
+            if (symbol in UNRESERVED || (keepColon && symbol == ':')) {
+                append(symbol)
+            } else {
+                append('%')
+                append(HEX[code shr 4])
+                append(HEX[code and 0x0F])
+            }
+        }
+    }
+
+    /**
+     * Real addons only read one extra segment, e.g.
+     * `/catalog/movie/top/genre=Action&skip=100.json`. Sending one segment per
+     * argument, as this function used to, made search and pagination request a
+     * path no addon parses.
+     */
+    private fun extraPathSegment(extra: Map<String, String>): String =
+        extra.entries.map { (key, value) ->
+            require(key.isNotBlank()) { "Extra argument key cannot be blank" }
+            "${encodeSegment(key)}=${encodeSegment(value)}"
+        }.joinToString("&")
 
     fun isSafeMediaUrl(input: String): Boolean {
         val parsed = try {

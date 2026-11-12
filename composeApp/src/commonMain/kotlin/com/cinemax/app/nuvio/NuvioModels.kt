@@ -1,0 +1,63 @@
+package com.cinemax.app.nuvio
+
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+/**
+ * Registry served by a Nuvio provider repository:
+ * `{ "name": ..., "version": ..., "scrapers": [ ... ] }`.
+ */
+@Serializable
+data class NuvioProviderRepository(
+    val name: String,
+    val version: String = "",
+    val description: String? = null,
+    val author: String? = null,
+    val scrapers: List<NuvioScraperDescriptor> = emptyList()
+)
+
+/** One executable provider inside a repository. */
+@Serializable
+data class NuvioScraperDescriptor(
+    val id: String,
+    val name: String,
+    val version: String = "",
+    val filename: String,
+    val description: String? = null,
+    val author: String? = null,
+    val supportedTypes: List<String> = listOf("movie", "tv"),
+    val enabled: Boolean = true,
+    val logo: String? = null,
+    @SerialName("contentLanguage") val contentLanguage: List<String> = emptyList(),
+    val hasSettings: Boolean = false
+)
+
+/** A repository installed on the device, with its providers. */
+@Serializable
+data class InstalledNuvioRepository(
+    val manifestUrl: String,
+    val name: String,
+    val version: String = "",
+    val description: String? = null,
+    val scrapers: List<NuvioScraperDescriptor> = emptyList(),
+    val installedAtEpochMillis: Long
+)
+
+/** What a Nuvio provider receives: `getStreams(tmdbId, mediaType, season, episode)`. */
+data class NuvioMediaRequest(
+    val tmdbId: String,
+    val mediaType: String,
+    val season: Int? = null,
+    val episode: Int? = null
+)
+
+/** A stream returned by a provider script. */
+@Serializable
+data class NuvioStream(
+    val name: String? = null,
+    val title: String? = null,
+    val url: String? = null,
+    val quality: String? = null,
+    val size: String? = null,
+    val provider: String? = null
+)

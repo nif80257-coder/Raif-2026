@@ -42,4 +42,30 @@ class WatchProgressStoreTest {
 
         assertTrue(WatchProgressStore(settings).load().isEmpty())
     }
+
+    @Test
+    fun episodesOfTheSameSeriesAreTrackedSeparately() {
+        val settings = MapSettings()
+        val store = WatchProgressStore(settings)
+        val series = StremioMetaPreview("tt100", "series", "Example Series")
+
+        store.save(
+            WatchProgress(
+                series, 10_000L, 100_000L, 1L,
+                videoId = "tt100:1:1", videoLabel = "الموسم 1 • الحلقة 1"
+            )
+        )
+        store.save(
+            WatchProgress(
+                series, 20_000L, 100_000L, 2L,
+                videoId = "tt100:1:2", videoLabel = "الموسم 1 • الحلقة 2"
+            )
+        )
+
+        val restored = WatchProgressStore(settings).load()
+        assertEquals(listOf("tt100:1:2", "tt100:1:1"), restored.map { it.key })
+
+        store.remove("tt100:1:2")
+        assertEquals(listOf("tt100:1:1"), WatchProgressStore(settings).load().map { it.key })
+    }
 }

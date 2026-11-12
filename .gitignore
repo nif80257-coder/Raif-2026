@@ -6,3 +6,5 @@ build/
 local.properties
 .DS_Store
 .kotlin/
+# Device crash reports captured while debugging the app on a real phone.
+ips/

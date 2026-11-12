@@ -60,6 +60,21 @@ class AddonRepository(
         return json.decodeFromString<StremioStreamResponse>(response.bodyAsText()).streams
     }
 
+    /**
+     * Subtitle addons are asked with the video id (the episode id for series) and,
+     * when known, the video hash/filename that identify the exact file.
+     */
+    suspend fun loadSubtitles(
+        manifestUrl: String,
+        type: String,
+        mediaId: String,
+        extra: Map<String, String> = emptyMap()
+    ): List<StremioSubtitle> {
+        val url = StremioAddonClient.resourceUrl(validatedBase(manifestUrl), "subtitles", type, mediaId, extra)
+        val response = http.get(url)
+        return json.decodeFromString<StremioSubtitlesResponse>(response.bodyAsText()).subtitles
+    }
+
     private fun validatedBase(manifestUrl: String): String =
         StremioAddonClient.manifestUrl(manifestUrl)
             ?: throw IllegalArgumentException("رابط الإضافة غير صالح")

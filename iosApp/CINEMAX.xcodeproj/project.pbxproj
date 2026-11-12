@@ -1,0 +1,423 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		1DE57886683CED117CF66154 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 12746CC0A2CFFE3240A0B83F /* LaunchScreen.storyboard */; };
+		25BC496151E5C349BEB59177 /* MPVKit in Frameworks */ = {isa = PBXBuildFile; productRef = B73A55E408E3689569269737 /* MPVKit */; };
+		451177947F0750D99D9D6440 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 86D8962F93B52421BDC84975 /* Assets.xcassets */; };
+		C4D93EAC92A3F41B7EFA2647 /* CINEMAXApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D3B0BB72171AD456896D23 /* CINEMAXApp.swift */; };
+		D4F52D9CF762AAF93A3907B6 /* MPVPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64A4E8EDDFEC84BEAFAD3243 /* MPVPlayer.swift */; };
+		EA4427D75ACCBE608727AFDD /* MPVMetalLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78C407E766722C78198F9991 /* MPVMetalLayer.swift */; };
+		C1A0000000000000000000B7 /* nuvio-compat.js in Resources */ = {isa = PBXBuildFile; fileRef = C1A0000000000000000000F3 /* nuvio-compat.js */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		12746CC0A2CFFE3240A0B83F /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
+		57F344966DD3C7F14CCE25C7 /* CINEMAX.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = CINEMAX.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		64A4E8EDDFEC84BEAFAD3243 /* MPVPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVPlayer.swift; sourceTree = "<group>"; };
+		78C407E766722C78198F9991 /* MPVMetalLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVMetalLayer.swift; sourceTree = "<group>"; };
+		86D8962F93B52421BDC84975 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		C0D3B0BB72171AD456896D23 /* CINEMAXApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CINEMAXApp.swift; sourceTree = "<group>"; };
+		C1A0000000000000000000F3 /* nuvio-compat.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "nuvio-compat.js"; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		459EC9CBDE5FD205C344C164 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				25BC496151E5C349BEB59177 /* MPVKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		113854C1A1D1099C0B0B663F /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				57F344966DD3C7F14CCE25C7 /* CINEMAX.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		85699DC68F8E4D7103DA2ADE = {
+			isa = PBXGroup;
+			children = (
+				B9F08838951138CA54DA189C /* Sources */,
+				113854C1A1D1099C0B0B663F /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		B9F08838951138CA54DA189C /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				86D8962F93B52421BDC84975 /* Assets.xcassets */,
+				C0D3B0BB72171AD456896D23 /* CINEMAXApp.swift */,
+				12746CC0A2CFFE3240A0B83F /* LaunchScreen.storyboard */,
+				78C407E766722C78198F9991 /* MPVMetalLayer.swift */,
+				64A4E8EDDFEC84BEAFAD3243 /* MPVPlayer.swift */,
+				C1A0000000000000000000F3 /* nuvio-compat.js */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		C4DA2EDC02EF28EE9884F253 /* CINEMAX */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7DB9779FF83A30A2C5DE6FCB /* Build configuration list for PBXNativeTarget "CINEMAX" */;
+			buildPhases = (
+				331C9010F1E21389BD47137C /* Build CinemaxKit */,
+				1988CF9F9ED4FFFBE097FF78 /* Sources */,
+				68458E569178460DF2E44BFB /* Resources */,
+				459EC9CBDE5FD205C344C164 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = CINEMAX;
+			packageProductDependencies = (
+				B73A55E408E3689569269737 /* MPVKit */,
+			);
+			productName = CINEMAX;
+			productReference = 57F344966DD3C7F14CCE25C7 /* CINEMAX.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		2A221B565FE3502F7EF21A84 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+				};
+			};
+			buildConfigurationList = 70CDF64654412B53856AFEA9 /* Build configuration list for PBXProject "CINEMAX" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 85699DC68F8E4D7103DA2ADE;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				F8C63A025A3F5D1498B31826 /* XCRemoteSwiftPackageReference "MPVKit" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 113854C1A1D1099C0B0B663F /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				C4DA2EDC02EF28EE9884F253 /* CINEMAX */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		68458E569178460DF2E44BFB /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				451177947F0750D99D9D6440 /* Assets.xcassets in Resources */,
+				1DE57886683CED117CF66154 /* LaunchScreen.storyboard in Resources */,
+				C1A0000000000000000000B7 /* nuvio-compat.js in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		331C9010F1E21389BD47137C /* Build CinemaxKit */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build CinemaxKit";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\ncd \"$SRCROOT/..\"\nif [ \"$PLATFORM_NAME\" = \"iphonesimulator\" ]; then\n  TARGET=SimulatorArm64\nelse\n  TARGET=Arm64\nfi\nif [ \"$CONFIGURATION\" = \"Release\" ]; then\n  KOTLIN_BUILD=Release\nelse\n  KOTLIN_BUILD=Debug\nfi\nsh ./gradlew --no-daemon \":composeApp:link${KOTLIN_BUILD}FrameworkIos${TARGET}\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		1988CF9F9ED4FFFBE097FF78 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C4D93EAC92A3F41B7EFA2647 /* CINEMAXApp.swift in Sources */,
+				EA4427D75ACCBE608727AFDD /* MPVMetalLayer.swift in Sources */,
+				D4F52D9CF762AAF93A3907B6 /* MPVPlayer.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		0F30F2CCE8C972E13534FEC9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				"ARCHS[sdk=iphonesimulator*]" = arm64;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				"VALID_ARCHS[sdk=iphonesimulator*]" = arm64;
+			};
+			name = Release;
+		};
+		125CE42CDCBB2164E239681D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 100;
+				DEAD_CODE_STRIPPING = NO;
+				ENABLE_BITCODE = NO;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../composeApp/build/bin/iosArm64/$(KOTLIN_FRAMEWORK_FLAVOR)Framework",
+				);
+				"FRAMEWORK_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/../composeApp/build/bin/iosArm64/$(KOTLIN_FRAMEWORK_FLAVOR)Framework";
+				"FRAMEWORK_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/../composeApp/build/bin/iosSimulatorArm64/$(KOTLIN_FRAMEWORK_FLAVOR)Framework";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Sources/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = CINEMAX;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = NO;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = NO;
+				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
+				KOTLIN_FRAMEWORK_FLAVOR = release;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0.2;
+				OTHER_LDFLAGS = "$(inherited) -ObjC -framework CinemaxKit";
+				PRODUCT_BUNDLE_IDENTIFIER = com.cinemax.app;
+				PRODUCT_NAME = CINEMAX;
+				SDKROOT = iphoneos;
+				STRIP_INSTALLED_PRODUCT = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		1F285AEF84F03CB6920ECB66 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				"ARCHS[sdk=iphonesimulator*]" = arm64;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				"VALID_ARCHS[sdk=iphonesimulator*]" = arm64;
+			};
+			name = Debug;
+		};
+		B14C5C1DCB6323904D2216F5 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 100;
+				DEAD_CODE_STRIPPING = NO;
+				ENABLE_BITCODE = NO;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../composeApp/build/bin/iosArm64/$(KOTLIN_FRAMEWORK_FLAVOR)Framework",
+				);
+				"FRAMEWORK_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/../composeApp/build/bin/iosArm64/$(KOTLIN_FRAMEWORK_FLAVOR)Framework";
+				"FRAMEWORK_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/../composeApp/build/bin/iosSimulatorArm64/$(KOTLIN_FRAMEWORK_FLAVOR)Framework";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Sources/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = CINEMAX;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = NO;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = NO;
+				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
+				KOTLIN_FRAMEWORK_FLAVOR = debug;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0.2;
+				OTHER_LDFLAGS = "$(inherited) -ObjC -framework CinemaxKit";
+				PRODUCT_BUNDLE_IDENTIFIER = com.cinemax.app;
+				PRODUCT_NAME = CINEMAX;
+				SDKROOT = iphoneos;
+				STRIP_INSTALLED_PRODUCT = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		70CDF64654412B53856AFEA9 /* Build configuration list for PBXProject "CINEMAX" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1F285AEF84F03CB6920ECB66 /* Debug */,
+				0F30F2CCE8C972E13534FEC9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		7DB9779FF83A30A2C5DE6FCB /* Build configuration list for PBXNativeTarget "CINEMAX" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B14C5C1DCB6323904D2216F5 /* Debug */,
+				125CE42CDCBB2164E239681D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		F8C63A025A3F5D1498B31826 /* XCRemoteSwiftPackageReference "MPVKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mpvkit/MPVKit.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.41.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		B73A55E408E3689569269737 /* MPVKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F8C63A025A3F5D1498B31826 /* XCRemoteSwiftPackageReference "MPVKit" */;
+			productName = MPVKit;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 2A221B565FE3502F7EF21A84 /* Project object */;
+}

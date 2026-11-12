@@ -3,31 +3,85 @@ options:
   bundleIdPrefix: com.cinemax
   deploymentTarget:
     iOS: "16.0"
+  createIntermediateGroups: true
+packages:
+  MPVKit:
+    url: https://github.com/mpvkit/MPVKit.git
+    from: 0.41.0
 settings:
   base:
     SWIFT_VERSION: "5.0"
     IPHONEOS_DEPLOYMENT_TARGET: "16.0"
     TARGETED_DEVICE_FAMILY: "1,2"
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    # The shared Kotlin framework is built for arm64 only (iosArm64 and
+    # iosSimulatorArm64), so an Intel simulator slice cannot be linked.
+    "ARCHS[sdk=iphonesimulator*]": arm64
+    "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
+    "VALID_ARCHS[sdk=iphonesimulator*]": arm64
+    ONLY_ACTIVE_ARCH: YES
 targets:
   CINEMAX:
     type: application
     platform: iOS
     sources:
       - path: Sources
+        excludes:
+          - "Info.plist"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.cinemax.app
         PRODUCT_NAME: CINEMAX
+        CURRENT_PROJECT_VERSION: 100
+        MARKETING_VERSION: "1.0.2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_FILE: Sources/Info.plist
         INFOPLIST_KEY_CFBundleDisplayName: CINEMAX
         INFOPLIST_KEY_UIUserInterfaceStyle: Dark
-        INFOPLIST_KEY_CADisableMinimumFrameDurationOnPhone: YES
-        INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads: NO
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: NO
+        INFOPLIST_KEY_UILaunchScreen_Generation: NO
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
         SWIFT_EMIT_LOC_STRINGS: YES
-        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        ENABLE_BITCODE: NO
+        DEAD_CODE_STRIPPING: NO
+        STRIP_INSTALLED_PRODUCT: NO
+        LD_RUNPATH_SEARCH_PATHS:
+          - "$(inherited)"
+          - "@executable_path/Frameworks"
+        FRAMEWORK_SEARCH_PATHS:
+          - "$(inherited)"
+        "FRAMEWORK_SEARCH_PATHS[sdk=iphoneos*]": "$(SRCROOT)/../composeApp/build/bin/iosArm64/$(KOTLIN_FRAMEWORK_FLAVOR)Framework"
+        "FRAMEWORK_SEARCH_PATHS[sdk=iphonesimulator*]": "$(SRCROOT)/../composeApp/build/bin/iosSimulatorArm64/$(KOTLIN_FRAMEWORK_FLAVOR)Framework"
+        OTHER_LDFLAGS: "$(inherited) -ObjC -framework CinemaxKit"
+      configs:
+        # Gradle writes the Debug framework to debugFramework and the Release
+        # one to releaseFramework, so each configuration must search its own
+        # directory; a Debug build was otherwise linking a Release framework
+        # that only existed when a release build had been made before.
+        Debug:
+          KOTLIN_FRAMEWORK_FLAVOR: debug
+        Release:
+          KOTLIN_FRAMEWORK_FLAVOR: release
     dependencies:
-      - framework: ../composeApp/build/CinemaxKit.xcframework
-        embed: false
+      - package: MPVKit
+        product: MPVKit
+    preBuildScripts:
+      - name: Build CinemaxKit
+        basedOnDependencyAnalysis: false
+        script: |
+          set -e
+          cd "$SRCROOT/.."
+          if [ "$PLATFORM_NAME" = "iphonesimulator" ]; then
+            TARGET=SimulatorArm64
+          else
+            TARGET=Arm64
+          fi
+          if [ "$CONFIGURATION" = "Release" ]; then
+            KOTLIN_BUILD=Release
+          else
+            KOTLIN_BUILD=Debug
+          fi
+          sh ./gradlew --no-daemon ":composeApp:link${KOTLIN_BUILD}FrameworkIos${TARGET}"
     scheme:
       testTargets: []

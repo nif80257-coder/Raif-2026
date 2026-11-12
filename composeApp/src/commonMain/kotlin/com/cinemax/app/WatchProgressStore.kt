@@ -13,8 +13,16 @@ data class WatchProgress(
     val item: StremioMetaPreview,
     val positionMillis: Long,
     val durationMillis: Long,
-    val updatedAtEpochMillis: Long
+    val updatedAtEpochMillis: Long,
+    /** Set for series episodes, whose stream ids look like "tt1234:1:2". */
+    val videoId: String? = null,
+    /** Human-readable episode label kept for the continue-watching row. */
+    val videoLabel: String? = null
 ) {
+    /** Continue-watching is tracked per episode, so each entry needs its own key. */
+    val key: String
+        get() = videoId ?: item.id
+
     val progressFraction: Float
         get() = if (durationMillis > 0L) (positionMillis.toFloat() / durationMillis).coerceIn(0f, 1f) else 0f
 }
@@ -33,14 +41,14 @@ class WatchProgressStore(
 
     fun save(progress: WatchProgress) {
         if (progress.durationMillis <= 0L || progress.positionMillis < 0L) return
-        val current = load().filterNot { it.item.id == progress.item.id }
+        val current = load().filterNot { it.key == progress.key }
         val next = if (progress.positionMillis >= progress.durationMillis - 15_000L) current
             else listOf(progress) + current
         settings.putString(KEY, json.encodeToString(ListSerializer(WatchProgress.serializer()), next.take(MAX_ITEMS)))
     }
 
-    fun remove(id: String) {
-        settings.putString(KEY, json.encodeToString(ListSerializer(WatchProgress.serializer()), load().filterNot { it.item.id == id }))
+    fun remove(key: String) {
+        settings.putString(KEY, json.encodeToString(ListSerializer(WatchProgress.serializer()), load().filterNot { it.key == key }))
     }
 
     private companion object {

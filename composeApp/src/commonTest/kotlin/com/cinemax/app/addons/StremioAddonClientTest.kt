@@ -28,7 +28,7 @@ class StremioAddonClientTest {
     }
 
     @Test
-    fun encodesCatalogExtraArgumentsAsSeparateSegments() {
+    fun encodesCatalogExtraArgumentsAsSingleSegment() {
         val url = StremioAddonClient.resourceUrl(
             "https://addon.example/manifest.json",
             "catalog",
@@ -38,6 +38,21 @@ class StremioAddonClientTest {
         )
         assertEquals(
             "https://addon.example/catalog/movie/popular/search=batman%20%26%20robin.json",
+            url
+        )
+    }
+
+    @Test
+    fun joinsMultipleCatalogExtraArgumentsWithAmpersands() {
+        val url = StremioAddonClient.resourceUrl(
+            "https://addon.example/manifest.json",
+            "catalog",
+            "movie",
+            "popular",
+            mapOf("genre" to "sci fi", "skip" to "100")
+        )
+        assertEquals(
+            "https://addon.example/catalog/movie/popular/genre=sci%20fi&skip=100.json",
             url
         )
     }

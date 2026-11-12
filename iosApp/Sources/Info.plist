@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Scene lifecycle declared explicitly, the way the UIKit application
+	     template does it, instead of relying on a generated manifest with an
+	     empty scene configuration list. -->
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneConfigurationName</key>
+					<string>Default Configuration</string>
+					<key>UISceneDelegateClassName</key>
+					<string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
+	<!-- A launch storyboard is required: without one iOS runs the app in
+	     Compatibility Mode, letterboxed and scaled up like an iPhone 4, which
+	     is what made the app look like it was drawn for a tiny screen. -->
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
+	<!-- Compose Multiplatform aborts at launch with an IllegalStateException
+	     from PlistSanityCheck unless this key is present and true. -->
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+</dict>
+</plist>

@@ -2,108 +2,468 @@ package com.cinemax.app
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
-import coil3.compose.AsyncImage
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import com.cinemax.app.addons.AddonSettingsStore
-import com.cinemax.app.addons.InstalledAddon
+import androidx.compose.ui.window.DialogProperties
+import com.cinemax.app.addons.AddonCapabilities
 import com.cinemax.app.addons.AddonRepository
+import com.cinemax.app.addons.AddonSettingsStore
+import com.cinemax.app.addons.CatalogEntry
+import com.cinemax.app.addons.InstalledAddon
+import com.cinemax.app.addons.StreamOption
+import com.cinemax.app.addons.StremioMeta
 import com.cinemax.app.addons.StremioMetaPreview
-import com.cinemax.app.addons.StremioStream
+import com.cinemax.app.addons.StremioManifest
+import com.cinemax.app.addons.StremioVideo
 import com.cinemax.app.addons.createCinemaxHttpClient
+import com.cinemax.app.addons.searchAllAddons
+import com.cinemax.app.core.CinemaxRoadmap
+import com.cinemax.app.core.EmbeddedSubtitleTrack
+import com.cinemax.app.core.SubtitleCue
+import com.cinemax.app.core.activeCue
+import com.cinemax.app.core.appVersionLabel
+import com.cinemax.app.core.embeddedSubtitleDetail
+import com.cinemax.app.core.embeddedSubtitleLabel
+import com.cinemax.app.core.episodeLabel
+import com.cinemax.app.core.languageIndex
+import com.cinemax.app.core.nextEpisode
+import com.cinemax.app.core.parseSubtitles
+import com.cinemax.app.core.unsupportedVideoContainer
+import com.cinemax.app.nuvio.InstalledNuvioRepository
+import com.cinemax.app.nuvio.NuvioMediaIds
+import com.cinemax.app.nuvio.NuvioProviderClient
+import com.cinemax.app.nuvio.NuvioProviderEntry
+import com.cinemax.app.nuvio.NuvioProviderStore
+import com.cinemax.app.nuvio.TmdbIdResolver
+import com.cinemax.app.nuvio.createNuvioHttpClient
+import com.cinemax.app.nuvio.createNuvioScriptRuntime
+import com.cinemax.app.nuvio.nuvioSourcesFrom
+import com.cinemax.app.ui.CinemaxDetailScreen
+import com.cinemax.app.ui.CinemaxHomeScreen
+import com.cinemax.app.ui.CinemaxLibraryScreen
+import com.cinemax.app.ui.CinemaxPlayerScreen
+import com.cinemax.app.ui.CinemaxRoadmapScreen
+import com.cinemax.app.ui.CinemaxSearchScreen
+import com.cinemax.app.ui.CinemaxSettingsScreen
+import com.cinemax.app.ui.CinemaxShelf
+import com.cinemax.app.ui.CinemaxTabBar
+import io.ktor.client.request.get
+import io.ktor.client.statement.bodyAsText
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.datetime.Clock
+import kotlin.random.Random
 
 private val Ink = Color(0xFF090B12)
 private val Panel = Color(0xFF171B28)
 private val Accent = Color(0xFF8B5CF6)
+
+/** How many of an addon's catalogs the home feed turns into shelves. */
+private const val MAX_HOME_SHELVES = 5
+
+/** A subtitle the user can enable in the player, from a stream or a subtitle addon. */
+private data class SubtitleChoice(
+    val lang: String,
+    val label: String,
+    val source: String,
+    val url: String
+)
 
 @Composable
 fun App() {
     val http = remember { createCinemaxHttpClient() }
     val repository = remember { AddonRepository(http) }
     val addonStore = remember { AddonSettingsStore() }
+    val nuvioHttp = remember { createNuvioHttpClient() }
+    val nuvioStore = remember { NuvioProviderStore() }
+    val nuvioClient = remember { NuvioProviderClient(nuvioHttp) }
+    val nuvioRuntime = remember { createNuvioScriptRuntime(nuvioHttp) }
+    val tmdbResolver = remember { TmdbIdResolver(nuvioHttp, nuvioStore) }
+    val nuvioRepositories = remember { mutableStateListOf<InstalledNuvioRepository>().apply { addAll(nuvioStore.loadRepositories()) } }
+    val nuvioEnabled = remember { mutableStateListOf<String>().apply { addAll(nuvioStore.loadEnabledProviders().toList()) } }
+    var showNuvioDialog by remember { mutableStateOf(false) }
+    var nuvioRepoInput by remember { mutableStateOf("") }
+    var nuvioBusy by remember { mutableStateOf(false) }
+    var tmdbKey by remember { mutableStateOf(nuvioStore.loadTmdbApiKey()) }
+    val nuvioProviders = nuvioRepositories.flatMap { repository ->
+        repository.scrapers
+            .filter { scraper ->
+                scraper.enabled && "${repository.manifestUrl}#${scraper.id}" in nuvioEnabled
+            }
+            .map { scraper ->
+                NuvioProviderEntry("${repository.manifestUrl}#${scraper.id}", repository.name, repository, scraper)
+            }
+    }
+    val nuvioSignature = nuvioProviders.joinToString("|") { it.providerKey }
     val preferencesStore = remember { CinemaxPreferencesStore() }
     val favoritesStore = remember { FavoritesStore() }
-    val favoriteItems = remember { mutableStateListOf<com.cinemax.app.addons.StremioMetaPreview>().apply { addAll(favoritesStore.load()) } }
+    val favoriteItems = remember { mutableStateListOf<StremioMetaPreview>().apply { addAll(favoritesStore.load()) } }
     val favoriteIds = favoriteItems.map { it.id }.toSet()
     val watchProgressStore = remember { WatchProgressStore() }
+    val lastSourceStore = remember { PlaybackSourceStore() }
+    val searchHistoryStore = remember { SearchHistoryStore() }
+    var searchHistory by remember { mutableStateOf(searchHistoryStore.load()) }
+    var searchType by remember { mutableStateOf("movie") }
+    var lastPlayedUrl by remember { mutableStateOf<String?>(null) }
+    var providerIssues by remember { mutableStateOf<List<String>>(emptyList()) }
+    var tonightPick by remember { mutableStateOf<StremioMetaPreview?>(null) }
+    val homeShelves = remember { mutableStateListOf<CinemaxShelf>() }
+    var libraryFilter by remember { mutableStateOf("all") }
     val watchProgressItems = remember { mutableStateListOf<WatchProgress>().apply { addAll(watchProgressStore.load()) } }
-    var showFavoritesOnly by remember { mutableStateOf(false) }
-    var preferences by remember { mutableStateOf(preferencesStore.load()) }
-    var showSettings by remember { mutableStateOf(false) }
+    var preferences by remember {
+        // A preference written by an older build must never stop the app from starting.
+        mutableStateOf(runCatching { preferencesStore.load() }.getOrDefault(CinemaxPreferences()))
+    }
+    var showRoadmap by remember { mutableStateOf(false) }
+    var tab by remember { mutableStateOf(0) }
+    var playerControls by remember { mutableStateOf<CinemaxPlayerControls?>(null) }
+    var controlsVisible by remember { mutableStateOf(true) }
+    var hud by remember { mutableStateOf<String?>(null) }
+    var playbackSpeed by remember { mutableStateOf(1f) }
+    var subtitleDelayMs by remember { mutableStateOf(0L) }
+    var playerDurationMs by remember { mutableStateOf(0L) }
     val scope = rememberCoroutineScope()
     val addons = remember { mutableStateListOf<InstalledAddon>().apply { addAll(addonStore.load()) } }
     val catalogItems = remember { mutableStateListOf<StremioMetaPreview>() }
+    val searchResults = remember { mutableStateListOf<CatalogEntry>() }
     val availableCatalogs = remember { mutableStateListOf<com.cinemax.app.addons.StremioCatalog>() }
-    val streams = remember { mutableStateListOf<StremioStream>() }
+    val streamOptions = remember { mutableStateListOf<StreamOption>() }
     var activeAddon by remember { mutableStateOf(addons.lastOrNull()) }
     var selectedItem by remember { mutableStateOf<StremioMetaPreview?>(null) }
-    var selectedMeta by remember { mutableStateOf<com.cinemax.app.addons.StremioMeta?>(null) }
+    var selectedMeta by remember { mutableStateOf<StremioMeta?>(null) }
+    var selectedVideo by remember { mutableStateOf<StremioVideo?>(null) }
+    var activeSeason by remember { mutableStateOf<Int?>(null) }
+    var pendingVideoId by remember { mutableStateOf<String?>(null) }
+    var lastOpenedItemId by remember { mutableStateOf<String?>(null) }
+    var metaResolved by remember { mutableStateOf(false) }
     var activeCatalogType by remember { mutableStateOf<String?>(null) }
     var activeCatalogId by remember { mutableStateOf<String?>(null) }
     var activeCatalogSupportsSearch by remember { mutableStateOf(false) }
     var activeCatalogSupportsSkip by remember { mutableStateOf(false) }
-    var loadingMore by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var searching by remember { mutableStateOf(false) }
     var showAddDialog by remember { mutableStateOf(false) }
     var addonUrl by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("أضف إضافة Stremio متوافقة للبدء") }
     var loading by remember { mutableStateOf(false) }
+    var loadingMeta by remember { mutableStateOf(false) }
     var loadingStreams by remember { mutableStateOf(false) }
     var playbackUrl by remember { mutableStateOf<String?>(null) }
     var playingItem by remember { mutableStateOf<StremioMetaPreview?>(null) }
+    var playingVideo by remember { mutableStateOf<StremioVideo?>(null) }
+    var playingStream by remember { mutableStateOf<StreamOption?>(null) }
+    var autoplayQueued by remember { mutableStateOf(false) }
+    val subtitleOptions = remember { mutableStateListOf<SubtitleChoice>() }
+    var selectedSubtitleUrl by remember { mutableStateOf<String?>(null) }
+    var subtitleCues by remember { mutableStateOf<List<SubtitleCue>>(emptyList()) }
+    var subtitleBusy by remember { mutableStateOf(false) }
+    var showSubtitlePicker by remember { mutableStateOf(false) }
+    var playerPositionMs by remember { mutableStateOf(0L) }
+    var playerMessage by remember { mutableStateOf<String?>(null) }
+    val embeddedSubtitleTracks = remember { mutableStateListOf<EmbeddedSubtitleTrack>() }
+    var selectedEmbeddedTrackId by remember { mutableStateOf<Long?>(null) }
+    // Set once a subtitle choice was made, so a late track list cannot override it.
+    var userChoseSubtitle by remember { mutableStateOf(false) }
+    val addonSignature = addons.joinToString("|") { it.manifestUrl }
 
-    LaunchedEffect(selectedItem?.id, activeAddon?.id) {
+    // Metadata may come from any installed addon that declares the `meta`
+    // resource, and a series episode is chosen before its sources are requested.
+    LaunchedEffect(selectedItem?.id, pendingVideoId, addonSignature) {
         val item = selectedItem
-        val addon = activeAddon
-        if (item != null && addon != null) {
-            loadingStreams = true
-            streams.clear()
+        if (item == null) {
             selectedMeta = null
-            try {
-                selectedMeta = repository.loadMeta(addon.manifestUrl, item.type, item.id)
-                selectedMeta?.let { meta ->
-                    val index = favoriteItems.indexOfFirst { it.id == item.id }
-                    if (index >= 0) {
-                        favoriteItems[index] = item.copy(
-                            name = meta.name, poster = meta.poster ?: item.poster,
-                            background = meta.background ?: item.background,
-                            description = meta.description ?: item.description,
-                            releaseInfo = meta.releaseInfo ?: item.releaseInfo,
-                            imdbRating = meta.imdbRating ?: item.imdbRating
-                        )
-                        favoritesStore.save(favoriteItems.toList())
-                    }
+            metaResolved = false
+            selectedVideo = null
+            activeSeason = null
+            loadingMeta = false
+            return@LaunchedEffect
+        }
+        if (lastOpenedItemId != item.id) {
+            lastOpenedItemId = item.id
+            selectedVideo = null
+            activeSeason = null
+        }
+        metaResolved = false
+        loadingMeta = true
+        val meta = try {
+            metaFrom(repository, addons.toList(), item.type, item.id)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            status = "تعذر جلب تفاصيل العنصر: ${error.message ?: "خطأ غير معروف"}"
+            null
+        }
+        selectedMeta = meta
+        lastPlayedUrl = lastSourceStore.load(item.id)
+        val videos = meta?.videos.orEmpty()
+        val nextVideo = videos.firstOrNull { it.id == pendingVideoId }
+            ?: videos.firstOrNull { it.id == selectedVideo?.id }
+            ?: videos.firstOrNull()
+        if (nextVideo?.id != selectedVideo?.id) selectedVideo = nextVideo
+        if (nextVideo?.season != activeSeason) activeSeason = nextVideo?.season
+        if (meta != null) {
+            val index = favoriteItems.indexOfFirst { it.id == item.id }
+            if (index >= 0) {
+                favoriteItems[index] = item.copy(
+                    name = meta.name, poster = meta.poster ?: item.poster,
+                    background = meta.background ?: item.background,
+                    description = meta.description ?: item.description,
+                    releaseInfo = meta.releaseInfo ?: item.releaseInfo,
+                    imdbRating = meta.imdbRating ?: item.imdbRating
+                )
+                favoritesStore.save(favoriteItems.toList())
+            }
+        }
+        loadingMeta = false
+        metaResolved = true
+    }
+
+    // Sources are aggregated from every installed addon that serves streams for
+    // the item's type, so a catalog addon and a stream addon work together.
+    LaunchedEffect(selectedItem?.id, selectedVideo?.id, metaResolved, addonSignature, nuvioSignature) {
+        val item = selectedItem
+        if (item == null || !metaResolved) {
+            streamOptions.clear()
+            loadingStreams = false
+            return@LaunchedEffect
+        }
+        val videos = selectedMeta?.videos.orEmpty()
+        val episode = selectedVideo
+        if (videos.isNotEmpty() && episode == null) {
+            streamOptions.clear()
+            loadingStreams = false
+            status = "اختر حلقة لعرض مصادر المشاهدة"
+            return@LaunchedEffect
+        }
+        val mediaId = episode?.id ?: item.id
+        loadingStreams = true
+        streamOptions.clear()
+        try {
+            val stremioSources = streamsFrom(repository, addons.toList(), item.type, mediaId)
+            var failures: List<String> = emptyList()
+            val nuvioSources = if (nuvioProviders.isEmpty()) {
+                emptyList()
+            } else {
+                val tmdbRequest = try {
+                    tmdbResolver.request(item.id, item.type, episode?.season, episode?.episode)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Throwable) {
+                    null
                 }
-                streams.addAll(repository.loadStreams(addon.manifestUrl, item.type, item.id))
+                if (tmdbRequest == null) {
+                    failures = listOf("TMDB: تعذر تحويل معرّف العنصر (أضف مفتاح TMDB من الإعدادات)")
+                    emptyList()
+                } else {
+                    val report = nuvioSourcesFrom(nuvioClient, nuvioRuntime, nuvioProviders, tmdbRequest)
+                    failures = report.failures
+                    report.streams
+                }
+            }
+            providerIssues = failures
+            val found = stremioSources + nuvioSources
+            streamOptions.addAll(found)
+            if (autoplayQueued) {
+                autoplayQueued = false
+                val auto = streamOptions.firstOrNull { option ->
+                    option.stream.url?.let { com.cinemax.app.addons.StremioAddonClient.isSafeMediaUrl(it) } == true
+                }
+                val autoUrl = auto?.stream?.url
+                val autoItem = selectedItem
+                if (autoUrl != null && autoItem != null) {
+                    val meta = selectedMeta
+                    playingItem = autoItem.copy(
+                        name = meta?.name ?: autoItem.name,
+                        poster = meta?.poster ?: autoItem.poster,
+                        background = meta?.background ?: autoItem.background,
+                        description = meta?.description ?: autoItem.description,
+                        releaseInfo = meta?.releaseInfo ?: autoItem.releaseInfo,
+                        imdbRating = meta?.imdbRating ?: autoItem.imdbRating
+                    )
+                    playingVideo = selectedVideo
+                    playingStream = auto
+                    playbackUrl = autoUrl
+                }
+            }
+            status = if (found.isEmpty()) {
+                val queriedAddons = addons.count { AddonCapabilities.supports(it, "stream", item.type) }
+                val nuvioType = NuvioMediaIds.mediaType(item.type)
+                val queriedProviders = nuvioProviders.count { it.supportsType(nuvioType) }
+                "لا نتائج: $queriedAddons إضافة و$queriedProviders مصدر Nuvio لم تُرجع روابط"
+            } else "المصادر: ${found.size}"
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            status = "تعذر جلب المصادر: ${error.message ?: "خطأ غير معروف"}"
+        } finally {
+            loadingStreams = false
+        }
+    }
+
+    fun applySubtitle(choice: SubtitleChoice?) {
+        // An addon subtitle replaces the file's own track, and the other way round.
+        selectedEmbeddedTrackId = null
+        userChoseSubtitle = true
+        if (choice == null) {
+            selectedSubtitleUrl = null
+            subtitleCues = emptyList()
+            return
+        }
+        subtitleBusy = true
+        scope.launch {
+            try {
+                val response = nuvioHttp.get(choice.url)
+                if (response.status.value !in 200..299) {
+                    throw IllegalStateException("HTTP ${response.status.value}")
+                }
+                val cues = parseSubtitles(response.bodyAsText())
+                subtitleCues = cues
+                selectedSubtitleUrl = choice.url
+                if (cues.isEmpty()) status = "ملف الترجمة فارغ أو غير مدعوم"
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
-                status = "تعذر جلب تفاصيل العنصر أو مصادره: ${error.message ?: "خطأ غير معروف"}"
+                status = "تعذر تحميل الترجمة: ${error.message ?: "خطأ غير معروف"}"
             } finally {
-                loadingStreams = false
+                subtitleBusy = false
             }
-        } else {
-            streams.clear()
-            selectedMeta = null
-            loadingStreams = false
+        }
+    }
+
+    /** Loads the first few catalogs of an addon so home shows more than one shelf. */
+    fun loadHomeShelves(addon: InstalledAddon, manifest: StremioManifest) {
+        scope.launch {
+            val shelves = coroutineScope {
+                manifest.catalogs.take(MAX_HOME_SHELVES).map { catalog ->
+                    async {
+                        val items = try {
+                            repository.loadCatalog(addon.manifestUrl, catalog.type, catalog.id)
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (_: Throwable) {
+                            emptyList()
+                        }
+                        if (items.isEmpty()) null else CinemaxShelf(catalog.name ?: catalog.id, items)
+                    }
+                }.awaitAll().filterNotNull()
+            }
+            homeShelves.clear()
+            homeShelves.addAll(shelves)
+        }
+    }
+
+    // Subtitle lists come from the chosen stream and from every subtitle addon,
+    // then the preferred language is applied automatically.
+    LaunchedEffect(playbackUrl, playingStream, selectedItem?.id, selectedVideo?.id) {
+        subtitleOptions.clear()
+        selectedSubtitleUrl = null
+        subtitleCues = emptyList()
+        embeddedSubtitleTracks.clear()
+        selectedEmbeddedTrackId = null
+        userChoseSubtitle = false
+        playerPositionMs = 0L
+        playerDurationMs = 0L
+        playerMessage = null
+        playerControls = null
+        controlsVisible = true
+        playbackSpeed = 1f
+        subtitleDelayMs = 0L
+        hud = null
+        val stream = playingStream ?: return@LaunchedEffect
+        val item = selectedItem ?: return@LaunchedEffect
+        val collected = mutableListOf<SubtitleChoice>()
+        stream.stream.subtitles.forEach { subtitle ->
+            collected.add(
+                SubtitleChoice(subtitle.lang, subtitle.label ?: subtitle.lang, stream.addonName, subtitle.url)
+            )
+        }
+        val mediaId = selectedVideo?.id ?: item.id
+        val hints = stream.stream.behaviorHints
+        val extra = mutableMapOf<String, String>()
+        hints.videoHash?.let { extra["videoHash"] = it }
+        hints.videoSize?.let { extra["videoSize"] = it.toString() }
+        subtitleBusy = true
+        try {
+            addons
+                .filter { AddonCapabilities.supports(it, "subtitles", item.type) }
+                .forEach { addon ->
+                    val found = try {
+                        repository.loadSubtitles(addon.manifestUrl, item.type, mediaId, extra)
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: Throwable) {
+                        emptyList()
+                    }
+                    found.forEach { subtitle ->
+                        collected.add(
+                            SubtitleChoice(subtitle.lang, subtitle.label ?: subtitle.lang, addon.name, subtitle.url)
+                        )
+                    }
+                }
+        } finally {
+            subtitleBusy = false
+        }
+        subtitleOptions.addAll(collected.distinctBy { it.url })
+        val preferred = preferences.preferredSubtitleLanguage
+        if (preferred != "off") {
+            val index = languageIndex(subtitleOptions.map { it.lang }, preferred)
+            if (index != null) applySubtitle(subtitleOptions[index])
+        }
+    }
+
+    // The heads-up text a native gesture produces fades out on its own.
+    LaunchedEffect(hud) {
+        if (hud != null) {
+            delay(1400)
+            hud = null
+        }
+    }
+
+    // The player chrome gets out of the way while the video plays. The system
+    // player handles its own gestures, so the chrome stays as the way out.
+    LaunchedEffect(controlsVisible, playbackUrl, preferences.preferredPlayer) {
+        if (controlsVisible && playbackUrl != null && preferences.preferredPlayer != "system") {
+            delay(4000)
+            controlsVisible = false
         }
     }
 
@@ -113,15 +473,33 @@ fun App() {
             loading = true
             try {
                 val manifest = repository.loadManifest(restoredAddon.manifestUrl)
+                val refreshed = restoredAddon.copy(
+                    name = manifest.name,
+                    version = manifest.version,
+                    description = manifest.description,
+                    resources = manifest.resourceNames().toList(),
+                    types = manifest.types,
+                    idPrefixes = manifest.idPrefixes,
+                    catalogs = manifest.catalogs
+                )
+                if (refreshed != restoredAddon) {
+                    val index = addons.indexOfFirst { it.id == restoredAddon.id }
+                    if (index >= 0) {
+                        addons[index] = refreshed
+                        addonStore.save(addons.toList())
+                    }
+                    activeAddon = refreshed
+                }
                 availableCatalogs.clear()
                 availableCatalogs.addAll(manifest.catalogs)
                 val catalog = manifest.catalogs.firstOrNull()
                 if (catalog != null) {
                     activeCatalogType = catalog.type
                     activeCatalogId = catalog.id
-                    activeCatalogSupportsSearch = catalog.extra.any { it.name == "search" }
-                    activeCatalogSupportsSkip = catalog.extra.any { it.name == "skip" }
+                    activeCatalogSupportsSearch = catalog.supportsExtra("search")
+                    activeCatalogSupportsSkip = catalog.supportsExtra("skip")
                     catalogItems.addAll(repository.loadCatalog(restoredAddon.manifestUrl, catalog.type, catalog.id))
+                    loadHomeShelves(refreshed, manifest)
                     status = "تم استعادة ${restoredAddon.name} • ${catalogItems.size} عنصرًا"
                 } else {
                     status = "تم استعادة ${restoredAddon.name}؛ لا يوجد كتالوج معلن."
@@ -135,14 +513,69 @@ fun App() {
         }
     }
 
+    // Refresh the stored capability and catalog descriptors of the other addons,
+    // so cross-addon search works for addons installed before those fields existed.
+    LaunchedEffect(Unit) {
+        val stored = addons.toList().filter { it.id != activeAddon?.id }
+        var changed = false
+        for (addon in stored) {
+            val manifest = try {
+                repository.loadManifest(addon.manifestUrl)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Throwable) {
+                continue
+            }
+            val refreshed = addon.copy(
+                name = manifest.name,
+                version = manifest.version,
+                description = manifest.description,
+                resources = manifest.resourceNames().toList(),
+                types = manifest.types,
+                idPrefixes = manifest.idPrefixes,
+                catalogs = manifest.catalogs
+            )
+            if (refreshed != addon) {
+                val index = addons.indexOfFirst { it.id == addon.id }
+                if (index >= 0) {
+                    addons[index] = refreshed
+                    changed = true
+                }
+            }
+        }
+        if (changed) addonStore.save(addons.toList())
+
+        // Refresh the installed Nuvio repositories at launch so provider names,
+        // versions and script file names stay current without re-adding them.
+        var repositoriesChanged = false
+        for (installed in nuvioRepositories.toList()) {
+            val refreshed = try {
+                nuvioClient.loadRepository(installed.manifestUrl)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Throwable) {
+                continue
+            }
+            if (refreshed.name != installed.name || refreshed.scrapers.size != installed.scrapers.size) {
+                val index = nuvioRepositories.indexOfFirst { it.manifestUrl == installed.manifestUrl }
+                if (index >= 0) {
+                    nuvioRepositories[index] = refreshed
+                    repositoriesChanged = true
+                }
+            }
+        }
+        if (repositoriesChanged) nuvioStore.saveRepositories(nuvioRepositories.toList())
+    }
+
     fun selectAddon(addon: InstalledAddon) {
         if (activeAddon?.id == addon.id) return
         activeAddon = addon
         catalogItems.clear()
         selectedItem = null
         playbackUrl = null
-        streams.clear()
+        streamOptions.clear()
         searchQuery = ""
+        searchResults.clear()
         loading = true
         scope.launch {
             try {
@@ -159,10 +592,11 @@ fun App() {
                 } else {
                     activeCatalogType = catalog.type
                     activeCatalogId = catalog.id
-                    activeCatalogSupportsSearch = catalog.extra.any { it.name == "search" }
-                    activeCatalogSupportsSkip = catalog.extra.any { it.name == "skip" }
+                    activeCatalogSupportsSearch = catalog.supportsExtra("search")
+                    activeCatalogSupportsSkip = catalog.supportsExtra("skip")
                     val loaded = repository.loadCatalog(addon.manifestUrl, catalog.type, catalog.id)
                     catalogItems.addAll(loaded)
+                    loadHomeShelves(addon, manifest)
                     status = "المصدر النشط: ${addon.name} • ${loaded.size} عنصرًا"
                 }
             } catch (error: Throwable) {
@@ -174,6 +608,52 @@ fun App() {
         }
     }
 
+    /** "فيلم الليلة": a random title from the library that is not in progress. */
+    fun pickTonight() {
+        val inProgress = watchProgressItems.map { it.key }.toSet()
+        val everything = (favoriteItems + catalogItems).distinctBy { it.id }
+        val notStarted = everything.filter { it.id !in inProgress }
+        val pool = notStarted.ifEmpty { everything }
+        tonightPick = if (pool.isEmpty()) null else pool[Random.nextInt(pool.size)]
+    }
+
+    LaunchedEffect(catalogItems.size, favoriteItems.size, watchProgressItems.size) {
+        val pool = (favoriteItems + catalogItems).distinctBy { it.id }
+        val current = tonightPick
+        if (pool.isEmpty()) {
+            tonightPick = null
+        } else if (current == null || pool.none { it.id == current.id }) {
+            pickTonight()
+        }
+    }
+
+    /** Opens the player for a source the user picked in the detail screen. */
+    fun startPlayback(option: StreamOption, mediaUrl: String) {
+        val item = selectedItem ?: return
+        lastSourceStore.save(item.id, mediaUrl)
+        lastPlayedUrl = mediaUrl
+        val meta = selectedMeta
+        playingItem = item.copy(
+            name = meta?.name ?: item.name,
+            poster = meta?.poster ?: item.poster,
+            background = meta?.background ?: item.background,
+            description = meta?.description ?: item.description,
+            releaseInfo = meta?.releaseInfo ?: item.releaseInfo,
+            imdbRating = meta?.imdbRating ?: item.imdbRating
+        )
+        playingVideo = selectedVideo
+        playingStream = option
+        playerMessage = if (isNativeFullFormatPlayerAvailable()) {
+            null
+        } else {
+            unsupportedVideoContainer(mediaUrl, option.stream.behaviorHints.filename)?.let { ext ->
+                "صيغة ${ext.uppercase()} لا يعمل بها مشغل النظام. اختر مشغل MPV من الإعدادات أو مصدرًا MP4 أو HLS."
+            }
+        }
+        playbackUrl = mediaUrl
+    }
+
+
     val appAccent = when (preferences.accent) {
         "Blue" -> Color(0xFF22A7F0)
         "Rose" -> Color(0xFFEC4899)
@@ -182,302 +662,363 @@ fun App() {
         else -> Accent
     }
     val appBackground = if (preferences.oledBlack) Color.Black else Ink
+    val shelves = if (homeShelves.isNotEmpty()) {
+        homeShelves.toList()
+    } else buildList {
+        if (catalogItems.isNotEmpty()) {
+            val title = availableCatalogs
+                .firstOrNull { it.type == activeCatalogType && it.id == activeCatalogId }
+                ?.name
+                ?: "الأكثر شعبية"
+            add(CinemaxShelf(title, catalogItems.toList()))
+        }
+        if (favoriteItems.isNotEmpty()) add(CinemaxShelf("قائمتي", favoriteItems.toList()))
+    }
+    val activeSubtitleLabel = embeddedSubtitleTracks.firstOrNull { it.id == selectedEmbeddedTrackId }
+        ?.let { embeddedSubtitleLabel(it) }
+        ?: subtitleOptions.firstOrNull { it.url == selectedSubtitleUrl }?.label
+
     MaterialTheme(colorScheme = darkColorScheme(
         background = appBackground, surface = Panel, primary = appAccent,
         onBackground = Color.White, onSurface = Color.White
     )) {
-        Column(Modifier.fillMaxSize().background(appBackground).padding(horizontal = 18.dp, vertical = 16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("CINEMAX", fontSize = 25.sp, fontWeight = FontWeight.Black, color = Color.White)
-                Spacer(Modifier.weight(1f))
-                Text("AR  /  EN", color = Color.LightGray, fontSize = 12.sp)
-                Spacer(Modifier.width(10.dp))
-                IconButton(onClick = { showSettings = true }) { Text("⚙", color = appAccent, fontSize = 24.sp) }
-            }
-            Spacer(Modifier.height(26.dp))
-            Text("ليلتك تبدأ هنا", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
-            Text("مكتبتك السينمائية من مصادرك المفضلة", color = Color.LightGray)
-            Spacer(Modifier.height(10.dp))
-            Text("أفلام  •  مسلسلات  •  اكتشف", color = appAccent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(20.dp))
-            Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
-                Column(Modifier.fillMaxWidth().padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("مصادرك وإضافاتك", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.weight(1f))
-                        TextButton(onClick = { showAddDialog = true }) { Text("＋ إضافة") }
-                    }
-                    Text(status, color = Color.LightGray, fontSize = 13.sp)
-                    if (loading) {
-                        Spacer(Modifier.height(10.dp))
-                        LinearProgressIndicator(Modifier.fillMaxWidth())
-                    }
-                    addons.forEach { addon ->
-                        Spacer(Modifier.height(8.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            FilterChip(
-                                selected = activeAddon?.id == addon.id,
-                                onClick = { selectAddon(addon) },
-                                label = { Text("${addon.name} • ${addon.version}") }
-                            )
-                            Spacer(Modifier.weight(1f))
-                            TextButton(onClick = {
-                                addons.remove(addon)
-                                addonStore.save(addons.toList())
-                                if (activeAddon?.id == addon.id) {
-                                    activeAddon = null
-                                    catalogItems.clear()
-                                    selectedItem = null
-                                    activeCatalogType = null
-                                    activeCatalogId = null
-                                    activeCatalogSupportsSearch = false
-                                    activeCatalogSupportsSkip = false
-                                    addons.lastOrNull()?.let { selectAddon(it) }
-                                }
-                                status = "تم تحديث قائمة الإضافات"
-                            }) { Text("إزالة") }
-                        }
-                    }
-                }
-            }
-            Spacer(Modifier.height(18.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("اكتشف", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.weight(1f))
-                FilterChip(selected = !showFavoritesOnly, onClick = { showFavoritesOnly = false }, label = { Text("الكل") })
-                Spacer(Modifier.width(6.dp))
-                FilterChip(selected = showFavoritesOnly, onClick = { showFavoritesOnly = true }, label = { Text("قائمتي ★") })
-            }
-            if (watchProgressItems.isNotEmpty()) {
-                Spacer(Modifier.height(12.dp))
-                Text("تابع المشاهدة", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(8.dp))
-                Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    watchProgressItems.forEach { progress ->
-                        Card(modifier = Modifier.width(142.dp).clickable { selectedItem = progress.item }, colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(14.dp)) {
-                            Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                AsyncImage(model = progress.item.poster, contentDescription = progress.item.name, modifier = Modifier.fillMaxWidth().height(82.dp).background(Color(0xFF25283A), RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop)
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(progress.item.name, color = Color.White, fontSize = 12.sp, maxLines = 1, modifier = Modifier.weight(1f))
-                                    TextButton(
-                                        onClick = {
-                                            watchProgressStore.remove(progress.item.id)
-                                            watchProgressItems.removeAll { it.item.id == progress.item.id }
-                                        },
-                                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
-                                    ) { Text("×", color = Color.LightGray, fontSize = 16.sp) }
-                                }
-                                LinearProgressIndicator(progress = { progress.progressFraction }, modifier = Modifier.fillMaxWidth())
-                                Text("متبقي " + ((progress.durationMillis - progress.positionMillis).coerceAtLeast(0L) / 60_000L) + " دقيقة تقريبًا", color = Color.LightGray, fontSize = 10.sp)
-                            }
-                        }
-                    }
-                }
-            }
-            if (availableCatalogs.isNotEmpty()) {
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    availableCatalogs.forEach { catalog ->
-                        FilterChip(
-                            selected = activeCatalogType == catalog.type && activeCatalogId == catalog.id,
-                            onClick = {
-                                val addon = activeAddon ?: return@FilterChip
-                                selectedItem = null
-                                playbackUrl = null
-                                activeCatalogType = catalog.type
-                                activeCatalogId = catalog.id
-                                activeCatalogSupportsSearch = catalog.extra.any { it.name == "search" }
-                                activeCatalogSupportsSkip = catalog.extra.any { it.name == "skip" }
-                                searchQuery = ""
-                                catalogItems.clear()
-                                loading = true
-                                scope.launch {
-                                    try {
-                                        val items = repository.loadCatalog(addon.manifestUrl, catalog.type, catalog.id)
-                                        catalogItems.addAll(items)
-                                        status = "تم تحميل ${catalog.name ?: catalog.id} • ${items.size} عنصرًا"
-                                    } catch (error: Throwable) {
-                                        if (error is CancellationException) throw error
-                                        status = "تعذر تحميل الكتالوج: ${error.message ?: "خطأ غير معروف"}"
-                                    } finally {
-                                        loading = false
-                                    }
-                                }
-                            },
-                            label = { Text(catalog.name ?: catalog.id) }
-                        )
-                    }
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-            if (activeAddon != null && activeCatalogType != null && activeCatalogId != null && activeCatalogSupportsSearch) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        modifier = Modifier.weight(1f),
-                        singleLine = true,
-                        label = { Text("ابحث في هذا المصدر") }
-                    )
-                    Button(
-                        enabled = searchQuery.isNotBlank() && !searching && !loading,
-                        onClick = {
-                            val addon = activeAddon ?: return@Button
-                            val type = activeCatalogType ?: return@Button
-                            val catalogId = activeCatalogId ?: return@Button
+        Box(Modifier.fillMaxSize().background(appBackground)) {
+            when (tab) {
+                0 -> CinemaxHomeScreen(
+                    heroItems = (catalogItems.toList().ifEmpty { favoriteItems.toList() }).take(6),
+                    shelves = shelves,
+                    continueWatching = watchProgressItems.toList(),
+                    loading = loading || loadingMeta,
+                    status = status,
+                    accent = appAccent,
+                    background = appBackground,
+                    onOpenItem = { item ->
+                        pendingVideoId = null
+                        selectedItem = item
+                    },
+                    onResume = { progress ->
+                        pendingVideoId = progress.videoId
+                        selectedItem = progress.item
+                    },
+                    onRemoveProgress = { progress ->
+                        watchProgressStore.remove(progress.key)
+                        watchProgressItems.removeAll { it.key == progress.key }
+                    },
+                    onAddAddon = { showAddDialog = true },
+                    onNuvio = { showNuvioDialog = true },
+                    versionLabel = appVersionLabel(),
+                    tonightPick = tonightPick,
+                    onShuffleTonight = { pickTonight() }
+                )
+                1 -> CinemaxSearchScreen(
+                    query = searchQuery,
+                    onQuery = { searchQuery = it },
+                    searching = searching,
+                    results = searchResults.toList(),
+                    status = status,
+                    accent = appAccent,
+                    onSearch = {
+                        val type = searchType
+                        if (searchQuery.isNotBlank() && !searching) {
                             searching = true
                             scope.launch {
                                 try {
-                                    val results = repository.searchCatalog(
-                                        addon.manifestUrl, type, catalogId, searchQuery
-                                    )
-                                    catalogItems.clear()
-                                    catalogItems.addAll(results)
-                                    status = "نتائج البحث: ${results.size}"
+                                    val results = searchAllAddons(repository, addons.toList(), type, searchQuery)
+                                    searchHistoryStore.add(searchQuery)
+                                    searchHistory = searchHistoryStore.load()
+                                    searchResults.clear()
+                                    searchResults.addAll(results)
+                                    val addonCount = results.map { it.addonName }.distinct().size
+                                    status = if (results.isEmpty()) "لا نتائج في إضافاتك"
+                                    else "نتائج البحث: ${results.size} من $addonCount إضافة"
                                 } catch (error: Throwable) {
+                                    if (error is CancellationException) throw error
                                     status = "تعذر البحث: ${error.message ?: "خطأ غير معروف"}"
                                 } finally {
                                     searching = false
                                 }
                             }
                         }
-                    ) { Text("بحث") }
-                }
-                if (searching) {
-                    LinearProgressIndicator(Modifier.fillMaxWidth())
-                }
-                Spacer(Modifier.height(8.dp))
+                    },
+                    onClear = {
+                        searchQuery = ""
+                        searchResults.clear()
+                    },
+                    history = searchHistory,
+                    onPickHistory = { entry ->
+                        searchQuery = entry
+                        searchResults.clear()
+                    },
+                    onClearHistory = {
+                        searchHistoryStore.clear()
+                        searchHistory = emptyList()
+                    },
+                    canSearch = addons.any { AddonCapabilities.supports(it, "catalog", searchType) },
+                    type = searchType,
+                    onType = { value ->
+                        searchType = value
+                        searchResults.clear()
+                    },
+                    onOpenItem = { item ->
+                        pendingVideoId = null
+                        selectedItem = item
+                    }
+                )
+                2 -> CinemaxLibraryScreen(
+                    favorites = favoriteItems.toList(),
+                    continueWatching = watchProgressItems.toList(),
+                    filter = libraryFilter,
+                    accent = appAccent,
+                    onFilter = { libraryFilter = it },
+                    onOpenItem = { item ->
+                        pendingVideoId = null
+                        selectedItem = item
+                    },
+                    onResume = { progress ->
+                        pendingVideoId = progress.videoId
+                        selectedItem = progress.item
+                    },
+                    onRemoveProgress = { progress ->
+                        watchProgressStore.remove(progress.key)
+                        watchProgressItems.removeAll { it.key == progress.key }
+                    }
+                )
+                else -> CinemaxSettingsScreen(
+                    preferences = preferences,
+                    onPreferences = { updated ->
+                        preferences = updated
+                        preferencesStore.save(updated)
+                    },
+                    addons = addons.toList(),
+                    activeAddonId = activeAddon?.id,
+                    onSelectAddon = { addon -> selectAddon(addon) },
+                    onRemoveAddon = { addon ->
+                        addons.remove(addon)
+                        addonStore.save(addons.toList())
+                        if (activeAddon?.id == addon.id) {
+                            activeAddon = null
+                            catalogItems.clear()
+                            homeShelves.clear()
+                            searchResults.clear()
+                            selectedItem = null
+                            activeCatalogType = null
+                            activeCatalogId = null
+                            activeCatalogSupportsSearch = false
+                            activeCatalogSupportsSkip = false
+                            addons.lastOrNull()?.let { selectAddon(it) }
+                        }
+                        status = "تم تحديث قائمة الإضافات"
+                    },
+                    onAddAddon = { showAddDialog = true },
+                    onNuvio = { showNuvioDialog = true },
+                    tmdbKey = tmdbKey,
+                    onTmdbKey = { value ->
+                        tmdbKey = value
+                        nuvioStore.saveTmdbApiKey(value)
+                    },
+                    nuvioRepositoryCount = nuvioRepositories.size,
+                    nuvioProviderCount = nuvioProviders.size,
+                    status = status,
+                    versionLabel = appVersionLabel(),
+                    accent = appAccent,
+                    onOpenRoadmap = { showRoadmap = true }
+                )
             }
-            val visibleItems = if (showFavoritesOnly) favoriteItems.toList() else catalogItems.toList()
-            if (visibleItems.isEmpty()) {
-                Text(if (showFavoritesOnly) "قائمتك فارغة حاليًا. افتح تفاصيل أي عنوان وأضفه إلى قائمتك." else "ستظهر عناصر الكتالوج هنا بعد تثبيت إضافة توفر كتالوجًا.", color = Color.LightGray, fontSize = 13.sp)
-            } else {
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(visibleItems) { item ->
-                        Card(
-                            modifier = Modifier.fillMaxWidth().clickable {
-                                selectedItem = item
-                            },
-                            colors = CardDefaults.cardColors(containerColor = Panel)
-                        ) {
-                            Row(Modifier.fillMaxWidth().padding(if (preferences.compactCards) 8.dp else 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                AsyncImage(
-                                    model = item.poster,
-                                    contentDescription = "ملصق ${item.name}",
-                                    modifier = Modifier.width(if (preferences.compactCards) 64.dp else 88.dp)
-                                        .height(if (preferences.compactCards) 94.dp else 128.dp)
-                                        .background(Color(0xFF25283A), RoundedCornerShape(10.dp)),
-                                    contentScale = ContentScale.Crop
+
+            if (playbackUrl == null) {
+                selectedItem?.let { item ->
+                    val resumeProgress = watchProgressItems.firstOrNull { it.item.id == item.id }
+                    CinemaxDetailScreen(
+                        item = item,
+                        meta = selectedMeta,
+                        loadingMeta = loadingMeta,
+                        sources = streamOptions.toList(),
+                        loadingSources = loadingStreams,
+                        sourcesMessage = status,
+                        selectedVideo = selectedVideo,
+                        activeSeason = activeSeason,
+                        isFavorite = item.id in favoriteIds,
+                        accent = appAccent,
+                        background = appBackground,
+                        lastPlayedUrl = lastPlayedUrl,
+                        providerIssues = providerIssues,
+                        resumeLabel = resumeProgress?.let { "من ${formatClock(it.positionMillis)}" },
+                        onToggleFavorite = {
+                            hapticTap()
+                            if (item.id in favoriteIds) {
+                                favoriteItems.removeAll { it.id == item.id }
+                            } else {
+                                val meta = selectedMeta
+                                val saved = item.copy(
+                                    name = meta?.name ?: item.name,
+                                    poster = meta?.poster ?: item.poster,
+                                    background = meta?.background ?: item.background,
+                                    description = meta?.description ?: item.description,
+                                    releaseInfo = meta?.releaseInfo ?: item.releaseInfo,
+                                    imdbRating = meta?.imdbRating ?: item.imdbRating
                                 )
-                                Column(Modifier.weight(1f).align(Alignment.CenterVertically)) {
-                                    Text(item.name, color = Color.White, fontWeight = FontWeight.SemiBold)
-                                    item.releaseInfo?.let { Text(it, color = Color.LightGray, fontSize = 12.sp) }
-                                    item.imdbRating?.let { Text("★ $it", color = Color(0xFFFFC857), fontSize = 12.sp) }
-                                    item.description?.takeIf { it.isNotBlank() }?.let {
-                                        Spacer(Modifier.height(4.dp))
-                                        Text(it, color = Color.LightGray, fontSize = 12.sp, maxLines = 3)
-                                    }
-                                    Spacer(Modifier.height(6.dp))
-                                    Text("اضغط لعرض التفاصيل والمصادر", color = appAccent, fontSize = 12.sp)
-                                }
+                                favoriteItems.removeAll { it.id == item.id }
+                                favoriteItems.add(saved)
                             }
+                            favoritesStore.save(favoriteItems.toList())
+                        },
+                        onSelectVideo = { video ->
+                            selectedVideo = video
+                            autoplayQueued = false
+                        },
+                        onSeason = { season ->
+                            activeSeason = season
+                            selectedMeta?.videos?.firstOrNull { it.season == season }
+                                ?.let { first -> selectedVideo = first }
+                        },
+                        onPlay = { option ->
+                            option.stream.url?.let { url -> startPlayback(option, url) }
+                        },
+                        onBack = { selectedItem = null }
+                    )
+                }
+            }
+
+            playbackUrl?.let { mediaUrl ->
+                val upcomingEpisode = nextEpisode(playingVideo, selectedMeta?.videos.orEmpty())
+                val nearEnd = playerDurationMs > 0L && playerPositionMs > playerDurationMs - 45_000L
+                CinemaxPlayerScreen(
+                    title = playingItem?.name ?: "CINEMAX",
+                    episodeLabelText = playingVideo?.let { episodeLabel(it) },
+                    subtitleLabel = activeSubtitleLabel,
+                    accent = appAccent,
+                    message = playerMessage,
+                    controlsVisible = controlsVisible,
+                    hud = hud,
+                    positionMs = playerPositionMs,
+                    durationMs = playerDurationMs,
+                    onSeek = { target -> playerControls?.seekTo(target) },
+                    speed = playbackSpeed,
+                    onSpeed = { speed ->
+                        playbackSpeed = speed
+                        playerControls?.setSpeed(speed)
+                    },
+                    nextEpisodeLabel = if (nearEnd) upcomingEpisode?.let { episodeLabel(it) } else null,
+                    onNextEpisode = if (nearEnd && upcomingEpisode != null) {
+                        {
+                            autoplayQueued = true
+                            playbackUrl = null
+                            playingItem = null
+                            playingVideo = null
+                            playingStream = null
+                            selectedVideo = upcomingEpisode
+                            activeSeason = upcomingEpisode.season
                         }
-                    }
-                    if (activeCatalogSupportsSkip) {
-                        item {
-                            Button(
-                                enabled = !loadingMore && !loading && catalogItems.isNotEmpty(),
-                                modifier = Modifier.fillMaxWidth(),
-                                onClick = {
-                                    val addon = activeAddon ?: return@Button
-                                    val type = activeCatalogType ?: return@Button
-                                    val catalogId = activeCatalogId ?: return@Button
-                                    loadingMore = true
-                                    scope.launch {
-                                        try {
-                                            val nextPage = if (searchQuery.isNotBlank() && activeCatalogSupportsSearch) {
-                                                repository.searchCatalog(
-                                                    addon.manifestUrl, type, catalogId,
-                                                    searchQuery, skip = catalogItems.size
-                                                )
-                                            } else {
-                                                repository.loadCatalog(
-                                                    addon.manifestUrl, type, catalogId,
-                                                    extra = mapOf("skip" to catalogItems.size.toString())
-                                                )
-                                            }
-                                            catalogItems.addAll(nextPage)
-                                            status = "تم تحميل ${nextPage.size} عنصر إضافي"
-                                        } catch (error: Throwable) {
-                                            status = "تعذر تحميل المزيد: ${error.message ?: "خطأ غير معروف"}"
-                                        } finally {
-                                            loadingMore = false
-                                        }
+                    } else null,
+                    onClose = {
+                        playbackUrl = null
+                        playingItem = null
+                        playingVideo = null
+                        playingStream = null
+                        showSubtitlePicker = false
+                    },
+                    onSubtitles = { showSubtitlePicker = true }
+                ) {
+                    Box(Modifier.fillMaxSize()) {
+                        NativeVideoPlayer(
+                            url = mediaUrl,
+                            modifier = Modifier.fillMaxSize(),
+                            initialPositionMillis = playingItem?.let { item ->
+                                val key = playingVideo?.id ?: item.id
+                                watchProgressItems.firstOrNull { it.key == key }?.positionMillis ?: 0L
+                            } ?: 0L,
+                            preferredSubtitleLanguage = preferences.preferredSubtitleLanguage.takeIf { it != "off" },
+                            preferredAudioLanguage = preferences.preferredAudioLanguage.takeIf { it != "device" },
+                            embeddedSubtitleTrackId = selectedEmbeddedTrackId,
+                            useSystemPlayer = preferences.preferredPlayer == "system",
+                            onEmbeddedSubtitleTracks = { tracks ->
+                                if (tracks != embeddedSubtitleTracks.toList()) {
+                                    embeddedSubtitleTracks.clear()
+                                    embeddedSubtitleTracks.addAll(tracks)
+                                }
+                                if (!userChoseSubtitle && selectedSubtitleUrl == null &&
+                                    selectedEmbeddedTrackId == null
+                                ) {
+                                    val preferred = preferences.preferredSubtitleLanguage
+                                    if (preferred != "off") {
+                                        val index = languageIndex(tracks.map { it.language }, preferred)
+                                        if (index != null) selectedEmbeddedTrackId = tracks[index].id
                                     }
                                 }
-                            ) {
-                                if (loadingMore) CircularProgressIndicator()
-                                else Text("تحميل المزيد")
-                            }
+                            },
+                            httpHeaders = playingStream?.stream?.behaviorHints?.proxyHeaders?.request.orEmpty(),
+                            onProgress = { positionMillis, durationMillis ->
+                                playerDurationMs = durationMillis
+                                val item = playingItem
+                                if (item != null && preferences.rememberPlaybackPosition) {
+                                    val progress = WatchProgress(
+                                        item = item,
+                                        positionMillis = positionMillis,
+                                        durationMillis = durationMillis,
+                                        updatedAtEpochMillis = Clock.System.now().toEpochMilliseconds(),
+                                        videoId = playingVideo?.id,
+                                        videoLabel = playingVideo?.let { episodeLabel(it) }
+                                    )
+                                    watchProgressStore.save(progress)
+                                    watchProgressItems.removeAll { it.key == progress.key }
+                                    if (positionMillis < durationMillis - 15_000L) watchProgressItems.add(0, progress)
+                                }
+                            },
+                            onPosition = { playerPositionMs = it },
+                            onEnded = {
+                                val next = if (preferences.autoplayNextEpisode) {
+                                    nextEpisode(playingVideo, selectedMeta?.videos.orEmpty())
+                                } else null
+                                if (next != null) {
+                                    autoplayQueued = true
+                                    playbackUrl = null
+                                    playingItem = null
+                                    playingVideo = null
+                                    playingStream = null
+                                    selectedVideo = next
+                                    activeSeason = next.season
+                                    status = "الحلقة التالية: ${episodeLabel(next)}"
+                                }
+                            },
+                            onError = { playerMessage = it },
+                            onControlsReady = { playerControls = it },
+                            onGestureTap = {
+                                controlsVisible = !controlsVisible
+                                hapticTap()
+                            },
+                            onGestureHud = { message -> hud = message }
+                        )
+                        val cue = activeCue(
+                            subtitleCues,
+                            (playerPositionMs - subtitleDelayMs).coerceAtLeast(0L)
+                        )
+                        if (cue != null) {
+                            Text(
+                                cue,
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .padding(start = 12.dp, end = 12.dp, bottom = 44.dp)
+                                    .background(Color(0xCC000000), RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
                         }
                     }
                 }
             }
-        }
 
-
-        if (showSettings) {
-            AlertDialog(
-                onDismissRequest = { showSettings = false },
-                title = { Column { Text("إعدادات CINEMAX", fontWeight = FontWeight.Bold); Text("خصص تجربة المشاهدة كما تحب", fontSize = 12.sp, color = Color.Gray) } },
-                text = {
-                    Column(modifier = Modifier.fillMaxWidth().heightIn(max = 520.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("المظهر", color = appAccent, fontWeight = FontWeight.Bold)
-                        Text("لون التطبيق", fontSize = 13.sp)
-                        Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            listOf("Violet", "Blue", "Rose", "Emerald", "Amber").forEach { tone ->
-                                FilterChip(selected = preferences.accent == tone, onClick = { preferences = preferences.copy(accent = tone); preferencesStore.save(preferences) },
-                                    label = { Text(when(tone) { "Violet" -> "بنفسجي"; "Blue" -> "أزرق"; "Rose" -> "وردي"; "Emerald" -> "أخضر"; else -> "ذهبي" }) })
-                            }
-                        }
-                        PreferenceSwitch("خلفية سوداء OLED", preferences.oledBlack) { preferences = preferences.copy(oledBlack = it); preferencesStore.save(preferences) }
-                        PreferenceSwitch("بطاقات أكثر اختصارًا", preferences.compactCards) { preferences = preferences.copy(compactCards = it); preferencesStore.save(preferences) }
-                        Divider()
-                        Text("التشغيل", color = appAccent, fontWeight = FontWeight.Bold)
-                        PreferenceSwitch("تذكر موضع التوقف", preferences.rememberPlaybackPosition) { preferences = preferences.copy(rememberPlaybackPosition = it); preferencesStore.save(preferences) }
-                        PreferenceSwitch("تشغيل الحلقة التالية تلقائيًا", preferences.autoplayNextEpisode) { preferences = preferences.copy(autoplayNextEpisode = it); preferencesStore.save(preferences) }
-                        Divider()
-                        Text("الترجمة والصوت", color = appAccent, fontWeight = FontWeight.Bold)
-                        Text("لغة الترجمة المفضلة", fontSize = 13.sp)
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            FilterChip(selected = preferences.preferredSubtitleLanguage == "ar", onClick = { preferences = preferences.copy(preferredSubtitleLanguage = "ar"); preferencesStore.save(preferences) }, label = { Text("العربية") })
-                            FilterChip(selected = preferences.preferredSubtitleLanguage == "en", onClick = { preferences = preferences.copy(preferredSubtitleLanguage = "en"); preferencesStore.save(preferences) }, label = { Text("English") })
-                            FilterChip(selected = preferences.preferredSubtitleLanguage == "off", onClick = { preferences = preferences.copy(preferredSubtitleLanguage = "off"); preferencesStore.save(preferences) }, label = { Text("إيقاف") })
-                        }
-                        Text("لغة الصوت المفضلة", fontSize = 13.sp)
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            FilterChip(selected = preferences.preferredAudioLanguage == "device", onClick = { preferences = preferences.copy(preferredAudioLanguage = "device"); preferencesStore.save(preferences) }, label = { Text("لغة الجهاز") })
-                            FilterChip(selected = preferences.preferredAudioLanguage == "ar", onClick = { preferences = preferences.copy(preferredAudioLanguage = "ar"); preferencesStore.save(preferences) }, label = { Text("العربية") })
-                            FilterChip(selected = preferences.preferredAudioLanguage == "en", onClick = { preferences = preferences.copy(preferredAudioLanguage = "en"); preferencesStore.save(preferences) }, label = { Text("English") })
-                        }
-                        Divider()
-                        Text("الإضافات", color = appAccent, fontWeight = FontWeight.Bold)
-                        Text("إدارة المصادر من بطاقة «مصادرك وإضافاتك» في الرئيسية. تشغيل شيفرات الإضافات غير مفعّل حفاظًا على الأمان.", fontSize = 12.sp, color = Color.Gray)
-                        Text("CINEMAX • إصدار تجريبي", fontSize = 11.sp, color = Color.Gray)
-                    }
-                },
-                confirmButton = { TextButton(onClick = { showSettings = false }) { Text("تم") } }
-            )
+            if (playbackUrl == null && selectedItem == null) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                    CinemaxTabBar(
+                        selected = tab,
+                        accent = appAccent,
+                        onSelect = { tab = it }
+                    )
+                }
+            }
         }
 
         if (showAddDialog) {
@@ -488,8 +1029,12 @@ fun App() {
                     Column {
                         Text("الصق رابط الإضافة أو رابط manifest.json", fontSize = 13.sp)
                         Spacer(Modifier.height(10.dp))
-                        OutlinedTextField(value = addonUrl, onValueChange = { addonUrl = it },
-                            singleLine = true, placeholder = { Text("https://example.com/manifest.json") })
+                        OutlinedTextField(
+                            value = addonUrl,
+                            onValueChange = { addonUrl = it },
+                            singleLine = true,
+                            placeholder = { Text("https://example.com/manifest.json") }
+                        )
                     }
                 },
                 confirmButton = {
@@ -507,7 +1052,11 @@ fun App() {
                                 val installed = InstalledAddon(
                                     manifestUrl = normalized, id = manifest.id, name = manifest.name,
                                     version = manifest.version, description = manifest.description,
-                                    installedAtEpochMillis = 0L
+                                    installedAtEpochMillis = Clock.System.now().toEpochMilliseconds(),
+                                    resources = manifest.resourceNames().toList(),
+                                    types = manifest.types,
+                                    idPrefixes = manifest.idPrefixes,
+                                    catalogs = manifest.catalogs
                                 )
                                 addons.removeAll { it.id == installed.id }
                                 addons.add(installed)
@@ -515,17 +1064,19 @@ fun App() {
                                 activeAddon = installed
                                 selectedItem = null
                                 playbackUrl = null
-                                streams.clear()
+                                streamOptions.clear()
                                 searchQuery = ""
+                                searchResults.clear()
                                 catalogItems.clear()
                                 val catalog = manifest.catalogs.firstOrNull()
                                 if (catalog != null) {
                                     activeCatalogType = catalog.type
                                     activeCatalogId = catalog.id
-                                    activeCatalogSupportsSearch = catalog.extra.any { it.name == "search" }
-                                    activeCatalogSupportsSkip = catalog.extra.any { it.name == "skip" }
+                                    activeCatalogSupportsSearch = catalog.supportsExtra("search")
+                                    activeCatalogSupportsSkip = catalog.supportsExtra("skip")
                                     val loaded = repository.loadCatalog(normalized, catalog.type, catalog.id)
                                     catalogItems.addAll(loaded)
+                                    loadHomeShelves(installed, manifest)
                                     status = "تم تثبيت ${manifest.name} وجلب ${loaded.size} عنصرًا"
                                 } else {
                                     activeCatalogType = null
@@ -548,141 +1099,265 @@ fun App() {
             )
         }
 
-        selectedItem?.let { selected ->
-            Dialog(onDismissRequest = { selectedItem = null }) {
-                Column(
-                    Modifier.fillMaxWidth().heightIn(max = 680.dp)
-                        .background(Color(0xFF10131D), RoundedCornerShape(22.dp))
-                        .verticalScroll(rememberScrollState()).padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    AsyncImage(
-                        model = selectedMeta?.background ?: selected.background ?: selected.poster,
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxWidth().height(190.dp)
-                            .background(Panel, RoundedCornerShape(16.dp)),
-                        contentScale = ContentScale.Crop
-                    )
-                    Text(selectedMeta?.name ?: selected.name, color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Bold)
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        (selectedMeta?.releaseInfo ?: selected.releaseInfo)?.let { Text(it, color = Color.LightGray, fontSize = 12.sp) }
-                        (selectedMeta?.imdbRating ?: selected.imdbRating)?.let { Text("★ $it", color = Color(0xFFFFC857), fontSize = 12.sp) }
-                        selectedMeta?.runtime?.let { Text(it, color = Color.LightGray, fontSize = 12.sp) }
-                    }
-                    val isFavorite = selected.id in favoriteIds
-                    OutlinedButton(onClick = {
-                        if (isFavorite) {
-                            favoriteItems.removeAll { it.id == selected.id }
-                        } else {
-                            val meta = selectedMeta
-                            val saved = selected.copy(
-                                name = meta?.name ?: selected.name,
-                                poster = meta?.poster ?: selected.poster,
-                                background = meta?.background ?: selected.background,
-                                description = meta?.description ?: selected.description,
-                                releaseInfo = meta?.releaseInfo ?: selected.releaseInfo,
-                                imdbRating = meta?.imdbRating ?: selected.imdbRating
-                            )
-                            favoriteItems.removeAll { it.id == selected.id }
-                            favoriteItems.add(saved)
+        if (showNuvioDialog) {
+            AlertDialog(
+                onDismissRequest = { showNuvioDialog = false },
+                title = { Text("مصادر Nuvio") },
+                text = {
+                    Column(
+                        Modifier.fillMaxWidth().heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            "ألصق رابط مستودع Nuvio (ملف manifest.json) لتثبيت مشاهده، ثم فعّل المصادر التي تريدها.",
+                            fontSize = 12.sp, color = Color.LightGray
+                        )
+                        OutlinedTextField(
+                            value = nuvioRepoInput,
+                            onValueChange = { nuvioRepoInput = it },
+                            singleLine = true,
+                            label = { Text("رابط المستودع") }
+                        )
+                        Button(
+                            enabled = nuvioRepoInput.isNotBlank() && !nuvioBusy,
+                            onClick = {
+                                val url = nuvioRepoInput.trim()
+                                nuvioBusy = true
+                                scope.launch {
+                                    try {
+                                        val repository = nuvioClient.loadRepository(url)
+                                        nuvioRepositories.removeAll { it.manifestUrl == repository.manifestUrl }
+                                        nuvioRepositories.add(repository)
+                                        nuvioStore.saveRepositories(nuvioRepositories.toList())
+                                        val enabledByDefault = repository.scrapers
+                                            .filter { it.enabled }
+                                            .map { "${repository.manifestUrl}#${it.id}" }
+                                        if (enabledByDefault.isNotEmpty()) {
+                                            nuvioEnabled.addAll(enabledByDefault)
+                                            nuvioStore.saveEnabledProviders(nuvioEnabled.toSet())
+                                        }
+                                        nuvioRepoInput = ""
+                                        status = "تم تثبيت ${repository.name} • ${repository.scrapers.size} مصدرًا"
+                                    } catch (error: Throwable) {
+                                        if (error is CancellationException) throw error
+                                        status = "تعذر تثبيت مستودع Nuvio: ${error.message ?: "خطأ غير معروف"}"
+                                    } finally {
+                                        nuvioBusy = false
+                                    }
+                                }
+                            }
+                        ) { Text("تحقق وأضف") }
+                        if (nuvioRepositories.isEmpty()) {
+                            Text("لا يوجد مستودع مثبت بعد.", color = Color.LightGray, fontSize = 12.sp)
                         }
-                        favoritesStore.save(favoriteItems.toList())
-                    }, modifier = Modifier.fillMaxWidth()) {
-                        Text(if (isFavorite) "✓ تمت الإضافة إلى قائمتي — إزالة" else "＋ أضف إلى قائمتي")
-                    }
-                    selectedMeta?.genres?.takeIf { it.isNotEmpty() }?.let {
-                        Text(it.joinToString("  •  "), color = appAccent, fontSize = 12.sp)
-                    }
-                    (selectedMeta?.description ?: selected.description)?.takeIf { it.isNotBlank() }?.let {
-                        Text(it, color = Color(0xFFE0E3EB), fontSize = 14.sp, lineHeight = 21.sp)
-                    }
-                    selectedMeta?.director?.takeIf { it.isNotEmpty() }?.let {
-                        Text("إخراج: ${it.joinToString("، ")}", color = Color.LightGray, fontSize = 12.sp)
-                    }
-                    selectedMeta?.cast?.takeIf { it.isNotEmpty() }?.let {
-                        Text("طاقم التمثيل: ${it.take(8).joinToString("، ")}", color = Color.LightGray, fontSize = 12.sp)
-                    }
-                    Divider(color = Color.DarkGray)
-                    Text("مصادر المشاهدة", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                    if (loadingStreams) {
-                        LinearProgressIndicator(Modifier.fillMaxWidth())
-                        Text("جارٍ جلب المصادر...", color = Color.LightGray)
-                    } else if (streams.isEmpty()) {
-                        Text("لم تُرجع الإضافة مصادر لهذا العنوان.", color = Color.LightGray, fontSize = 13.sp)
-                    } else {
-                        streams.forEachIndexed { index, stream ->
-                            Card(colors = CardDefaults.cardColors(containerColor = Panel)) {
-                                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                                    Text("${index + 1}. ${stream.name ?: stream.title ?: "مصدر"}", color = Color.White, fontWeight = FontWeight.SemiBold)
-                                    stream.title?.let { Text(it, color = Color.LightGray, fontSize = 12.sp) }
-                                    stream.url?.let { mediaUrl ->
-                                        Button(onClick = {
-                                            if (com.cinemax.app.addons.StremioAddonClient.isSafeMediaUrl(mediaUrl)) {
-                                                val meta = selectedMeta
-                                                playingItem = selected.copy(
-                                                    name = meta?.name ?: selected.name,
-                                                    poster = meta?.poster ?: selected.poster,
-                                                    background = meta?.background ?: selected.background,
-                                                    description = meta?.description ?: selected.description,
-                                                    releaseInfo = meta?.releaseInfo ?: selected.releaseInfo,
-                                                    imdbRating = meta?.imdbRating ?: selected.imdbRating
-                                                )
-                                                playbackUrl = mediaUrl
-                                            } else status = "تم رفض رابط تشغيل غير آمن. يجب أن يستخدم HTTPS."
-                                        }, modifier = Modifier.fillMaxWidth()) { Text("▶ تشغيل") }
-                                    } ?: Text("هذا المصدر لا يحتوي على رابط مباشر قابل للتشغيل هنا.", color = Color.Gray, fontSize = 11.sp)
+                        nuvioRepositories.forEach { repository ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    "${repository.name} • ${repository.version}",
+                                    color = Color.White, fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                TextButton(onClick = {
+                                    nuvioRepositories.removeAll { it.manifestUrl == repository.manifestUrl }
+                                    nuvioEnabled.removeAll { it.startsWith(repository.manifestUrl + "#") }
+                                    nuvioStore.saveRepositories(nuvioRepositories.toList())
+                                    nuvioStore.saveEnabledProviders(nuvioEnabled.toSet())
+                                    status = "تم إزالة ${repository.name}"
+                                }) { Text("إزالة", fontSize = 12.sp) }
+                            }
+                            repository.scrapers.forEach { scraper ->
+                                val key = "${repository.manifestUrl}#${scraper.id}"
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(scraper.name, modifier = Modifier.weight(1f), fontSize = 13.sp)
+                                    Switch(
+                                        checked = key in nuvioEnabled,
+                                        onCheckedChange = { checked ->
+                                            if (checked) nuvioEnabled.add(key) else nuvioEnabled.remove(key)
+                                            nuvioStore.saveEnabledProviders(nuvioEnabled.toSet())
+                                        }
+                                    )
                                 }
                             }
                         }
                     }
-                    TextButton(onClick = { selectedItem = null }, modifier = Modifier.align(Alignment.End)) { Text("إغلاق") }
-                }
-            }
+                },
+                confirmButton = { TextButton(onClick = { showNuvioDialog = false }) { Text("تم") } }
+            )
         }
-        playbackUrl?.let { mediaUrl ->
-            Dialog(onDismissRequest = { playbackUrl = null; playingItem = null }) {
-                Column(
-                    modifier = Modifier.fillMaxWidth()
-                        .background(Color.Black, RoundedCornerShape(16.dp))
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("مشغل CINEMAX", color = Color.White, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.weight(1f))
-                        TextButton(onClick = { playbackUrl = null; playingItem = null }) { Text("إغلاق") }
-                    }
-                    NativeVideoPlayer(
-                        url = mediaUrl,
-                        modifier = Modifier.fillMaxWidth().height(260.dp),
-                        initialPositionMillis = playingItem?.let { item ->
-                            watchProgressItems.firstOrNull { it.item.id == item.id }?.positionMillis ?: 0L
-                        } ?: 0L,
-                        onProgress = { positionMillis, durationMillis ->
-                            val item = playingItem
-                            if (item != null && preferences.rememberPlaybackPosition) {
-                                val progress = WatchProgress(
-                                    item = item,
-                                    positionMillis = positionMillis,
-                                    durationMillis = durationMillis,
-                                    updatedAtEpochMillis = Clock.System.now().toEpochMilliseconds()
-                                )
-                                watchProgressStore.save(progress)
-                                watchProgressItems.removeAll { it.item.id == item.id }
-                                if (positionMillis < durationMillis - 15_000L) watchProgressItems.add(0, progress)
+
+        if (showSubtitlePicker) {
+            AlertDialog(
+                onDismissRequest = { showSubtitlePicker = false },
+                title = { Text("الترجمة") },
+                text = {
+                    Column(
+                        Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("تأخير الترجمة", color = Color.LightGray, fontSize = 12.sp)
+                            Spacer(Modifier.width(8.dp))
+                            TextButton(onClick = {
+                                subtitleDelayMs = (subtitleDelayMs - 500L).coerceAtLeast(-5_000L)
+                            }) { Text("−0.5", fontSize = 12.sp) }
+                            Text(
+                                "${subtitleDelayMs / 1000.0} ث",
+                                color = Color.White,
+                                fontSize = 12.sp
+                            )
+                            TextButton(onClick = {
+                                subtitleDelayMs = (subtitleDelayMs + 500L).coerceAtMost(10_000L)
+                            }) { Text("+0.5", fontSize = 12.sp) }
+                        }
+                        SubtitleRow(
+                            label = "إيقاف",
+                            detail = "بدون ترجمة",
+                            selected = selectedSubtitleUrl == null && selectedEmbeddedTrackId == null,
+                            accent = appAccent
+                        ) {
+                            applySubtitle(null)
+                            showSubtitlePicker = false
+                        }
+                        if (embeddedSubtitleTracks.isNotEmpty()) {
+                            Text(
+                                "ترجمات مدمجة في الفيديو نفسه",
+                                color = appAccent,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(top = 8.dp)
+                            )
+                            embeddedSubtitleTracks.forEach { track ->
+                                SubtitleRow(
+                                    label = embeddedSubtitleLabel(track),
+                                    detail = embeddedSubtitleDetail(track),
+                                    selected = selectedEmbeddedTrackId == track.id,
+                                    accent = appAccent
+                                ) {
+                                    userChoseSubtitle = true
+                                    selectedEmbeddedTrackId = track.id
+                                    selectedSubtitleUrl = null
+                                    subtitleCues = emptyList()
+                                    showSubtitlePicker = false
+                                }
                             }
                         }
-                    )
+                        if (subtitleOptions.isNotEmpty()) {
+                            Text(
+                                "ترجمات من الإضافات",
+                                color = appAccent,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(top = 8.dp)
+                            )
+                        }
+                        subtitleOptions.forEach { choice ->
+                            SubtitleRow(
+                                label = choice.label,
+                                detail = "${choice.source} • ${choice.lang}",
+                                selected = choice.url == selectedSubtitleUrl,
+                                accent = appAccent
+                            ) {
+                                applySubtitle(choice)
+                                showSubtitlePicker = false
+                            }
+                        }
+                        if (subtitleOptions.isEmpty() && embeddedSubtitleTracks.isEmpty()) {
+                            Text(
+                                "لا توجد ترجمات من إضافاتك لهذا العنصر. جرّب مصدرًا آخر أو ثبّت إضافة ترجمة.",
+                                color = Color.LightGray, fontSize = 12.sp
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showSubtitlePicker = false }) { Text("إغلاق") }
                 }
+            )
+        }
+
+        if (showRoadmap) {
+            Dialog(
+                onDismissRequest = { showRoadmap = false },
+                properties = DialogProperties(usePlatformDefaultWidth = false)
+            ) {
+                CinemaxRoadmapScreen(
+                    phases = CinemaxRoadmap,
+                    accent = appAccent,
+                    background = appBackground,
+                    versionLabel = appVersionLabel(),
+                    onClose = { showRoadmap = false }
+                )
             }
         }
     }
 }
 
 @Composable
-private fun PreferenceSwitch(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, modifier = Modifier.weight(1f), fontSize = 13.sp)
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+private fun SubtitleRow(
+    label: String,
+    detail: String,
+    selected: Boolean,
+    accent: Color,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(label, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text(detail, color = Color.LightGray, fontSize = 11.sp)
+        }
+        if (selected) Text("✓", color = accent, fontSize = 16.sp)
+    }
+}
+
+/** Asks each installed addon that serves metadata until one returns the item. */
+private suspend fun metaFrom(
+    repository: AddonRepository,
+    addons: List<InstalledAddon>,
+    type: String,
+    mediaId: String
+): StremioMeta? {
+    for (addon in addons.filter { AddonCapabilities.supportsMeta(it, type) }) {
+        val meta = try {
+            repository.loadMeta(addon.manifestUrl, type, mediaId)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Throwable) {
+            null
+        }
+        if (meta != null) return meta
+    }
+    return null
+}
+
+/**
+ * Collects sources from every installed addon that serves streams for the type,
+ * in parallel. A failing addon must not hide the sources of the others.
+ */
+private suspend fun streamsFrom(
+    repository: AddonRepository,
+    addons: List<InstalledAddon>,
+    type: String,
+    mediaId: String
+): List<StreamOption> = coroutineScope {
+    val requests = addons
+        .filter { AddonCapabilities.supportsStreams(it, type, mediaId) }
+        .map { addon ->
+            async {
+                val found = try {
+                    repository.loadStreams(addon.manifestUrl, type, mediaId)
+                        .map { StreamOption(addon.id, addon.name, it) }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Throwable) {
+                    emptyList<StreamOption>()
+                }
+                found
+            }
+        }
+    requests.awaitAll().flatten().distinctBy { option ->
+        option.stream.url ?: "torrent:${option.stream.infoHash}:${option.stream.fileIdx}"
     }
 }

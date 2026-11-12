@@ -2,7 +2,7 @@ package com.cinemax.app
 
 import com.russhwolf.settings.Settings
 
-/** User-facing appearance and playback preferences shared by Android and iOS. */
+/** User-facing appearance and playback preferences for the iOS app. */
 data class CinemaxPreferences(
     val accent: String = "Violet",
     val oledBlack: Boolean = true,
@@ -10,7 +10,9 @@ data class CinemaxPreferences(
     val rememberPlaybackPosition: Boolean = true,
     val autoplayNextEpisode: Boolean = false,
     val preferredSubtitleLanguage: String = "ar",
-    val preferredAudioLanguage: String = "device"
+    val preferredAudioLanguage: String = "device",
+    /** "mpv" (libmpv through MPVKit) or "system" (AVPlayer). */
+    val preferredPlayer: String = "mpv"
 )
 
 class CinemaxPreferencesStore(
@@ -23,7 +25,8 @@ class CinemaxPreferencesStore(
         rememberPlaybackPosition = settings.getBoolean(RESUME, true),
         autoplayNextEpisode = settings.getBoolean(AUTOPLAY, false),
         preferredSubtitleLanguage = settings.getString(SUBTITLE, "ar"),
-        preferredAudioLanguage = settings.getString(AUDIO, "device")
+        preferredAudioLanguage = settings.getString(AUDIO, "device"),
+        preferredPlayer = settings.getString(PLAYER, "mpv")
     )
 
     fun save(value: CinemaxPreferences) {
@@ -34,6 +37,7 @@ class CinemaxPreferencesStore(
         settings.putBoolean(AUTOPLAY, value.autoplayNextEpisode)
         settings.putString(SUBTITLE, value.preferredSubtitleLanguage)
         settings.putString(AUDIO, value.preferredAudioLanguage)
+        settings.putString(PLAYER, value.preferredPlayer)
     }
 
     private companion object {
@@ -44,5 +48,6 @@ class CinemaxPreferencesStore(
         const val AUTOPLAY = "cinemax.playback.autoplay"
         const val SUBTITLE = "cinemax.subtitle.language"
         const val AUDIO = "cinemax.audio.language"
+        const val PLAYER = "cinemax.playback.player"
     }
 }

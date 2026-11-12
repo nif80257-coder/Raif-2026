@@ -1,14 +1,15 @@
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
-    alias(libs.plugins.androidApplication)
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
     kotlin("plugin.serialization") version "2.2.20"
 }
 
 kotlin {
-    androidTarget()
     listOf(iosArm64(), iosSimulatorArm64()).forEach { iosTarget ->
+        // A static framework links straight into the app: one binary, no nested
+        // code to embed or sign, which is the most install-friendly setup for a
+        // development-signed build.
         iosTarget.binaries.framework { baseName = "CinemaxKit"; isStatic = true }
     }
     sourceSets {
@@ -26,12 +27,6 @@ kotlin {
             implementation("io.coil-kt.coil3:coil-compose:3.3.0")
             implementation("io.coil-kt.coil3:coil-network-ktor3:3.3.0")
         }
-        androidMain.dependencies {
-            implementation("io.ktor:ktor-client-okhttp:3.3.0")
-            implementation("androidx.activity:activity-compose:1.10.1")
-            implementation("androidx.media3:media3-exoplayer:1.8.0")
-            implementation("androidx.media3:media3-ui:1.8.0")
-        }
         commonTest.dependencies {
             implementation(kotlin("test"))
             implementation("com.russhwolf:multiplatform-settings-test:1.3.0")
@@ -40,10 +35,4 @@ kotlin {
             implementation("io.ktor:ktor-client-darwin:3.3.0")
         }
     }
-}
-
-android {
-    namespace = "com.cinemax.app"
-    compileSdk = 36
-    defaultConfig { applicationId = "com.cinemax.app"; minSdk = 26; targetSdk = 36 }
 }

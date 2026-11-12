@@ -8,8 +8,9 @@ import kotlinx.serialization.json.Json
 
 fun createCinemaxHttpClient(): HttpClient = HttpClient {
     expectSuccess = true
-    // Do not silently follow addon-controlled redirects to an unvalidated host or scheme.
-    followRedirects = false
+    // Addon endpoints commonly redirect (CDNs, config URLs). Only validated HTTPS
+    // URLs are requested, and iOS App Transport Security blocks plain HTTP hops.
+    followRedirects = true
     install(HttpTimeout) {
         connectTimeoutMillis = 10_000
         requestTimeoutMillis = 30_000
