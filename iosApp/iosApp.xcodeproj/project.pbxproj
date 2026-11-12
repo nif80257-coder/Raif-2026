@@ -463,7 +463,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 0.8.2;
-				PRODUCT_BUNDLE_IDENTIFIER = com.raif.app.downloadswidgetextension;
+				PRODUCT_BUNDLE_IDENTIFIER = com.raif.stream.downloadswidgetextension.downloadswidgetextension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -489,7 +489,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 0.8.2;
-				PRODUCT_BUNDLE_IDENTIFIER = com.raif.app.downloadswidgetextension;
+				PRODUCT_BUNDLE_IDENTIFIER = com.raif.stream.downloadswidgetextension.downloadswidgetextension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -563,7 +563,7 @@
 					"-framework",
 					SystemConfiguration,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.raif.app;
+				PRODUCT_BUNDLE_IDENTIFIER = com.raif.stream.downloadswidgetextension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -609,7 +609,7 @@
 					"-framework",
 					SystemConfiguration,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.raif.app;
+				PRODUCT_BUNDLE_IDENTIFIER = com.raif.stream.downloadswidgetextension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;

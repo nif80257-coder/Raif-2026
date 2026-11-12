@@ -4,12 +4,10 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
-	<key>CFBundleIdentifier</key>
-	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-	<key>CFBundleName</key>
-	<string>Raif</string>
 	<key>CFBundleDisplayName</key>
 	<string>Řaif</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleLocalizations</key>
 	<array>
 		<string>en</string>
@@ -39,6 +37,8 @@
 		<string>ja</string>
 		<string>vi</string>
 	</array>
+	<key>CFBundleName</key>
+	<string>Raif</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
