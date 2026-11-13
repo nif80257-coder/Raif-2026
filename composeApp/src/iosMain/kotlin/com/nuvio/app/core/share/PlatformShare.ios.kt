@@ -39,6 +39,22 @@ actual object PlatformShare {
         presenter.presentViewController(controller, animated = true, completion = null)
     }
 
+    actual fun shareUrl(url: String, subject: String) {
+        val presenter = topViewController() ?: return
+        val controller = UIActivityViewController(
+            activityItems = listOf(NSURL(string = url), subject),
+            applicationActivities = null,
+        )
+        val popover: UIPopoverPresentationController? = controller.popoverPresentationController
+        if (popover != null) {
+            popover.sourceView = presenter.view
+            presenter.view.bounds.useContents {
+                popover.sourceRect = CGRectMake(size.width / 2.0, size.height / 2.0, 0.0, 0.0)
+            }
+        }
+        presenter.presentViewController(controller, animated = true, completion = null)
+    }
+
     private fun topViewController(): UIViewController? {
         var controller = UIApplication.sharedApplication.keyWindow?.rootViewController
         while (controller?.presentedViewController != null) {

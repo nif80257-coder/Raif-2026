@@ -77,6 +77,8 @@ import co.touchlab.kermit.Logger
 import coil3.compose.AsyncImage
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.build.TrailerPlaybackMode
+import com.nuvio.app.core.deeplink.buildMetaDeepLinkUrl
+import com.nuvio.app.core.share.PlatformShare
 import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.core.i18n.localizedSeasonEpisodeCode
@@ -1191,6 +1193,12 @@ fun MetaDetailsScreen(
                                                         onWatchedClick = toggleWatched,
                                                         onSaveClick = toggleSaved,
                                                         onSaveLongClick = openLibraryListPicker,
+                                                        onShareClick = {
+                                                            PlatformShare.shareUrl(
+                                                                buildMetaDeepLinkUrl(meta.type, meta.id),
+                                                                subject = meta.name,
+                                                            )
+                                                        },
                                                     )
                                                 }
                                             } else {
@@ -2352,6 +2360,12 @@ private fun ConfiguredMetaSections(
                         onWatchedClick = onWatchedClick,
                         onSaveClick = onSaveClick,
                         onSaveLongClick = onSaveLongClick,
+                        onShareClick = {
+                            PlatformShare.shareUrl(
+                                buildMetaDeepLinkUrl(meta.type, meta.id),
+                                subject = meta.name,
+                            )
+                        },
                     )
                     partyResume?.let { data ->
                         PartyResumeSuggestionCard(

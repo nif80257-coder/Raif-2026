@@ -1567,6 +1567,7 @@
     <string name="catalog_empty_title">لم يتم العثور على عناوين</string>
     <string name="catalog_load_failed_title">تعذر تحميل هذا الكتالوج</string>
     <string name="details_actions_menu_label">إجراءات إضافية</string>
+    <string name="details_action_share">مشاركة</string>
     <string name="details_check_connection">تحقق من اتصال Wi-Fi أو بيانات الجوال ثم حاول مرة أخرى.</string>
     <string name="details_director">مخرج</string>
     <string name="details_failed_to_load">فشل التحميل</string>

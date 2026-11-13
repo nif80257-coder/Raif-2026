@@ -1580,6 +1580,7 @@
     <string name="catalog_empty_title">No titles found</string>
     <string name="catalog_load_failed_title">Couldn’t load this catalog</string>
     <string name="details_actions_menu_label">More actions</string>
+    <string name="details_action_share">Share</string>
     <string name="details_check_connection">Check your Wi-Fi or mobile data connection and try again.</string>
     <string name="details_director">Director</string>
     <string name="details_failed_to_load">Failed to load</string>
