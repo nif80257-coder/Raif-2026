@@ -1,5 +1,6 @@
 package com.nuvio.app.features.settings
 
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.People
@@ -20,7 +21,10 @@ internal fun LazyListScope.settingsRootContent(
 ) {
     SettingsCategory.entries.filter { category == null || it == category }.forEach { group ->
         item(key = group.name) {
-            SettingsGroup(isTablet = isTablet) {
+            SettingsRootSection(
+                title = if (category == null) stringResource(group.labelRes) else null,
+                isTablet = isTablet,
+            ) {
                 when (group) {
                     SettingsCategory.You -> {
                         SettingsPageRow(
@@ -146,6 +150,26 @@ internal fun LazyListScope.settingsRootContent(
         }
     }
     settingsFooterContent(isTablet = isTablet)
+}
+
+/**
+ * On phones every category is a card; a label above it names the group so the
+ * long root list reads as five clear sections. On tablets the sidebar already
+ * names the active category, so no label is drawn.
+ */
+@Composable
+private fun SettingsRootSection(
+    title: String?,
+    isTablet: Boolean,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    if (title == null) {
+        SettingsGroup(isTablet = isTablet, content = content)
+    } else {
+        SettingsSection(title = title, isTablet = isTablet) {
+            SettingsGroup(isTablet = isTablet, content = content)
+        }
+    }
 }
 
 @Composable
