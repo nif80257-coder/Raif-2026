@@ -49,6 +49,37 @@ internal fun SubtitleAppearanceControls(
 ) {
     var showFonts by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(spacing)) {
+        SubtitleStyleSection(stringResource(Res.string.subtitle_presets_title)) {
+            val tokens = MaterialTheme.nuvio
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                SubtitleStylePresets.forEach { preset ->
+                    val selected = style.matchesPreset(preset)
+                    val chipShape = RoundedCornerShape(percent = 50)
+                    Box(
+                        Modifier.clip(chipShape)
+                            .background(
+                                if (selected) tokens.colors.accent.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.08f),
+                            )
+                            .border(
+                                1.dp,
+                                if (selected) tokens.colors.accent.copy(alpha = 0.5f) else tokens.colors.borderSubtle,
+                                chipShape,
+                            )
+                            .clickable { onStyleChanged(preset.apply(style)) }
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                    ) {
+                        Text(
+                            stringResource(preset.labelRes),
+                            color = if (selected) tokens.colors.accent else Color.White,
+                            style = MaterialTheme.typography.labelLarge,
+                        )
+                    }
+                }
+            }
+        }
         SubtitleStyleSection(stringResource(Res.string.subtitle_font)) {
             Row(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))

@@ -2568,6 +2568,11 @@
     <string name="subtitle_shadow_opacity">Shadow opacity</string>
     <string name="subtitle_shadow_size">Shadow size</string>
     <string name="subtitle_reset_appearance">Reset appearance</string>
+    <string name="subtitle_presets_title">Presets</string>
+    <string name="subtitle_preset_default">Default</string>
+    <string name="subtitle_preset_cinematic">Cinematic</string>
+    <string name="subtitle_preset_readable">Readable</string>
+    <string name="subtitle_preset_large">Large</string>
     <string name="raif_copyright">Řaif © 2026 Řaif</string>
     <string name="raif_upstream_notice">Based on NuvioMobile, licensed under GPL-3.0.</string>
     <string name="raif_upstream_repository_title">NuvioMobile upstream repository</string>

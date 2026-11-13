@@ -2539,6 +2539,11 @@
     <string name="subtitle_shadow_opacity">عتامة الظل</string>
     <string name="subtitle_shadow_size">حجم الظل</string>
     <string name="subtitle_reset_appearance">إعادة ضبط المظهر</string>
+    <string name="subtitle_presets_title">قوالب</string>
+    <string name="subtitle_preset_default">افتراضي</string>
+    <string name="subtitle_preset_cinematic">سينمائي</string>
+    <string name="subtitle_preset_readable">واضح</string>
+    <string name="subtitle_preset_large">كبير</string>
     <string name="raif_copyright">Řaif © 2026 Řaif</string>
     <string name="raif_upstream_notice">مبني على NuvioMobile، مرخّص بـ GPL-3.0</string>
     <string name="raif_upstream_repository_title">مستودع NuvioMobile الأصلي</string>
