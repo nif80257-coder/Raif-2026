@@ -700,6 +700,11 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
             playerController?.configureIosVideoOutput(PlayerSettingsRepository.uiState.value)
         },
         onVideoSettingsModalDismissed = { showVideoSettingsModal = false },
+        onSettingsPanelTabSelected = { tab ->
+            showSubtitleModal = tab == PlayerSettingsTab.Subtitles
+            showAudioModal = tab == PlayerSettingsTab.Audio
+            showVideoSettingsModal = tab == PlayerSettingsTab.Video
+        },
         showSourcesPanel = showSourcesPanel,
         sourceStreamsState = sourceStreamsState,
         contentTitle = title,

@@ -57,6 +57,7 @@ internal fun PlayerScreenModalHosts(
     onAutoSyncReload: () -> Unit,
     onSubtitleModalDismissed: () -> Unit,
     showVideoSettingsModal: Boolean,
+    onSettingsPanelTabSelected: (PlayerSettingsTab) -> Unit,
     playerSettings: PlayerSettingsUiState,
     onVideoSettingsChanged: () -> Unit,
     onVideoSettingsModalDismissed: () -> Unit,
@@ -125,57 +126,75 @@ internal fun PlayerScreenModalHosts(
         )
     }
 
-    AudioTrackModal(
-        visible = showAudioModal,
-        audioTracks = audioTracks,
-        selectedIndex = selectedAudioIndex,
-        onTrackSelected = onAudioTrackSelected,
-        onDismiss = onAudioModalDismissed,
-        showAudioDelay = showAudioDelay,
-        audioDelayMs = audioDelayMs,
-        onAudioDelayChanged = onAudioDelayChanged,
-        showAudioAmplification = showAudioAmplification,
-        audioAmplificationDb = audioAmplificationDb,
-        keepAudioAmplification = keepAudioAmplification,
-        onAudioAmplificationChanged = onAudioAmplificationChanged,
-        onKeepAudioAmplificationChanged = onKeepAudioAmplificationChanged,
-        showCenterMix = showCenterMix,
-        centerMixLevelDb = centerMixLevelDb,
-        onCenterMixLevelChanged = onCenterMixLevelChanged,
-    )
-
-    SubtitleModal(
-        visible = showSubtitleModal,
-        subtitleTracks = subtitleTracks,
-        selectedSubtitleIndex = selectedSubtitleIndex,
-        addonSubtitles = addonSubtitles,
-        selectedAddonSubtitleId = selectedAddonSubtitleId,
-        isLoadingAddonSubtitles = isLoadingAddonSubtitles,
-        preferredSubtitleLanguage = playerSettings.preferredSubtitleLanguage,
-        secondaryPreferredSubtitleLanguage = playerSettings.secondaryPreferredSubtitleLanguage,
-        subtitleStyle = subtitleStyle,
-        subtitleDelayMs = subtitleDelayMs,
-        selectedAddonSubtitle = selectedAddonSubtitle,
-        subtitleAutoSyncState = subtitleAutoSyncState,
-        onBuiltInTrackSelected = onBuiltInSubtitleTrackSelected,
-        onAddonSubtitleSelected = onAddonSubtitleSelected,
-        onImportLocalSubtitleFile = onImportLocalSubtitleFile,
-        onFetchAddonSubtitles = onFetchAddonSubtitles,
-        onStyleChanged = onSubtitleStyleChanged,
-        onSubtitleDelayChanged = onSubtitleDelayChanged,
-        onSubtitleDelayReset = onSubtitleDelayReset,
-        onAutoSyncCapture = onAutoSyncCapture,
-        onAutoSyncCueSelected = onAutoSyncCueSelected,
-        onAutoSyncReload = onAutoSyncReload,
-        onDismiss = onSubtitleModalDismissed,
-    )
-
-    IosVideoSettingsModal(
-        visible = showVideoSettingsModal,
-        settings = playerSettings,
-        onSettingsChanged = onVideoSettingsChanged,
-        onDismiss = onVideoSettingsModalDismissed,
-    )
+    val settingsPanelVisible = showAudioModal || showSubtitleModal || showVideoSettingsModal
+    if (settingsPanelVisible) {
+        val activeSettingsTab = when {
+            showSubtitleModal -> PlayerSettingsTab.Subtitles
+            showAudioModal -> PlayerSettingsTab.Audio
+            else -> PlayerSettingsTab.Video
+        }
+        val onSettingsDismissed: () -> Unit = when {
+            showSubtitleModal -> onSubtitleModalDismissed
+            showAudioModal -> onAudioModalDismissed
+            else -> onVideoSettingsModalDismissed
+        }
+        PlayerSettingsOverlay(
+            visible = true,
+            activeTab = activeSettingsTab,
+            onTabSelected = onSettingsPanelTabSelected,
+            onDismiss = onSettingsDismissed,
+            subtitleContent = {
+                SubtitleModalContent(
+                    active = activeSettingsTab == PlayerSettingsTab.Subtitles,
+                    subtitleTracks = subtitleTracks,
+                    selectedSubtitleIndex = selectedSubtitleIndex,
+                    addonSubtitles = addonSubtitles,
+                    selectedAddonSubtitleId = selectedAddonSubtitleId,
+                    isLoadingAddonSubtitles = isLoadingAddonSubtitles,
+                    preferredSubtitleLanguage = playerSettings.preferredSubtitleLanguage,
+                    secondaryPreferredSubtitleLanguage = playerSettings.secondaryPreferredSubtitleLanguage,
+                    subtitleStyle = subtitleStyle,
+                    subtitleDelayMs = subtitleDelayMs,
+                    selectedAddonSubtitle = selectedAddonSubtitle,
+                    subtitleAutoSyncState = subtitleAutoSyncState,
+                    onBuiltInTrackSelected = onBuiltInSubtitleTrackSelected,
+                    onAddonSubtitleSelected = onAddonSubtitleSelected,
+                    onFetchAddonSubtitles = onFetchAddonSubtitles,
+                    onImportLocalSubtitleFile = onImportLocalSubtitleFile,
+                    onStyleChanged = onSubtitleStyleChanged,
+                    onSubtitleDelayChanged = onSubtitleDelayChanged,
+                    onSubtitleDelayReset = onSubtitleDelayReset,
+                    onAutoSyncCapture = onAutoSyncCapture,
+                    onAutoSyncCueSelected = onAutoSyncCueSelected,
+                    onAutoSyncReload = onAutoSyncReload,
+                )
+            },
+            audioContent = {
+                AudioTrackModalContent(
+                    audioTracks = audioTracks,
+                    selectedIndex = selectedAudioIndex,
+                    onTrackSelected = onAudioTrackSelected,
+                    showAudioDelay = showAudioDelay,
+                    audioDelayMs = audioDelayMs,
+                    onAudioDelayChanged = onAudioDelayChanged,
+                    showAudioAmplification = showAudioAmplification,
+                    audioAmplificationDb = audioAmplificationDb,
+                    keepAudioAmplification = keepAudioAmplification,
+                    onAudioAmplificationChanged = onAudioAmplificationChanged,
+                    onKeepAudioAmplificationChanged = onKeepAudioAmplificationChanged,
+                    showCenterMix = showCenterMix,
+                    centerMixLevelDb = centerMixLevelDb,
+                    onCenterMixLevelChanged = onCenterMixLevelChanged,
+                )
+            },
+            videoContent = {
+                VideoSettingsModalContent(
+                    settings = playerSettings,
+                    onSettingsChanged = onVideoSettingsChanged,
+                )
+            },
+        )
+    }
 
     PlayerSourcesPanel(
         visible = showSourcesPanel,

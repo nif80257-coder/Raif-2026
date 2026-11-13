@@ -2,13 +2,17 @@ package com.nuvio.app.features.player
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -27,7 +31,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nuvio.app.core.ui.Slider
 import nuvio.composeapp.generated.resources.Res
-import nuvio.composeapp.generated.resources.action_close
 import nuvio.composeapp.generated.resources.player_video_settings_brightness
 import nuvio.composeapp.generated.resources.player_video_settings_contrast
 import nuvio.composeapp.generated.resources.player_video_settings_deband
@@ -45,27 +48,40 @@ import nuvio.composeapp.generated.resources.player_video_settings_tone_mapping
 import org.jetbrains.compose.resources.stringResource
 import kotlin.math.roundToInt
 
+/**
+ * The video output tuning body of the unified player settings overlay. It keeps every
+ * control from the old side panel but lives in a bottom-left column so all three settings
+ * tabs share the same rail layout.
+ */
 @Composable
-internal fun IosVideoSettingsModal(
-    visible: Boolean,
+internal fun VideoSettingsModalContent(
     settings: PlayerSettingsUiState,
     onSettingsChanged: () -> Unit,
-    onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    PlayerSidePanel(
-        visible = visible,
-        onDismiss = onDismiss,
-        modifier = modifier,
-    ) {
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val panelWidth = minOf(maxWidth, 380.dp)
+        val panelMaxHeight = (maxHeight - 24.dp).coerceAtLeast(160.dp)
+
         Column(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp),
+                .width(panelWidth)
+                .heightIn(max = panelMaxHeight)
+                .align(Alignment.BottomStart)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            PlayerPanelHeader(
-                title = stringResource(Res.string.player_video_settings_title),
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
+                Text(
+                    text = stringResource(Res.string.player_video_settings_title),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.headlineMedium,
+                    modifier = Modifier.weight(1f),
+                )
                 PlayerDialogButton(
                     label = stringResource(Res.string.player_video_settings_reset_tuning),
                     onClick = {
@@ -73,105 +89,92 @@ internal fun IosVideoSettingsModal(
                         onSettingsChanged()
                     },
                 )
-                PlayerDialogButton(
-                    label = stringResource(Res.string.action_close),
-                    onClick = onDismiss,
-                )
             }
 
-            Spacer(Modifier.height(16.dp))
+            OptionGroup(
+                title = stringResource(Res.string.player_video_settings_output_preset),
+                options = IosVideoOutputPreset.entries,
+                selected = settings.iosVideoOutputPreset,
+                label = { it.localizedLabel() },
+                description = { it.localizedDescription() },
+                onSelect = {
+                    PlayerSettingsRepository.setIosVideoOutputPreset(it)
+                    onSettingsChanged()
+                },
+            )
 
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                OptionGroup(
-                    title = stringResource(Res.string.player_video_settings_output_preset),
-                    options = IosVideoOutputPreset.entries,
-                    selected = settings.iosVideoOutputPreset,
-                    label = { it.localizedLabel() },
-                    description = { it.localizedDescription() },
-                    onSelect = {
-                        PlayerSettingsRepository.setIosVideoOutputPreset(it)
-                        onSettingsChanged()
-                    },
-                )
+            ToggleRow(
+                title = stringResource(Res.string.player_video_settings_hdr_peak_detection),
+                description = stringResource(Res.string.player_video_settings_hdr_peak_detection_desc),
+                checked = settings.iosHdrComputePeakEnabled,
+                onCheckedChange = {
+                    PlayerSettingsRepository.setIosHdrComputePeakEnabled(it)
+                    onSettingsChanged()
+                },
+            )
 
-                ToggleRow(
-                    title = stringResource(Res.string.player_video_settings_hdr_peak_detection),
-                    description = stringResource(Res.string.player_video_settings_hdr_peak_detection_desc),
-                    checked = settings.iosHdrComputePeakEnabled,
-                    onCheckedChange = {
-                        PlayerSettingsRepository.setIosHdrComputePeakEnabled(it)
-                        onSettingsChanged()
-                    },
-                )
+            OptionGroup(
+                title = stringResource(Res.string.player_video_settings_tone_mapping),
+                options = IosToneMappingMode.entries,
+                selected = settings.iosToneMappingMode,
+                label = { it.label },
+                onSelect = {
+                    PlayerSettingsRepository.setIosToneMappingMode(it)
+                    onSettingsChanged()
+                },
+            )
 
-                OptionGroup(
-                    title = stringResource(Res.string.player_video_settings_tone_mapping),
-                    options = IosToneMappingMode.entries,
-                    selected = settings.iosToneMappingMode,
-                    label = { it.label },
-                    onSelect = {
-                        PlayerSettingsRepository.setIosToneMappingMode(it)
-                        onSettingsChanged()
-                    },
-                )
+            ToggleRow(
+                title = stringResource(Res.string.player_video_settings_deband),
+                description = stringResource(Res.string.player_video_settings_deband_desc),
+                checked = settings.iosDebandEnabled,
+                onCheckedChange = {
+                    PlayerSettingsRepository.setIosDebandEnabled(it)
+                    onSettingsChanged()
+                },
+            )
+            ToggleRow(
+                title = stringResource(Res.string.player_video_settings_interpolation),
+                description = stringResource(Res.string.player_video_settings_interpolation_desc),
+                checked = settings.iosInterpolationEnabled,
+                onCheckedChange = {
+                    PlayerSettingsRepository.setIosInterpolationEnabled(it)
+                    onSettingsChanged()
+                },
+            )
 
-                ToggleRow(
-                    title = stringResource(Res.string.player_video_settings_deband),
-                    description = stringResource(Res.string.player_video_settings_deband_desc),
-                    checked = settings.iosDebandEnabled,
-                    onCheckedChange = {
-                        PlayerSettingsRepository.setIosDebandEnabled(it)
-                        onSettingsChanged()
-                    },
-                )
-                ToggleRow(
-                    title = stringResource(Res.string.player_video_settings_interpolation),
-                    description = stringResource(Res.string.player_video_settings_interpolation_desc),
-                    checked = settings.iosInterpolationEnabled,
-                    onCheckedChange = {
-                        PlayerSettingsRepository.setIosInterpolationEnabled(it)
-                        onSettingsChanged()
-                    },
-                )
-
-                PictureSlider(
-                    title = stringResource(Res.string.player_video_settings_brightness),
-                    value = settings.iosBrightness,
-                    onValueChanged = {
-                        PlayerSettingsRepository.setIosBrightness(it)
-                        onSettingsChanged()
-                    },
-                )
-                PictureSlider(
-                    title = stringResource(Res.string.player_video_settings_contrast),
-                    value = settings.iosContrast,
-                    onValueChanged = {
-                        PlayerSettingsRepository.setIosContrast(it)
-                        onSettingsChanged()
-                    },
-                )
-                PictureSlider(
-                    title = stringResource(Res.string.player_video_settings_saturation),
-                    value = settings.iosSaturation,
-                    onValueChanged = {
-                        PlayerSettingsRepository.setIosSaturation(it)
-                        onSettingsChanged()
-                    },
-                )
-                PictureSlider(
-                    title = stringResource(Res.string.player_video_settings_gamma),
-                    value = settings.iosGamma,
-                    onValueChanged = {
-                        PlayerSettingsRepository.setIosGamma(it)
-                        onSettingsChanged()
-                    },
-                )
-            }
+            PictureSlider(
+                title = stringResource(Res.string.player_video_settings_brightness),
+                value = settings.iosBrightness,
+                onValueChanged = {
+                    PlayerSettingsRepository.setIosBrightness(it)
+                    onSettingsChanged()
+                },
+            )
+            PictureSlider(
+                title = stringResource(Res.string.player_video_settings_contrast),
+                value = settings.iosContrast,
+                onValueChanged = {
+                    PlayerSettingsRepository.setIosContrast(it)
+                    onSettingsChanged()
+                },
+            )
+            PictureSlider(
+                title = stringResource(Res.string.player_video_settings_saturation),
+                value = settings.iosSaturation,
+                onValueChanged = {
+                    PlayerSettingsRepository.setIosSaturation(it)
+                    onSettingsChanged()
+                },
+            )
+            PictureSlider(
+                title = stringResource(Res.string.player_video_settings_gamma),
+                value = settings.iosGamma,
+                onValueChanged = {
+                    PlayerSettingsRepository.setIosGamma(it)
+                    onSettingsChanged()
+                },
+            )
         }
     }
 }

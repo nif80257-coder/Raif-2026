@@ -51,13 +51,12 @@ private const val AUDIO_DELAY_HOLD_FAST_STEP_MS = 100
 private const val AUDIO_DELAY_HOLD_FAST_AFTER_MS = 2_000L
 private val AUDIO_PANEL_SIDE_BY_SIDE_MIN_WIDTH = 760.dp
 
+/** The audio body of the unified player settings overlay. */
 @Composable
-fun AudioTrackModal(
-    visible: Boolean,
+internal fun AudioTrackModalContent(
     audioTracks: List<AudioTrack>,
     selectedIndex: Int,
     onTrackSelected: (Int) -> Unit,
-    onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     showAudioDelay: Boolean = false,
     audioDelayMs: Int = 0,
@@ -71,63 +70,118 @@ fun AudioTrackModal(
     centerMixLevelDb: Int = 0,
     onCenterMixLevelChanged: (Int) -> Unit = {},
 ) {
-    PlayerOverlayScaffold(
-        visible = visible,
-        onDismiss = onDismiss,
-        modifier = modifier,
-        contentPadding = PaddingValues(start = 44.dp, end = 44.dp, top = 28.dp, bottom = 64.dp),
-    ) {
-        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-            val railWidth = minOf(maxWidth, 444.dp)
-            val railMaxHeight = (maxHeight - 64.dp).coerceAtLeast(120.dp).coerceAtMost(620.dp)
-            val panelMaxHeight = maxHeight
-            val hasAdjustments = showAudioDelay || showAudioAmplification || showCenterMix
-            val adjustments: @Composable () -> Unit = {
-                if (showAudioDelay) {
-                    AudioDelaySection(
-                        delayMs = audioDelayMs,
-                        onDelayChanged = onAudioDelayChanged,
-                        modifier = Modifier.padding(top = 12.dp),
-                    )
-                }
-
-                if (showAudioAmplification) {
-                    AudioAmplificationSection(
-                        gainDb = audioAmplificationDb,
-                        keep = keepAudioAmplification,
-                        onGainChanged = onAudioAmplificationChanged,
-                        onKeepChanged = onKeepAudioAmplificationChanged,
-                        modifier = Modifier.padding(top = 12.dp),
-                    )
-                }
-
-                if (showCenterMix) {
-                    CenterMixSection(
-                        levelDb = centerMixLevelDb,
-                        onLevelChanged = onCenterMixLevelChanged,
-                        modifier = Modifier.padding(top = 12.dp),
-                    )
-                }
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val railWidth = minOf(maxWidth, 444.dp)
+        val railMaxHeight = (maxHeight - 64.dp).coerceAtLeast(120.dp).coerceAtMost(620.dp)
+        val panelMaxHeight = maxHeight
+        val hasAdjustments = showAudioDelay || showAudioAmplification || showCenterMix
+        val adjustments: @Composable () -> Unit = {
+            if (showAudioDelay) {
+                AudioDelaySection(
+                    delayMs = audioDelayMs,
+                    onDelayChanged = onAudioDelayChanged,
+                    modifier = Modifier.padding(top = 12.dp),
+                )
             }
 
-            val tracksColumn: @Composable (Modifier) -> Unit = { columnModifier ->
+            if (showAudioAmplification) {
+                AudioAmplificationSection(
+                    gainDb = audioAmplificationDb,
+                    keep = keepAudioAmplification,
+                    onGainChanged = onAudioAmplificationChanged,
+                    onKeepChanged = onKeepAudioAmplificationChanged,
+                    modifier = Modifier.padding(top = 12.dp),
+                )
+            }
+
+            if (showCenterMix) {
+                CenterMixSection(
+                    levelDb = centerMixLevelDb,
+                    onLevelChanged = onCenterMixLevelChanged,
+                    modifier = Modifier.padding(top = 12.dp),
+                )
+            }
+        }
+
+        val tracksColumn: @Composable (Modifier) -> Unit = { columnModifier ->
+            Column(
+                modifier = columnModifier,
+                verticalArrangement = Arrangement.Bottom,
+            ) {
+                AudioTracksHeader()
+                if (audioTracks.isEmpty()) {
+                    NoAudioTracksText()
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f, fill = false)
+                            .heightIn(max = railMaxHeight),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        contentPadding = PaddingValues(vertical = 8.dp),
+                    ) {
+                        items(audioTracks, key = { "${it.index}:${it.id}" }) { track ->
+                            AudioTrackRow(
+                                track = track,
+                                isSelected = track.index == selectedIndex,
+                                onClick = { onTrackSelected(track.index) },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!hasAdjustments) {
+            tracksColumn(
+                Modifier
+                    .width(railWidth)
+                    .fillMaxHeight()
+                    .align(Alignment.BottomStart),
+            )
+        } else if (maxWidth >= AUDIO_PANEL_SIDE_BY_SIDE_MIN_WIDTH) {
+            // Wide enough: tracks on the left and adjustments on the right, so neither squeezes the other.
+            val columnWidth = minOf((maxWidth - 32.dp) / 2, 444.dp)
+            Row(
+                modifier = Modifier.align(Alignment.BottomStart),
+                horizontalArrangement = Arrangement.spacedBy(32.dp),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                tracksColumn(
+                    Modifier
+                        .width(columnWidth)
+                        .heightIn(max = panelMaxHeight),
+                )
                 Column(
-                    modifier = columnModifier,
-                    verticalArrangement = Arrangement.Bottom,
+                    modifier = Modifier
+                        .width(columnWidth)
+                        .heightIn(max = panelMaxHeight)
+                        .verticalScroll(rememberScrollState()),
                 ) {
-                    AudioTracksHeader()
-                    if (audioTracks.isEmpty()) {
-                        NoAudioTracksText()
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f, fill = false)
-                                .heightIn(max = railMaxHeight),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                            contentPadding = PaddingValues(vertical = 8.dp),
-                        ) {
-                            items(audioTracks, key = { "${it.index}:${it.id}" }) { track ->
+                    adjustments()
+                }
+            }
+        } else {
+            // One rail that scrolls as a whole, so the tracks keep their size next to the adjustments.
+            Column(
+                modifier = Modifier
+                    .width(railWidth)
+                    .heightIn(max = panelMaxHeight)
+                    .align(Alignment.BottomStart)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                AudioTracksHeader()
+                if (audioTracks.isEmpty()) {
+                    NoAudioTracksText()
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        audioTracks.forEach { track ->
+                            key("${track.index}:${track.id}") {
                                 AudioTrackRow(
                                     track = track,
                                     isSelected = track.index == selectedIndex,
@@ -137,69 +191,7 @@ fun AudioTrackModal(
                         }
                     }
                 }
-            }
-
-            if (!hasAdjustments) {
-                tracksColumn(
-                    Modifier
-                        .width(railWidth)
-                        .fillMaxHeight()
-                        .align(Alignment.BottomStart),
-                )
-            } else if (maxWidth >= AUDIO_PANEL_SIDE_BY_SIDE_MIN_WIDTH) {
-                // Wide enough: tracks on the left and adjustments on the right, so neither squeezes the other.
-                val columnWidth = minOf((maxWidth - 32.dp) / 2, 444.dp)
-                Row(
-                    modifier = Modifier.align(Alignment.BottomStart),
-                    horizontalArrangement = Arrangement.spacedBy(32.dp),
-                    verticalAlignment = Alignment.Bottom,
-                ) {
-                    tracksColumn(
-                        Modifier
-                            .width(columnWidth)
-                            .heightIn(max = panelMaxHeight),
-                    )
-                    Column(
-                        modifier = Modifier
-                            .width(columnWidth)
-                            .heightIn(max = panelMaxHeight)
-                            .verticalScroll(rememberScrollState()),
-                    ) {
-                        adjustments()
-                    }
-                }
-            } else {
-                // One rail that scrolls as a whole, so the tracks keep their size next to the adjustments.
-                Column(
-                    modifier = Modifier
-                        .width(railWidth)
-                        .heightIn(max = panelMaxHeight)
-                        .align(Alignment.BottomStart)
-                        .verticalScroll(rememberScrollState()),
-                ) {
-                    AudioTracksHeader()
-                    if (audioTracks.isEmpty()) {
-                        NoAudioTracksText()
-                    } else {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 8.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            audioTracks.forEach { track ->
-                                key("${track.index}:${track.id}") {
-                                    AudioTrackRow(
-                                        track = track,
-                                        isSelected = track.index == selectedIndex,
-                                        onClick = { onTrackSelected(track.index) },
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    adjustments()
-                }
+                adjustments()
             }
         }
     }
