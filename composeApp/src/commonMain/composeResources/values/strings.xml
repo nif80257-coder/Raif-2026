@@ -653,6 +653,7 @@
     <string name="downloads_open_directory">Open downloads folder</string>
     <string name="downloads_open_directory_failed">Couldn&apos;t open downloads folder</string>
     <string name="downloads_section_active">Active</string>
+    <string name="downloads_summary">%1$d active · %2$d complete · %3$s</string>
     <string name="downloads_section_movies">Movies</string>
     <string name="downloads_section_shows">Shows</string>
     <string name="downloads_show_downloads">Show Downloads</string>

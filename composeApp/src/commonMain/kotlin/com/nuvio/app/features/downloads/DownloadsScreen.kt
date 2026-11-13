@@ -66,6 +66,20 @@ fun DownloadsScreen(
     var downloadPendingDeletionId by rememberSaveable { mutableStateOf<String?>(null) }
     val openDownloadsDirectoryFailedText = stringResource(Res.string.downloads_open_directory_failed)
 
+    val completedBytes = remember(uiState.items) {
+        uiState.completedItems.sumOf { it.totalBytes ?: it.downloadedBytes }
+    }
+    val downloadsSummary = if (uiState.items.isEmpty() || selectedShowId != null) {
+        null
+    } else {
+        stringResource(
+            Res.string.downloads_summary,
+            uiState.activeItems.size,
+            uiState.completedItems.size,
+            formatBytes(completedBytes),
+        )
+    }
+
     val completedEpisodes = remember(uiState.items) {
         uiState.completedItems
             .filter { it.isEpisode }
@@ -80,34 +94,44 @@ fun DownloadsScreen(
 
     NuvioScreen {
         stickyHeader {
-            NuvioScreenHeader(
-                title = if (selectedShowId == null) {
-                    stringResource(Res.string.compose_settings_root_downloads_title)
-                } else {
-                    selectedShowTitle ?: stringResource(Res.string.downloads_show_downloads)
-                },
-                onBack = {
-                    if (selectedShowId != null) {
-                        onBackFromShow?.invoke() ?: run { selectedShowId = null }
+            Column(modifier = Modifier.fillMaxWidth()) {
+                NuvioScreenHeader(
+                    title = if (selectedShowId == null) {
+                        stringResource(Res.string.compose_settings_root_downloads_title)
                     } else {
-                        onBack()
-                    }
-                },
-                actions = {
-                    IconButton(
-                        onClick = {
-                            if (!DownloadsPlatformDownloader.openDownloadsDirectory()) {
-                                NuvioToastController.show(openDownloadsDirectoryFailedText)
-                            }
-                        },
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Folder,
-                            contentDescription = stringResource(Res.string.downloads_open_directory),
-                        )
-                    }
-                },
-            )
+                        selectedShowTitle ?: stringResource(Res.string.downloads_show_downloads)
+                    },
+                    onBack = {
+                        if (selectedShowId != null) {
+                            onBackFromShow?.invoke() ?: run { selectedShowId = null }
+                        } else {
+                            onBack()
+                        }
+                    },
+                    actions = {
+                        IconButton(
+                            onClick = {
+                                if (!DownloadsPlatformDownloader.openDownloadsDirectory()) {
+                                    NuvioToastController.show(openDownloadsDirectoryFailedText)
+                                }
+                            },
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Folder,
+                                contentDescription = stringResource(Res.string.downloads_open_directory),
+                            )
+                        }
+                    },
+                )
+                if (downloadsSummary != null) {
+                    Text(
+                        text = downloadsSummary,
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.nuvio.colors.textSecondary,
+                    )
+                }
+            }
         }
 
         if (selectedShowId == null) {

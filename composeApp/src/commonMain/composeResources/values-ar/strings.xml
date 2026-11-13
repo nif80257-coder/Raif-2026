@@ -650,6 +650,7 @@
     <string name="downloads_open_directory">فتح مجلد التنزيلات</string>
     <string name="downloads_open_directory_failed">تعذر فتح مجلد التنزيلات</string>
     <string name="downloads_section_active">نشط</string>
+    <string name="downloads_summary">%1$d نشط · %2$d مكتمل · %3$s</string>
     <string name="downloads_section_movies">أفلام</string>
     <string name="downloads_section_shows">مسلسلات</string>
     <string name="downloads_show_downloads">إظهار التنزيلات</string>
