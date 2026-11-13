@@ -33,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cinemax.app.addons.StremioMetaPreview
+import com.cinemax.app.core.PosterStatus
 
 /**
  * A whole catalog as a poster grid, the screen behind "المزيد" on a home shelf.
@@ -49,7 +50,8 @@ fun CinemaxCatalogScreen(
     background: Color,
     onOpen: (StremioMetaPreview) -> Unit,
     onLoadMore: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    statuses: Map<String, PosterStatus>
 ) {
     Column(Modifier.fillMaxSize().background(background)) {
         Row(
@@ -90,6 +92,7 @@ fun CinemaxCatalogScreen(
                     badge = item.releaseInfo,
                     accent = accent,
                     onClick = { onOpen(item) },
+                    status = statuses[item.id],
                     modifier = Modifier.fillMaxWidth()
                 )
             }

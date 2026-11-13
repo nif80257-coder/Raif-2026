@@ -7,6 +7,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -47,6 +49,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.cinemax.app.core.PosterStatus
 
 /** CINEMAX palette: near-black canvas, elevated cards and one accent colour. */
 object CinemaxPalette {
@@ -185,6 +188,7 @@ fun CinemaxPosterCard(
     width: Dp = 126.dp,
     accent: Color,
     onClick: () -> Unit,
+    status: PosterStatus? = null,
     // Grids hand in a fillMaxWidth modifier instead of a fixed poster width.
     modifier: Modifier = Modifier.width(width)
 ) {
@@ -225,6 +229,7 @@ fun CinemaxPosterCard(
                         .padding(horizontal = 5.dp, vertical = 2.dp)
                 )
             }
+            PosterStatusMarks(status = status, accent = accent)
         }
         Spacer(Modifier.height(7.dp))
         Text(
@@ -235,6 +240,45 @@ fun CinemaxPosterCard(
             maxLines = 2,
             overflow = TextOverflow.Ellipsis
         )
+    }
+}
+
+/**
+ * The two marks a poster carries from the user's own history: a bar across the
+ * bottom of the artwork for what was started, and a star for what is saved.
+ * Called inside the artwork box, which is what it aligns against.
+ */
+@Composable
+fun BoxScope.PosterStatusMarks(status: PosterStatus?, accent: Color) {
+    val progress = status?.progress
+    if (progress != null && progress > 0.005f) {
+        Box(
+            Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .height(3.dp)
+                .background(Color(0x66000000))
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth(progress.coerceIn(0f, 1f))
+                    .fillMaxHeight()
+                    .background(accent)
+            )
+        }
+    }
+    if (status?.saved == true) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(7.dp)
+                .size(18.dp)
+                .clip(CircleShape)
+                .background(Color(0xB3000000)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("★", color = accent, fontSize = 10.sp)
+        }
     }
 }
 

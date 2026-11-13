@@ -69,6 +69,7 @@ import com.cinemax.app.core.episodeLabel
 import com.cinemax.app.core.languageIndex
 import com.cinemax.app.core.nextEpisode
 import com.cinemax.app.core.parseSubtitles
+import com.cinemax.app.core.posterStatusById
 import com.cinemax.app.core.unsupportedVideoContainer
 import com.cinemax.app.nuvio.InstalledNuvioRepository
 import com.cinemax.app.nuvio.NuvioMediaIds
@@ -163,6 +164,8 @@ fun App() {
     var browseExhausted by remember { mutableStateOf(false) }
     var libraryFilter by remember { mutableStateOf("all") }
     val watchProgressItems = remember { mutableStateListOf<WatchProgress>().apply { addAll(watchProgressStore.load()) } }
+    // The progress bar and the saved star every poster draws, keyed by title id.
+    val posterStatuses = posterStatusById(watchProgressItems.toList(), favoriteIds)
     var preferences by remember {
         // A preference written by an older build must never stop the app from starting.
         mutableStateOf(runCatching { preferencesStore.load() }.getOrDefault(CinemaxPreferences()))
@@ -812,7 +815,8 @@ fun App() {
                     tonightPick = tonightPick,
                     onShuffleTonight = { pickTonight() },
                     onRefresh = { refreshHome() },
-                    onBrowseShelf = { shelf -> openShelf(shelf) }
+                    onBrowseShelf = { shelf -> openShelf(shelf) },
+                    posterStatus = posterStatuses
                 )
                 1 -> CinemaxSearchScreen(
                     query = searchQuery,
@@ -873,7 +877,8 @@ fun App() {
                     onOpenItem = { item ->
                         pendingVideoId = null
                         selectedItem = item
-                    }
+                    },
+                    statuses = posterStatuses
                 )
                 2 -> CinemaxLibraryScreen(
                     favorites = favoriteItems.toList(),
@@ -967,7 +972,8 @@ fun App() {
                             selectedItem = item
                         },
                         onLoadMore = { loadMoreShelf() },
-                        onBack = { browseShelf = null }
+                        onBack = { browseShelf = null },
+                        statuses = posterStatuses
                     )
                 }
             }

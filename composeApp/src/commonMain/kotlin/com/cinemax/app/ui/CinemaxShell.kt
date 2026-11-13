@@ -80,6 +80,7 @@ import com.cinemax.app.addons.StreamOption
 import com.cinemax.app.addons.StremioMeta
 import com.cinemax.app.addons.StremioMetaPreview
 import com.cinemax.app.addons.StremioVideo
+import com.cinemax.app.core.PosterStatus
 import com.cinemax.app.core.episodeLabel
 import com.cinemax.app.core.rankedSources
 import com.cinemax.app.core.streamBadges
@@ -174,7 +175,8 @@ fun CinemaxHomeScreen(
     tonightPick: StremioMetaPreview?,
     onShuffleTonight: () -> Unit,
     onRefresh: () -> Unit,
-    onBrowseShelf: (CinemaxShelf) -> Unit
+    onBrowseShelf: (CinemaxShelf) -> Unit,
+    posterStatus: Map<String, PosterStatus>
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
@@ -259,7 +261,8 @@ fun CinemaxHomeScreen(
                                     poster = item.poster,
                                     badge = item.releaseInfo,
                                     accent = accent,
-                                    onClick = { onOpenItem(item) }
+                                    onClick = { onOpenItem(item) },
+                                    status = posterStatus[item.id]
                                 )
                             }
                         }
@@ -639,7 +642,8 @@ fun CinemaxSearchScreen(
     canSearch: Boolean,
     type: String,
     onType: (String) -> Unit,
-    onOpenItem: (StremioMetaPreview) -> Unit
+    onOpenItem: (StremioMetaPreview) -> Unit,
+    statuses: Map<String, PosterStatus>
 ) {
     Column(
         Modifier
@@ -733,7 +737,8 @@ fun CinemaxSearchScreen(
                                 accent = accent,
                                 onClick = { onOpenItem(entry.item) },
                                 modifier = Modifier.weight(1f),
-                                sourceLabel = entry.addonName
+                                sourceLabel = entry.addonName,
+                                status = statuses[entry.item.id]
                             )
                         }
                         repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
@@ -864,7 +869,8 @@ private fun GridPoster(
     accent: Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    sourceLabel: String? = null
+    sourceLabel: String? = null,
+    status: PosterStatus? = null
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
@@ -903,6 +909,7 @@ private fun GridPoster(
                         .padding(horizontal = 4.dp, vertical = 1.dp)
                 )
             }
+            PosterStatusMarks(status = status, accent = accent)
         }
         Spacer(Modifier.height(6.dp))
         Text(
