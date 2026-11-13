@@ -1,6 +1,7 @@
 package com.cinemax.app.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,10 +21,12 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -51,7 +54,10 @@ fun CinemaxCatalogScreen(
     onOpen: (StremioMetaPreview) -> Unit,
     onLoadMore: () -> Unit,
     onBack: () -> Unit,
-    statuses: Map<String, PosterStatus>
+    statuses: Map<String, PosterStatus>,
+    genres: List<String> = emptyList(),
+    selectedGenre: String? = null,
+    onGenre: (String?) -> Unit = {}
 ) {
     Column(Modifier.fillMaxSize().background(background)) {
         Row(
@@ -76,6 +82,28 @@ fun CinemaxCatalogScreen(
                     color = CinemaxPalette.textMuted,
                     fontSize = 11.sp
                 )
+            }
+        }
+        if (genres.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(start = 16.dp, end = 16.dp, bottom = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                FilterChip(
+                    selected = selectedGenre == null,
+                    onClick = { onGenre(null) },
+                    label = { Text("الكل", fontSize = 11.sp) }
+                )
+                genres.forEach { genre ->
+                    FilterChip(
+                        selected = selectedGenre == genre,
+                        onClick = { onGenre(genre) },
+                        label = { Text(genre, fontSize = 11.sp) }
+                    )
+                }
             }
         }
         LazyVerticalGrid(

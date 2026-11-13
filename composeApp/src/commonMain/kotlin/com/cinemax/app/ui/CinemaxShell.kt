@@ -98,7 +98,9 @@ data class CinemaxShelf(
     val manifestUrl: String? = null,
     val catalogType: String? = null,
     val catalogId: String? = null,
-    val supportsSkip: Boolean = false
+    val supportsSkip: Boolean = false,
+    /** Genres the catalog declares, offered as chips in the full grid. */
+    val genreOptions: List<String> = emptyList()
 ) {
     val isBrowsable: Boolean get() = manifestUrl != null && catalogType != null && catalogId != null
 }

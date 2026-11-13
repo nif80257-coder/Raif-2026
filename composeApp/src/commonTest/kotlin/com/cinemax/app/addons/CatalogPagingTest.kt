@@ -49,4 +49,23 @@ class CatalogPagingTest {
         assertEquals(listOf("a"), page.items.map { it.id })
         assertFalse(page.exhausted)
     }
+
+    @Test
+    fun theFirstPageOfAGenreCarriesNoSkip() {
+        assertEquals(mapOf("genre" to "Action"), catalogPageExtra("Action", 0))
+    }
+
+    @Test
+    fun aLaterPageCarriesBothTheGenreAndTheSkip() {
+        assertEquals(
+            mapOf("genre" to "Action", "skip" to "100"),
+            catalogPageExtra("Action", 100)
+        )
+    }
+
+    @Test
+    fun withoutAGenreOnlyTheSkipIsSent() {
+        assertEquals(mapOf("skip" to "100"), catalogPageExtra(null, 100))
+        assertEquals(emptyMap(), catalogPageExtra("  ", 0))
+    }
 }

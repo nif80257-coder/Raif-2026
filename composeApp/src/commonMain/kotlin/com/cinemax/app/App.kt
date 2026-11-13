@@ -56,6 +56,7 @@ import com.cinemax.app.addons.StremioMetaPreview
 import com.cinemax.app.addons.StremioManifest
 import com.cinemax.app.addons.StremioVideo
 import com.cinemax.app.addons.appendCatalogPage
+import com.cinemax.app.addons.catalogPageExtra
 import com.cinemax.app.addons.createCinemaxHttpClient
 import com.cinemax.app.addons.searchAllAddons
 import com.cinemax.app.core.CinemaxRoadmap
@@ -162,6 +163,7 @@ fun App() {
     var browseShelf by remember { mutableStateOf<CinemaxShelf?>(null) }
     var browseLoadingMore by remember { mutableStateOf(false) }
     var browseExhausted by remember { mutableStateOf(false) }
+    var browseGenre by remember { mutableStateOf<String?>(null) }
     var libraryFilter by remember { mutableStateOf("all") }
     val watchProgressItems = remember { mutableStateListOf<WatchProgress>().apply { addAll(watchProgressStore.load()) } }
     // The progress bar and the saved star every poster draws, keyed by title id.
@@ -408,7 +410,11 @@ fun App() {
                             manifestUrl = addon.manifestUrl,
                             catalogType = catalog.type,
                             catalogId = catalog.id,
-                            supportsSkip = catalog.supportsExtra("skip")
+                            supportsSkip = catalog.supportsExtra("skip"),
+                            genreOptions = catalog.extra
+                                .firstOrNull { it.name == "genre" }
+                                ?.options
+                                .orEmpty()
                         )
                     }
                 }.awaitAll().filterNotNull()
@@ -665,6 +671,7 @@ fun App() {
     /** Opens a home shelf as a full grid, keeping the page it already loaded. */
     fun openShelf(shelf: CinemaxShelf) {
         browseShelf = shelf
+        browseGenre = null
         browseItems.clear()
         browseItems.addAll(shelf.items)
         browseExhausted = !shelf.supportsSkip
@@ -672,28 +679,36 @@ fun App() {
     }
 
     /**
-     * Asks the same addon for the next page of the opened shelf. The Stremio
-     * protocol pages a catalog with the `skip` extra, counted from what is
-     * already on screen, and a page that brings nothing new ends the list.
+     * Requests one page of the opened shelf for the current genre. `replace`
+     * starts the list again (first page, or after a genre change); otherwise the
+     * page is appended. The Stremio protocol carries the genre and the skip in
+     * the same extra segment, and a page that brings nothing new ends the list.
      */
-    fun loadMoreShelf() {
+    fun loadShelfPage(replace: Boolean) {
         val shelf = browseShelf ?: return
         val manifestUrl = shelf.manifestUrl ?: return
         val type = shelf.catalogType ?: return
         val catalogId = shelf.catalogId ?: return
-        if (browseLoadingMore || browseExhausted) return
+        if (browseLoadingMore) return
+        if (!replace && browseExhausted) return
         browseLoadingMore = true
         scope.launch {
             try {
-                val page = repository.loadCatalog(
-                    manifestUrl, type, catalogId,
-                    mapOf("skip" to browseItems.size.toString())
-                )
-                val merged = appendCatalogPage(browseItems.toList(), page)
+                val extra = catalogPageExtra(browseGenre, if (replace) 0 else browseItems.size)
+                val page = repository.loadCatalog(manifestUrl, type, catalogId, extra)
+                val merged = if (replace) {
+                    appendCatalogPage(emptyList(), page)
+                } else {
+                    appendCatalogPage(browseItems.toList(), page)
+                }
                 browseItems.clear()
                 browseItems.addAll(merged.items)
                 browseExhausted = merged.exhausted
-                status = if (merged.exhausted) "نهاية ${shelf.title}" else "${shelf.title} • ${merged.items.size} عنوانًا"
+                status = if (merged.exhausted) {
+                    "${shelf.title} • ${merged.items.size} عنوانًا"
+                } else {
+                    "${shelf.title} • ${merged.items.size} عنوانًا (يمكن المزيد)"
+                }
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
                 browseExhausted = true
@@ -702,6 +717,15 @@ fun App() {
                 browseLoadingMore = false
             }
         }
+    }
+
+    /** Switches the opened grid to another genre, restarting it from page one. */
+    fun selectShelfGenre(genre: String?) {
+        if (browseGenre == genre) return
+        browseGenre = genre
+        browseItems.clear()
+        browseExhausted = false
+        loadShelfPage(replace = true)
     }
 
     /** "فيلم الليلة": a random title from the library that is not in progress. */
@@ -773,7 +797,13 @@ fun App() {
                     manifestUrl = activeAddon?.manifestUrl,
                     catalogType = activeCatalogType,
                     catalogId = activeCatalogId,
-                    supportsSkip = activeCatalogSupportsSkip
+                    supportsSkip = activeCatalogSupportsSkip,
+                    genreOptions = availableCatalogs
+                        .firstOrNull { it.type == activeCatalogType && it.id == activeCatalogId }
+                        ?.extra
+                        ?.firstOrNull { it.name == "genre" }
+                        ?.options
+                        .orEmpty()
                 )
             )
         }
@@ -971,9 +1001,12 @@ fun App() {
                             pendingVideoId = null
                             selectedItem = item
                         },
-                        onLoadMore = { loadMoreShelf() },
+                        onLoadMore = { loadShelfPage(replace = false) },
                         onBack = { browseShelf = null },
-                        statuses = posterStatuses
+                        statuses = posterStatuses,
+                        genres = shelf.genreOptions,
+                        selectedGenre = browseGenre,
+                        onGenre = { genre -> selectShelfGenre(genre) }
                     )
                 }
             }

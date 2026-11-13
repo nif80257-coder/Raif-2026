@@ -25,3 +25,14 @@ fun appendCatalogPage(
     val fresh = page.filter { known.add(it.id) }
     return CatalogPage(items = existing + fresh, exhausted = fresh.isEmpty())
 }
+
+/**
+ * The extra arguments one catalog page request carries: the genre the user
+ * picked, when the catalog declares a `genre` extra, and the skip of the page
+ * being asked for. Both live in the single extra path segment the protocol
+ * defines, so they are built together.
+ */
+fun catalogPageExtra(genre: String?, skip: Int): Map<String, String> = buildMap {
+    if (!genre.isNullOrBlank()) put("genre", genre)
+    if (skip > 0) put("skip", skip.toString())
+}
