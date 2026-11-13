@@ -1,5 +1,6 @@
 package com.nuvio.app.features.downloads
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -241,7 +242,11 @@ private fun LazyListScope.downloadsRootContent(
                     .padding(horizontal = 12.dp, vertical = 6.dp)
                     .clickable { onOpenShow(item.parentMetaId, item.title) },
                 shape = MaterialTheme.nuvio.shapes.compactCard,
-                color = MaterialTheme.nuvio.colors.surface,
+                color = MaterialTheme.nuvio.colors.surfaceCard,
+                border = BorderStroke(
+                    MaterialTheme.nuvio.borders.hairline,
+                    MaterialTheme.nuvio.colors.borderSubtle,
+                ),
             ) {
                 Row(
                     modifier = Modifier
@@ -383,6 +388,10 @@ private fun DownloadRow(
             .clickable(enabled = item.isPlayable, onClick = onOpen),
         shape = MaterialTheme.nuvio.shapes.compactCard,
         color = MaterialTheme.nuvio.colors.surfaceCard,
+        border = BorderStroke(
+            MaterialTheme.nuvio.borders.hairline,
+            MaterialTheme.nuvio.colors.borderSubtle,
+        ),
     ) {
         Column(
             modifier = Modifier
@@ -470,10 +479,14 @@ private fun DownloadRow(
                     LinearProgressIndicator(
                         progress = item.progressFraction,
                         modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.nuvio.colors.accent,
+                        trackColor = MaterialTheme.nuvio.colors.borderDefault,
                     )
                 } else {
                     LinearProgressIndicator(
                         modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.nuvio.colors.accent,
+                        trackColor = MaterialTheme.nuvio.colors.borderDefault,
                     )
                 }
             }
