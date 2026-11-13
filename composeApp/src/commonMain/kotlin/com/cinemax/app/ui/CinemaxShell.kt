@@ -80,8 +80,10 @@ import com.cinemax.app.addons.StreamOption
 import com.cinemax.app.addons.StremioMeta
 import com.cinemax.app.addons.StremioMetaPreview
 import com.cinemax.app.addons.StremioVideo
+import com.cinemax.app.core.LibrarySort
 import com.cinemax.app.core.PosterStatus
 import com.cinemax.app.core.episodeLabel
+import com.cinemax.app.core.librarySortLabel
 import com.cinemax.app.core.rankedSources
 import com.cinemax.app.core.streamBadges
 import com.cinemax.app.formatClock
@@ -759,6 +761,8 @@ fun CinemaxLibraryScreen(
     filter: String,
     accent: Color,
     onFilter: (String) -> Unit,
+    sort: LibrarySort,
+    onSort: (LibrarySort) -> Unit,
     onOpenItem: (StremioMetaPreview) -> Unit,
     onResume: (WatchProgress) -> Unit,
     onRemoveProgress: (WatchProgress) -> Unit
@@ -780,6 +784,20 @@ fun CinemaxLibraryScreen(
                         selected = filter == value,
                         onClick = { onFilter(value) },
                         label = { Text(label, fontSize = 11.sp) }
+                    )
+                }
+            }
+        }
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                LibrarySort.entries.forEach { option ->
+                    FilterChip(
+                        selected = sort == option,
+                        onClick = { onSort(option) },
+                        label = { Text(librarySortLabel(option), fontSize = 11.sp) }
                     )
                 }
             }

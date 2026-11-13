@@ -60,6 +60,7 @@ import com.cinemax.app.addons.catalogPageExtra
 import com.cinemax.app.addons.createCinemaxHttpClient
 import com.cinemax.app.addons.searchAllAddons
 import com.cinemax.app.core.CinemaxRoadmap
+import com.cinemax.app.core.LibrarySort
 import com.cinemax.app.core.EmbeddedSubtitleTrack
 import com.cinemax.app.core.SubtitleCue
 import com.cinemax.app.core.activeCue
@@ -71,6 +72,7 @@ import com.cinemax.app.core.languageIndex
 import com.cinemax.app.core.nextEpisode
 import com.cinemax.app.core.parseSubtitles
 import com.cinemax.app.core.posterStatusById
+import com.cinemax.app.core.sortLibrary
 import com.cinemax.app.core.unsupportedVideoContainer
 import com.cinemax.app.nuvio.InstalledNuvioRepository
 import com.cinemax.app.nuvio.NuvioMediaIds
@@ -165,6 +167,7 @@ fun App() {
     var browseExhausted by remember { mutableStateOf(false) }
     var browseGenre by remember { mutableStateOf<String?>(null) }
     var libraryFilter by remember { mutableStateOf("all") }
+    var librarySort by remember { mutableStateOf(LibrarySort.Recent) }
     val watchProgressItems = remember { mutableStateListOf<WatchProgress>().apply { addAll(watchProgressStore.load()) } }
     // The progress bar and the saved star every poster draws, keyed by title id.
     val posterStatuses = posterStatusById(watchProgressItems.toList(), favoriteIds)
@@ -911,11 +914,17 @@ fun App() {
                     statuses = posterStatuses
                 )
                 2 -> CinemaxLibraryScreen(
-                    favorites = favoriteItems.toList(),
+                    favorites = sortLibrary(
+                        favoriteItems.toList(),
+                        librarySort,
+                        watchProgressItems.map { it.item.id }
+                    ),
                     continueWatching = watchProgressItems.toList(),
                     filter = libraryFilter,
                     accent = appAccent,
                     onFilter = { libraryFilter = it },
+                    sort = librarySort,
+                    onSort = { librarySort = it },
                     onOpenItem = { item ->
                         pendingVideoId = null
                         selectedItem = item

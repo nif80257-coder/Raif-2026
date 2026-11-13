@@ -13,7 +13,7 @@ CINEMAX is an early-stage, Arabic-first iPhone streaming client built with Kotli
 - Safe-area handling on every screen: the tab bar, the detail sheet header, the player chrome and the four tabs respect the notch and the home indicator instead of drawing under them.
 - Choosing a season selects that season's first episode, so the source list matches what the user is looking at; the search tab explains that a catalog addon is needed instead of doing nothing; closing the player also closes the subtitle sheet.
 - Home shows up to five shelves, one per catalog the active addon declares (movies, series, popular…), each loaded in parallel, instead of a single shelf.
-- The library has أفلام / مسلسلات filters that apply to both saved titles and continue-watching, with a clear empty state per filter.
+- The library has أفلام / مسلسلات filters that apply to both saved titles and continue-watching, with a clear empty state per filter, and four sort orders for the saved grid: الأحدث مشاهدة, الأحدث إضافة, أبجديًا and الأعلى تقييمًا. Titles with no watch history keep their saved order after the watched ones, so the list does not reshuffle for no reason.
 - Home extras: the hero backdrop gets a slow Ken Burns zoom, a shimmer skeleton replaces the spinner while a catalog loads, and a "فيلم الليلة" card picks a title you have not started yet with a "بدّل" shuffle.
 - Search has أفلام / مسلسلات type chips, so a series query searches series catalogs instead of the addon's first (usually movie) catalog.
 - The detail screen's main button becomes "▶ أكمل من 12:34" when a stored resume position exists for that title.
