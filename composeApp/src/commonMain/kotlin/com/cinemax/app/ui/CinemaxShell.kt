@@ -87,8 +87,20 @@ import com.cinemax.app.formatClock
 import com.cinemax.app.hapticTap
 import kotlinx.coroutines.delay
 
-/** One titled row of posters on the home screen. */
-data class CinemaxShelf(val title: String, val items: List<StremioMetaPreview>)
+/**
+ * One titled row of posters on the home screen. The addon and catalog it came
+ * from are kept so the row can be opened as a full grid and paged with `skip`.
+ */
+data class CinemaxShelf(
+    val title: String,
+    val items: List<StremioMetaPreview>,
+    val manifestUrl: String? = null,
+    val catalogType: String? = null,
+    val catalogId: String? = null,
+    val supportsSkip: Boolean = false
+) {
+    val isBrowsable: Boolean get() = manifestUrl != null && catalogType != null && catalogId != null
+}
 
 /**
  * Floating pill navigation, the shape Nuvio uses: inset from the edges, one
@@ -161,7 +173,8 @@ fun CinemaxHomeScreen(
     versionLabel: String,
     tonightPick: StremioMetaPreview?,
     onShuffleTonight: () -> Unit,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    onBrowseShelf: (CinemaxShelf) -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
@@ -229,7 +242,14 @@ fun CinemaxHomeScreen(
                 if (shelf.items.isNotEmpty()) {
                     item {
                         Spacer(Modifier.height(4.dp))
-                        CinemaxSectionTitle(title = shelf.title, accent = accent)
+                        val more: (@Composable () -> Unit)? = if (shelf.isBrowsable) {
+                            {
+                                TextButton(onClick = { onBrowseShelf(shelf) }) {
+                                    Text("المزيد", color = accent, fontSize = 12.sp)
+                                }
+                            }
+                        } else null
+                        CinemaxSectionTitle(title = shelf.title, accent = accent, trailing = more)
                     }
                     item {
                         CinemaxRowAll {
@@ -712,7 +732,8 @@ fun CinemaxSearchScreen(
                                 item = entry.item,
                                 accent = accent,
                                 onClick = { onOpenItem(entry.item) },
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f),
+                                sourceLabel = entry.addonName
                             )
                         }
                         repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
@@ -842,7 +863,8 @@ private fun GridPoster(
     item: StremioMetaPreview,
     accent: Color,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    sourceLabel: String? = null
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
@@ -890,6 +912,9 @@ private fun GridPoster(
             maxLines = 2,
             overflow = TextOverflow.Ellipsis
         )
+        sourceLabel?.let {
+            Text(it, color = accent, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
     }
 }
 
@@ -949,6 +974,7 @@ fun CinemaxDetailScreen(
                 Spacer(Modifier.height(6.dp))
                 Text(
                     listOfNotNull(
+                        if (item.type == "series") "مسلسل" else "فيلم",
                         meta?.releaseInfo ?: item.releaseInfo,
                         (meta?.imdbRating ?: item.imdbRating)?.let { "★ $it" },
                         meta?.runtime
@@ -987,6 +1013,34 @@ fun CinemaxDetailScreen(
             }
             overview?.takeIf { it.isNotBlank() }?.let { text ->
                 item { Text(text, color = CinemaxPalette.text.copy(alpha = 0.9f), fontSize = 14.sp, lineHeight = 21.sp) }
+            }
+            meta?.director?.takeIf { it.isNotEmpty() }?.let { directors ->
+                item {
+                    Text(
+                        "إخراج: ${directors.joinToString("، ")}",
+                        color = CinemaxPalette.textMuted,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+            meta?.cast?.takeIf { it.isNotEmpty() }?.let { cast ->
+                item {
+                    Column {
+                        Text(
+                            "طاقم التمثيل",
+                            color = CinemaxPalette.text,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            cast.take(12).forEach { person -> CinemaxPill(person, accent) }
+                        }
+                    }
+                }
             }
             if (videos.isNotEmpty()) {
                 item { CinemaxSectionTitle(title = "الحلقات", accent = accent) }

@@ -18,6 +18,7 @@ CINEMAX is an early-stage, Arabic-first iPhone streaming client built with Kotli
 - Search has أفلام / مسلسلات type chips, so a series query searches series catalogs instead of the addon's first (usually movie) catalog.
 - The detail screen's main button becomes "▶ أكمل من 12:34" when a stored resume position exists for that title.
 - Home has a ↻ refresh button that reloads the active addon's catalog and shelves without leaving the tab, search can look through movies and series at once ("الكل"), and settings shows how many titles are saved or in progress with buttons to clear either list.
+- Every home shelf opens as a full poster grid ("المزيد"), and a catalog that declares the `skip` extra is paged from there: the next page is requested with `skip` counted from what is on screen, duplicates are dropped, and a page that brings nothing new ends the list with "نهاية القائمة".
 - Playback speed is remembered: changing it in the player (or on the next episode) keeps it for the next launch, and when a title ends with autoplay off the player closes back to the detail screen instead of holding the last frame.
 - The detail screen fades in and out instead of appearing instantly, and its last opened title is kept during the exit so the animation never flashes empty content.
 - Episode list shows a progress bar for each episode you have started and a ✓ once you finished it, and the settings sheet sizes addon subtitles (صغير / وسط / كبير).

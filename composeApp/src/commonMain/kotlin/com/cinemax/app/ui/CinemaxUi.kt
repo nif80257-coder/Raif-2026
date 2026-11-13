@@ -184,14 +184,15 @@ fun CinemaxPosterCard(
     badge: String?,
     width: Dp = 126.dp,
     accent: Color,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    // Grids hand in a fillMaxWidth modifier instead of a fixed poster width.
+    modifier: Modifier = Modifier.width(width)
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(targetValue = if (pressed) 0.95f else 1f)
     Column(
-        Modifier
-            .width(width)
+        modifier
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale

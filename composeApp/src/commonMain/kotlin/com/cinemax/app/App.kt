@@ -55,6 +55,7 @@ import com.cinemax.app.addons.StremioMeta
 import com.cinemax.app.addons.StremioMetaPreview
 import com.cinemax.app.addons.StremioManifest
 import com.cinemax.app.addons.StremioVideo
+import com.cinemax.app.addons.appendCatalogPage
 import com.cinemax.app.addons.createCinemaxHttpClient
 import com.cinemax.app.addons.searchAllAddons
 import com.cinemax.app.core.CinemaxRoadmap
@@ -78,6 +79,7 @@ import com.cinemax.app.nuvio.TmdbIdResolver
 import com.cinemax.app.nuvio.createNuvioHttpClient
 import com.cinemax.app.nuvio.createNuvioScriptRuntime
 import com.cinemax.app.nuvio.nuvioSourcesFrom
+import com.cinemax.app.ui.CinemaxCatalogScreen
 import com.cinemax.app.ui.CinemaxDetailScreen
 import com.cinemax.app.ui.CinemaxHomeScreen
 import com.cinemax.app.ui.CinemaxLibraryScreen
@@ -154,6 +156,11 @@ fun App() {
     // The last opened title, kept so the detail screen can fade out after closing.
     var lastDetailItem by remember { mutableStateOf<StremioMetaPreview?>(null) }
     val homeShelves = remember { mutableStateListOf<CinemaxShelf>() }
+    // The shelf opened as a full grid ("المزيد"), and the pages appended to it.
+    val browseItems = remember { mutableStateListOf<StremioMetaPreview>() }
+    var browseShelf by remember { mutableStateOf<CinemaxShelf?>(null) }
+    var browseLoadingMore by remember { mutableStateOf(false) }
+    var browseExhausted by remember { mutableStateOf(false) }
     var libraryFilter by remember { mutableStateOf("all") }
     val watchProgressItems = remember { mutableStateListOf<WatchProgress>().apply { addAll(watchProgressStore.load()) } }
     var preferences by remember {
@@ -392,7 +399,14 @@ fun App() {
                         } catch (_: Throwable) {
                             emptyList()
                         }
-                        if (items.isEmpty()) null else CinemaxShelf(catalog.name ?: catalog.id, items)
+                        if (items.isEmpty()) null else CinemaxShelf(
+                            title = catalog.name ?: catalog.id,
+                            items = items,
+                            manifestUrl = addon.manifestUrl,
+                            catalogType = catalog.type,
+                            catalogId = catalog.id,
+                            supportsSkip = catalog.supportsExtra("skip")
+                        )
                     }
                 }.awaitAll().filterNotNull()
             }
@@ -582,6 +596,7 @@ fun App() {
         activeAddon = addon
         catalogItems.clear()
         selectedItem = null
+        browseShelf = null
         playbackUrl = null
         streamOptions.clear()
         searchQuery = ""
@@ -640,6 +655,48 @@ fun App() {
                 status = "تعذر تحديث الكتالوج: ${error.message ?: "خطأ غير معروف"}"
             } finally {
                 loading = false
+            }
+        }
+    }
+
+    /** Opens a home shelf as a full grid, keeping the page it already loaded. */
+    fun openShelf(shelf: CinemaxShelf) {
+        browseShelf = shelf
+        browseItems.clear()
+        browseItems.addAll(shelf.items)
+        browseExhausted = !shelf.supportsSkip
+        status = "${shelf.title} • ${shelf.items.size} عنوانًا"
+    }
+
+    /**
+     * Asks the same addon for the next page of the opened shelf. The Stremio
+     * protocol pages a catalog with the `skip` extra, counted from what is
+     * already on screen, and a page that brings nothing new ends the list.
+     */
+    fun loadMoreShelf() {
+        val shelf = browseShelf ?: return
+        val manifestUrl = shelf.manifestUrl ?: return
+        val type = shelf.catalogType ?: return
+        val catalogId = shelf.catalogId ?: return
+        if (browseLoadingMore || browseExhausted) return
+        browseLoadingMore = true
+        scope.launch {
+            try {
+                val page = repository.loadCatalog(
+                    manifestUrl, type, catalogId,
+                    mapOf("skip" to browseItems.size.toString())
+                )
+                val merged = appendCatalogPage(browseItems.toList(), page)
+                browseItems.clear()
+                browseItems.addAll(merged.items)
+                browseExhausted = merged.exhausted
+                status = if (merged.exhausted) "نهاية ${shelf.title}" else "${shelf.title} • ${merged.items.size} عنوانًا"
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                browseExhausted = true
+                status = "تعذر تحميل المزيد: ${error.message ?: "خطأ غير معروف"}"
+            } finally {
+                browseLoadingMore = false
             }
         }
     }
@@ -706,7 +763,16 @@ fun App() {
                 .firstOrNull { it.type == activeCatalogType && it.id == activeCatalogId }
                 ?.name
                 ?: "الأكثر شعبية"
-            add(CinemaxShelf(title, catalogItems.toList()))
+            add(
+                CinemaxShelf(
+                    title = title,
+                    items = catalogItems.toList(),
+                    manifestUrl = activeAddon?.manifestUrl,
+                    catalogType = activeCatalogType,
+                    catalogId = activeCatalogId,
+                    supportsSkip = activeCatalogSupportsSkip
+                )
+            )
         }
         if (favoriteItems.isNotEmpty()) add(CinemaxShelf("قائمتي", favoriteItems.toList()))
     }
@@ -745,7 +811,8 @@ fun App() {
                     versionLabel = appVersionLabel(),
                     tonightPick = tonightPick,
                     onShuffleTonight = { pickTonight() },
-                    onRefresh = { refreshHome() }
+                    onRefresh = { refreshHome() },
+                    onBrowseShelf = { shelf -> openShelf(shelf) }
                 )
                 1 -> CinemaxSearchScreen(
                     query = searchQuery,
@@ -879,6 +946,30 @@ fun App() {
                     },
                     onOpenRoadmap = { showRoadmap = true }
                 )
+            }
+
+            AnimatedVisibility(
+                visible = browseShelf != null && playbackUrl == null,
+                enter = fadeIn(tween(200)),
+                exit = fadeOut(tween(160))
+            ) {
+                val shelf = browseShelf
+                if (shelf != null) {
+                    CinemaxCatalogScreen(
+                        title = shelf.title,
+                        items = browseItems.toList(),
+                        loadingMore = browseLoadingMore,
+                        canLoadMore = shelf.supportsSkip && !browseExhausted,
+                        accent = appAccent,
+                        background = appBackground,
+                        onOpen = { item ->
+                            pendingVideoId = null
+                            selectedItem = item
+                        },
+                        onLoadMore = { loadMoreShelf() },
+                        onBack = { browseShelf = null }
+                    )
+                }
             }
 
             AnimatedVisibility(
@@ -1088,7 +1179,7 @@ fun App() {
                 }
             }
 
-            if (playbackUrl == null && selectedItem == null) {
+            if (playbackUrl == null && selectedItem == null && browseShelf == null) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
                     CinemaxTabBar(
                         selected = tab,
