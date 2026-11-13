@@ -51,6 +51,11 @@ class WatchProgressStore(
         settings.putString(KEY, json.encodeToString(ListSerializer(WatchProgress.serializer()), load().filterNot { it.key == key }))
     }
 
+    /** Forgets every resume point, for the "clear playback history" action. */
+    fun clear() {
+        settings.remove(KEY)
+    }
+
     private companion object {
         const val KEY = "cinemax.watch.progress.v1"
         const val MAX_ITEMS = 30

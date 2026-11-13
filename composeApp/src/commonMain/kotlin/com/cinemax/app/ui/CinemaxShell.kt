@@ -160,7 +160,8 @@ fun CinemaxHomeScreen(
     onNuvio: () -> Unit,
     versionLabel: String,
     tonightPick: StremioMetaPreview?,
-    onShuffleTonight: () -> Unit
+    onShuffleTonight: () -> Unit,
+    onRefresh: () -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
@@ -175,6 +176,10 @@ fun CinemaxHomeScreen(
                 Spacer(Modifier.weight(1f))
                 if (loading) {
                     CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = accent)
+                    Spacer(Modifier.width(8.dp))
+                }
+                TextButton(onClick = onRefresh) {
+                    Text("↻", color = accent, fontSize = 18.sp)
                 }
             }
         }
@@ -630,7 +635,7 @@ fun CinemaxSearchScreen(
             modifier = Modifier.padding(top = 18.dp, bottom = 12.dp)
         )
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf("movie" to "أفلام", "series" to "مسلسلات").forEach { (value, label) ->
+            listOf("all" to "الكل", "movie" to "أفلام", "series" to "مسلسلات").forEach { (value, label) ->
                 FilterChip(
                     selected = type == value,
                     onClick = { onType(value) },
@@ -1366,6 +1371,10 @@ fun CinemaxSettingsScreen(
     status: String,
     versionLabel: String,
     accent: Color,
+    favoriteCount: Int,
+    progressCount: Int,
+    onClearProgress: () -> Unit,
+    onClearFavorites: () -> Unit,
     onOpenRoadmap: () -> Unit
 ) {
     Column(
@@ -1523,6 +1532,26 @@ fun CinemaxSettingsScreen(
             color = CinemaxPalette.textMuted,
             lineHeight = 17.sp
         )
+
+        Spacer(Modifier.height(10.dp))
+        CinemaxSectionTitle(title = "بيانات التطبيق", accent = accent)
+        Text(
+            "$favoriteCount عنوانًا محفوظًا • $progressCount قيد المشاهدة",
+            color = CinemaxPalette.textMuted,
+            fontSize = 12.sp
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = onClearProgress,
+                enabled = progressCount > 0,
+                shape = RoundedCornerShape(12.dp)
+            ) { Text("مسح سجل المشاهدة", fontSize = 12.sp) }
+            OutlinedButton(
+                onClick = onClearFavorites,
+                enabled = favoriteCount > 0,
+                shape = RoundedCornerShape(12.dp)
+            ) { Text("مسح المفضلة", fontSize = 12.sp) }
+        }
 
         Spacer(Modifier.height(10.dp))
         CinemaxSectionTitle(title = "حول التطبيق", accent = accent)

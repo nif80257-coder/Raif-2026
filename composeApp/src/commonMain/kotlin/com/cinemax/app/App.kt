@@ -618,6 +618,32 @@ fun App() {
         }
     }
 
+    /** Reloads the active addon's catalog and shelves, for the home refresh button. */
+    fun refreshHome() {
+        val addon = activeAddon ?: return
+        loading = true
+        scope.launch {
+            try {
+                val manifest = repository.loadManifest(addon.manifestUrl)
+                availableCatalogs.clear()
+                availableCatalogs.addAll(manifest.catalogs)
+                val catalog = manifest.catalogs.firstOrNull()
+                if (catalog != null) {
+                    val items = repository.loadCatalog(addon.manifestUrl, catalog.type, catalog.id)
+                    catalogItems.clear()
+                    catalogItems.addAll(items)
+                }
+                loadHomeShelves(addon, manifest)
+                status = "تم تحديث الكتالوج • ${catalogItems.size} عنصرًا"
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                status = "تعذر تحديث الكتالوج: ${error.message ?: "خطأ غير معروف"}"
+            } finally {
+                loading = false
+            }
+        }
+    }
+
     /** "فيلم الليلة": a random title from the library that is not in progress. */
     fun pickTonight() {
         val inProgress = watchProgressItems.map { it.key }.toSet()
@@ -718,7 +744,8 @@ fun App() {
                     onNuvio = { showNuvioDialog = true },
                     versionLabel = appVersionLabel(),
                     tonightPick = tonightPick,
-                    onShuffleTonight = { pickTonight() }
+                    onShuffleTonight = { pickTonight() },
+                    onRefresh = { refreshHome() }
                 )
                 1 -> CinemaxSearchScreen(
                     query = searchQuery,
@@ -728,13 +755,16 @@ fun App() {
                     status = status,
                     accent = appAccent,
                     onSearch = {
-                        val type = searchType
-                        if (searchQuery.isNotBlank() && !searching) {
+                        val query = searchQuery
+                        if (query.isNotBlank() && !searching) {
                             searching = true
                             scope.launch {
                                 try {
-                                    val results = searchAllAddons(repository, addons.toList(), type, searchQuery)
-                                    searchHistoryStore.add(searchQuery)
+                                    val types = if (searchType == "all") listOf("movie", "series") else listOf(searchType)
+                                    val results = types
+                                        .flatMap { type -> searchAllAddons(repository, addons.toList(), type, query) }
+                                        .distinctBy { it.item.id }
+                                    searchHistoryStore.add(query)
                                     searchHistory = searchHistoryStore.load()
                                     searchResults.clear()
                                     searchResults.addAll(results)
@@ -763,7 +793,11 @@ fun App() {
                         searchHistoryStore.clear()
                         searchHistory = emptyList()
                     },
-                    canSearch = addons.any { AddonCapabilities.supports(it, "catalog", searchType) },
+                    canSearch = if (searchType == "all") {
+                        addons.isNotEmpty()
+                    } else {
+                        addons.any { AddonCapabilities.supports(it, "catalog", searchType) }
+                    },
                     type = searchType,
                     onType = { value ->
                         searchType = value
@@ -831,6 +865,18 @@ fun App() {
                     status = status,
                     versionLabel = appVersionLabel(),
                     accent = appAccent,
+                    favoriteCount = favoriteItems.size,
+                    progressCount = watchProgressItems.size,
+                    onClearProgress = {
+                        watchProgressStore.clear()
+                        watchProgressItems.clear()
+                        status = "تم مسح سجل المشاهدة"
+                    },
+                    onClearFavorites = {
+                        favoriteItems.clear()
+                        favoritesStore.save(emptyList())
+                        status = "تم مسح قائمة المفضلة"
+                    },
                     onOpenRoadmap = { showRoadmap = true }
                 )
             }
