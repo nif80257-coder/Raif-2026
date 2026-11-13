@@ -72,6 +72,7 @@ import com.cinemax.app.core.languageIndex
 import com.cinemax.app.core.nextEpisode
 import com.cinemax.app.core.parseSubtitles
 import com.cinemax.app.core.posterStatusById
+import com.cinemax.app.core.rankSearchResults
 import com.cinemax.app.core.sortLibrary
 import com.cinemax.app.core.unsupportedVideoContainer
 import com.cinemax.app.nuvio.InstalledNuvioRepository
@@ -777,6 +778,50 @@ fun App() {
     }
 
 
+    // Whether the search tab can ask anything with the current type choice.
+    val canSearchNow = if (searchType == "all") {
+        addons.isNotEmpty()
+    } else {
+        addons.any { AddonCapabilities.supports(it, "catalog", searchType) }
+    }
+
+    /** Runs one cross-addon search and ranks the merged results. */
+    fun runSearch(rawQuery: String) {
+        val query = rawQuery.trim()
+        if (query.isEmpty() || searching) return
+        searching = true
+        scope.launch {
+            try {
+                val types = if (searchType == "all") listOf("movie", "series") else listOf(searchType)
+                val results = types
+                    .flatMap { type -> searchAllAddons(repository, addons.toList(), type, query) }
+                    .distinctBy { it.item.id }
+                val ranked = rankSearchResults(results, query)
+                searchHistoryStore.add(query)
+                searchHistory = searchHistoryStore.load()
+                searchResults.clear()
+                searchResults.addAll(ranked)
+                val addonCount = ranked.map { it.addonName }.distinct().size
+                status = if (ranked.isEmpty()) "لا نتائج في إضافاتك"
+                else "نتائج البحث: ${ranked.size} من $addonCount إضافة"
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                status = "تعذر البحث: ${error.message ?: "خطأ غير معروف"}"
+            } finally {
+                searching = false
+            }
+        }
+    }
+
+    // Typing searches on its own: a short pause after the last keystroke
+    // replaces pressing the button, which still works.
+    LaunchedEffect(searchQuery, searchType) {
+        val query = searchQuery.trim()
+        if (query.length < 2 || !canSearchNow) return@LaunchedEffect
+        delay(600)
+        runSearch(query)
+    }
+
     val appAccent = when (preferences.accent) {
         "Blue" -> Color(0xFF22A7F0)
         "Rose" -> Color(0xFFEC4899)
@@ -858,32 +903,7 @@ fun App() {
                     results = searchResults.toList(),
                     status = status,
                     accent = appAccent,
-                    onSearch = {
-                        val query = searchQuery
-                        if (query.isNotBlank() && !searching) {
-                            searching = true
-                            scope.launch {
-                                try {
-                                    val types = if (searchType == "all") listOf("movie", "series") else listOf(searchType)
-                                    val results = types
-                                        .flatMap { type -> searchAllAddons(repository, addons.toList(), type, query) }
-                                        .distinctBy { it.item.id }
-                                    searchHistoryStore.add(query)
-                                    searchHistory = searchHistoryStore.load()
-                                    searchResults.clear()
-                                    searchResults.addAll(results)
-                                    val addonCount = results.map { it.addonName }.distinct().size
-                                    status = if (results.isEmpty()) "لا نتائج في إضافاتك"
-                                    else "نتائج البحث: ${results.size} من $addonCount إضافة"
-                                } catch (error: Throwable) {
-                                    if (error is CancellationException) throw error
-                                    status = "تعذر البحث: ${error.message ?: "خطأ غير معروف"}"
-                                } finally {
-                                    searching = false
-                                }
-                            }
-                        }
-                    },
+                    onSearch = { runSearch(searchQuery) },
                     onClear = {
                         searchQuery = ""
                         searchResults.clear()
@@ -897,11 +917,7 @@ fun App() {
                         searchHistoryStore.clear()
                         searchHistory = emptyList()
                     },
-                    canSearch = if (searchType == "all") {
-                        addons.isNotEmpty()
-                    } else {
-                        addons.any { AddonCapabilities.supports(it, "catalog", searchType) }
-                    },
+                    canSearch = canSearchNow,
                     type = searchType,
                     onType = { value ->
                         searchType = value
