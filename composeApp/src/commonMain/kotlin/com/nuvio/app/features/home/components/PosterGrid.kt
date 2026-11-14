@@ -21,6 +21,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -119,13 +121,20 @@ private fun PosterGridTile(
     onLongClick: (() -> Unit)? = null,
 ) {
     val tokens = MaterialTheme.nuvio
+    // One VoiceOver stop per tile; with the label hidden the artwork names itself.
+    val tileSemanticsModifier = if (hideLabels) {
+        Modifier.semantics { contentDescription = item.name }
+    } else {
+        Modifier
+    }
     Column(
-        modifier = modifier,
+        modifier = modifier.semantics(mergeDescendants = true) {},
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
+                .then(tileSemanticsModifier)
                 .aspectRatio(item.posterShape.posterGridAspectRatio())
                 .clip(RoundedCornerShape(cornerRadiusDp.dp))
                 .background(tokens.colors.surface)
@@ -157,7 +166,7 @@ private fun PosterGridTile(
                 }
                 AsyncImage(
                     model = imageModel,
-                    contentDescription = item.name,
+                    contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
                 )

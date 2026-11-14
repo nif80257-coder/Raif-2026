@@ -37,6 +37,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -44,7 +46,6 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.home_view_all
-import nuvio.composeapp.generated.resources.poster_logo_content_description
 import org.jetbrains.compose.resources.stringResource
 
 enum class NuvioPosterShape {
@@ -144,14 +145,26 @@ fun NuvioPosterCard(
         shape = shape,
     )
     val shouldShowTitleBelow = showTitleBelow && !posterCardStyle.hideLabelsEnabled
+    // With the label hidden the artwork is the only thing on screen, so the card
+    // has to name itself; with the label shown the texts below already do.
+    val cardSemanticsModifier = if (shouldShowTitleBelow) {
+        Modifier
+    } else {
+        Modifier.semantics { contentDescription = title }
+    }
 
     Column(
-        modifier = modifier.width(cardWidth),
+        // One VoiceOver stop per card: the artwork, its title and its detail line
+        // read together instead of as three separate elements.
+        modifier = modifier
+            .width(cardWidth)
+            .semantics(mergeDescendants = true) {},
         verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8),
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
+                .then(cardSemanticsModifier)
                 .aspectRatio(shape.aspectRatio)
                 .clip(cardShape)
                 .background(tokens.colors.surface)
@@ -184,7 +197,7 @@ fun NuvioPosterCard(
                 }
                 AsyncImage(
                     model = imageModel,
-                    contentDescription = title,
+                    contentDescription = null,
                     modifier = Modifier.matchParentSize(),
                     contentScale = ContentScale.Crop,
                 )
@@ -219,12 +232,13 @@ fun NuvioPosterCard(
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
-                        .padding(horizontal = NuvioTokens.Space.s10, vertical = NuvioTokens.Space.s10),
+                        .padding(horizontal = NuvioTokens.Space.s10, vertical = NuvioTokens.Space.s10)
+                        .clearAndSetSemantics { },
                 ) {
                     if (!bottomLeftLogoUrl.isNullOrBlank()) {
                         AsyncImage(
                             model = bottomLeftLogoUrl,
-                            contentDescription = stringResource(Res.string.poster_logo_content_description, title),
+                            contentDescription = null,
                             modifier = Modifier
                                 .width(catalogLogoOverlaySize.width)
                                 .height(catalogLogoOverlaySize.height),
