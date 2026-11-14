@@ -85,6 +85,7 @@ import com.cinemax.app.core.PosterStatus
 import com.cinemax.app.core.episodeLabel
 import com.cinemax.app.core.episodeReleaseLabel
 import com.cinemax.app.core.librarySortLabel
+import com.cinemax.app.core.matchesLibraryQuery
 import com.cinemax.app.core.rankedSources
 import com.cinemax.app.core.streamBadges
 import com.cinemax.app.formatClock
@@ -767,12 +768,18 @@ fun CinemaxLibraryScreen(
     onFilter: (String) -> Unit,
     sort: LibrarySort,
     onSort: (LibrarySort) -> Unit,
+    query: String,
+    onQuery: (String) -> Unit,
     onOpenItem: (StremioMetaPreview) -> Unit,
     onResume: (WatchProgress) -> Unit,
     onRemoveProgress: (WatchProgress) -> Unit
 ) {
-    val visibleFavorites = favorites.filter { filter == "all" || it.type == filter }
-    val visibleProgress = continueWatching.filter { filter == "all" || it.item.type == filter }
+    val visibleFavorites = favorites.filter {
+        (filter == "all" || it.type == filter) && matchesLibraryQuery(it.name, query)
+    }
+    val visibleProgress = continueWatching.filter {
+        (filter == "all" || it.item.type == filter) && matchesLibraryQuery(it.item.name, query)
+    }
     LazyColumn(
         modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 18.dp),
@@ -780,6 +787,22 @@ fun CinemaxLibraryScreen(
     ) {
         item {
             Text("مكتبتي", fontSize = 30.sp, fontWeight = FontWeight.Black, color = Color.White)
+        }
+        item {
+            OutlinedTextField(
+                value = query,
+                onValueChange = onQuery,
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                placeholder = { Text("ابحث في مكتبتك") },
+                trailingIcon = {
+                    if (query.isNotEmpty()) {
+                        TextButton(onClick = { onQuery("") }) {
+                            Text("مسح", color = accent, fontSize = 11.sp)
+                        }
+                    }
+                }
+            )
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -863,8 +886,11 @@ fun CinemaxLibraryScreen(
         if (visibleFavorites.isEmpty()) {
             item {
                 Text(
-                    if (favorites.isEmpty()) "لا شيء محفوظ بعد. اضغط «＋ حفظ» في أي عنوان ليظهر هنا."
-                    else "لا يوجد عنوان بهذا النوع في مكتبتك.",
+                    when {
+                        favorites.isEmpty() -> "لا شيء محفوظ بعد. اضغط «＋ حفظ» في أي عنوان ليظهر هنا."
+                        query.isNotBlank() -> "لا عنوان في مكتبتك يطابق «${query.trim()}»."
+                        else -> "لا يوجد عنوان بهذا النوع في مكتبتك."
+                    },
                     color = CinemaxPalette.textMuted,
                     fontSize = 13.sp
                 )

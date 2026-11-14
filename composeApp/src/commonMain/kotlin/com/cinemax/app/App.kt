@@ -59,6 +59,10 @@ import com.cinemax.app.addons.appendCatalogPage
 import com.cinemax.app.addons.catalogPageExtra
 import com.cinemax.app.addons.createCinemaxHttpClient
 import com.cinemax.app.addons.searchAllAddons
+import com.cinemax.app.archive.ARCHIVE_PROVIDER_NAME
+import com.cinemax.app.archive.ArchiveClient
+import com.cinemax.app.archive.archiveIdentifier
+import com.cinemax.app.archive.isArchiveItemId
 import com.cinemax.app.core.CinemaxRoadmap
 import com.cinemax.app.core.LibrarySort
 import com.cinemax.app.core.EmbeddedSubtitleTrack
@@ -124,6 +128,7 @@ private data class SubtitleChoice(
 fun App() {
     val http = remember { createCinemaxHttpClient() }
     val repository = remember { AddonRepository(http) }
+    val archive = remember { ArchiveClient(http) }
     val addonStore = remember { AddonSettingsStore() }
     val nuvioHttp = remember { createNuvioHttpClient() }
     val nuvioStore = remember { NuvioProviderStore() }
@@ -161,6 +166,7 @@ fun App() {
     // The last opened title, kept so the detail screen can fade out after closing.
     var lastDetailItem by remember { mutableStateOf<StremioMetaPreview?>(null) }
     val homeShelves = remember { mutableStateListOf<CinemaxShelf>() }
+    var archiveItems by remember { mutableStateOf<List<StremioMetaPreview>>(emptyList()) }
     // The shelf opened as a full grid ("المزيد"), and the pages appended to it.
     val browseItems = remember { mutableStateListOf<StremioMetaPreview>() }
     var browseShelf by remember { mutableStateOf<CinemaxShelf?>(null) }
@@ -169,6 +175,7 @@ fun App() {
     var browseGenre by remember { mutableStateOf<String?>(null) }
     var libraryFilter by remember { mutableStateOf("all") }
     var librarySort by remember { mutableStateOf(LibrarySort.Recent) }
+    var libraryQuery by remember { mutableStateOf("") }
     val watchProgressItems = remember { mutableStateListOf<WatchProgress>().apply { addAll(watchProgressStore.load()) } }
     // The progress bar and the saved star every poster draws, keyed by title id.
     val posterStatuses = posterStatusById(watchProgressItems.toList(), favoriteIds)
@@ -228,6 +235,14 @@ fun App() {
     var userChoseSubtitle by remember { mutableStateOf(false) }
     val addonSignature = addons.joinToString("|") { it.manifestUrl }
 
+    // The built-in public-domain library, loaded once so the app has content even
+    // with no addon installed.
+    LaunchedEffect(Unit) {
+        runCatching { archive.popular(rows = 24) }.getOrNull()?.let { found ->
+            if (found.isNotEmpty()) archiveItems = found
+        }
+    }
+
     // Metadata may come from any installed addon that declares the `meta`
     // resource, and a series episode is chosen before its sources are requested.
     LaunchedEffect(selectedItem?.id, pendingVideoId, addonSignature) {
@@ -248,7 +263,11 @@ fun App() {
         metaResolved = false
         loadingMeta = true
         val meta = try {
-            metaFrom(repository, addons.toList(), item.type, item.id)
+            if (isArchiveItemId(item.id)) {
+                archive.meta(archiveIdentifier(item.id))
+            } else {
+                metaFrom(repository, addons.toList(), item.type, item.id)
+            }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
@@ -301,7 +320,12 @@ fun App() {
         loadingStreams = true
         streamOptions.clear()
         try {
-            val stremioSources = streamsFrom(repository, addons.toList(), item.type, mediaId)
+            val stremioSources = if (isArchiveItemId(item.id)) {
+                archive.streams(archiveIdentifier(item.id))
+                    .map { StreamOption(item.id, ARCHIVE_PROVIDER_NAME, it) }
+            } else {
+                streamsFrom(repository, addons.toList(), item.type, mediaId)
+            }
             var failures: List<String> = emptyList()
             val nuvioSources = if (nuvioProviders.isEmpty()) {
                 emptyList()
@@ -735,7 +759,7 @@ fun App() {
     /** "فيلم الليلة": a random title from the library that is not in progress. */
     fun pickTonight() {
         val inProgress = watchProgressItems.map { it.key }.toSet()
-        val everything = (favoriteItems + catalogItems).distinctBy { it.id }
+        val everything = (favoriteItems + catalogItems + archiveItems).distinctBy { it.id }
         val notStarted = everything.filter { it.id !in inProgress }
         val pool = notStarted.ifEmpty { everything }
         tonightPick = if (pool.isEmpty()) null else pool[Random.nextInt(pool.size)]
@@ -793,9 +817,13 @@ fun App() {
         scope.launch {
             try {
                 val types = if (searchType == "all") listOf("movie", "series") else listOf(searchType)
-                val results = types
+                val addonHits = types
                     .flatMap { type -> searchAllAddons(repository, addons.toList(), type, query) }
-                    .distinctBy { it.item.id }
+                val archiveHits = if (searchType != "series") {
+                    runCatching { archive.search(query) }.getOrNull().orEmpty()
+                        .map { CatalogEntry("archive", ARCHIVE_PROVIDER_NAME, it) }
+                } else emptyList()
+                val results = (addonHits + archiveHits).distinctBy { it.item.id }
                 val ranked = rankSearchResults(results, query)
                 searchHistoryStore.add(query)
                 searchHistory = searchHistoryStore.load()
@@ -830,10 +858,13 @@ fun App() {
         else -> Accent
     }
     val appBackground = if (preferences.oledBlack) Color.Black else Ink
-    val shelves = if (homeShelves.isNotEmpty()) {
-        homeShelves.toList()
-    } else buildList {
-        if (catalogItems.isNotEmpty()) {
+    val shelves = buildList {
+        // The built-in public-domain library comes first so a fresh install has
+        // something to play before any addon is added.
+        if (archiveItems.isNotEmpty()) add(CinemaxShelf(ARCHIVE_PROVIDER_NAME, archiveItems))
+        if (homeShelves.isNotEmpty()) {
+            addAll(homeShelves)
+        } else if (catalogItems.isNotEmpty()) {
             val title = availableCatalogs
                 .firstOrNull { it.type == activeCatalogType && it.id == activeCatalogId }
                 ?.name
@@ -868,7 +899,8 @@ fun App() {
         Box(Modifier.fillMaxSize().background(appBackground)) {
             when (tab) {
                 0 -> CinemaxHomeScreen(
-                    heroItems = (catalogItems.toList().ifEmpty { favoriteItems.toList() }).take(6),
+                    heroItems = (catalogItems.toList().ifEmpty { favoriteItems.toList() }
+                        .ifEmpty { archiveItems }).take(6),
                     shelves = shelves,
                     continueWatching = watchProgressItems.toList(),
                     loading = loading || loadingMeta,
@@ -941,6 +973,8 @@ fun App() {
                     onFilter = { libraryFilter = it },
                     sort = librarySort,
                     onSort = { librarySort = it },
+                    query = libraryQuery,
+                    onQuery = { libraryQuery = it },
                     onOpenItem = { item ->
                         pendingVideoId = null
                         selectedItem = item
