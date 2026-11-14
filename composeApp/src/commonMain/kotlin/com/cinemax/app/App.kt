@@ -172,6 +172,7 @@ fun App() {
     var browseShelf by remember { mutableStateOf<CinemaxShelf?>(null) }
     var browseLoadingMore by remember { mutableStateOf(false) }
     var browseExhausted by remember { mutableStateOf(false) }
+    var browseArchivePage by remember { mutableStateOf(1) }
     var browseGenre by remember { mutableStateOf<String?>(null) }
     var libraryFilter by remember { mutableStateOf("all") }
     var librarySort by remember { mutableStateOf(LibrarySort.Recent) }
@@ -696,13 +697,43 @@ fun App() {
         }
     }
 
+    /** Pages the built-in Internet Archive shelf, which has no Stremio catalog. */
+    fun loadArchivePage(shelf: CinemaxShelf, replace: Boolean) {
+        if (browseLoadingMore) return
+        if (!replace && browseExhausted) return
+        browseLoadingMore = true
+        scope.launch {
+            try {
+                val page = if (replace) 1 else browseArchivePage
+                val fetched = archive.popular(rows = 60, page = page)
+                val merged = appendCatalogPage(
+                    if (replace) emptyList() else browseItems.toList(),
+                    fetched
+                )
+                browseItems.clear()
+                browseItems.addAll(merged.items)
+                browseExhausted = merged.exhausted || fetched.isEmpty()
+                if (fetched.isNotEmpty()) browseArchivePage = page + 1
+                status = "${shelf.title} • ${merged.items.size} عنوانًا"
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                browseExhausted = true
+                status = "تعذر تحميل المزيد: ${error.message ?: "خطأ غير معروف"}"
+            } finally {
+                browseLoadingMore = false
+            }
+        }
+    }
+
     /** Opens a home shelf as a full grid, keeping the page it already loaded. */
     fun openShelf(shelf: CinemaxShelf) {
         browseShelf = shelf
         browseGenre = null
         browseItems.clear()
         browseItems.addAll(shelf.items)
-        browseExhausted = !shelf.supportsSkip
+        browseExhausted = !shelf.isBrowsable
+        // An archive shelf already holds page one, so the next request is page two.
+        browseArchivePage = if (shelf.archive) 2 else 1
         status = "${shelf.title} • ${shelf.items.size} عنوانًا"
     }
 
@@ -714,6 +745,10 @@ fun App() {
      */
     fun loadShelfPage(replace: Boolean) {
         val shelf = browseShelf ?: return
+        if (shelf.archive) {
+            loadArchivePage(shelf, replace)
+            return
+        }
         val manifestUrl = shelf.manifestUrl ?: return
         val type = shelf.catalogType ?: return
         val catalogId = shelf.catalogId ?: return
@@ -861,7 +896,7 @@ fun App() {
     val shelves = buildList {
         // The built-in public-domain library comes first so a fresh install has
         // something to play before any addon is added.
-        if (archiveItems.isNotEmpty()) add(CinemaxShelf(ARCHIVE_PROVIDER_NAME, archiveItems))
+        if (archiveItems.isNotEmpty()) add(CinemaxShelf(ARCHIVE_PROVIDER_NAME, archiveItems, archive = true))
         if (homeShelves.isNotEmpty()) {
             addAll(homeShelves)
         } else if (catalogItems.isNotEmpty()) {

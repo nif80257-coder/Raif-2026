@@ -107,9 +107,12 @@ data class CinemaxShelf(
     val catalogId: String? = null,
     val supportsSkip: Boolean = false,
     /** Genres the catalog declares, offered as chips in the full grid. */
-    val genreOptions: List<String> = emptyList()
+    val genreOptions: List<String> = emptyList(),
+    /** True for the built-in Internet Archive shelf, which pages itself. */
+    val archive: Boolean = false
 ) {
-    val isBrowsable: Boolean get() = manifestUrl != null && catalogType != null && catalogId != null
+    val isBrowsable: Boolean
+        get() = archive || (manifestUrl != null && catalogType != null && catalogId != null)
 }
 
 /**
