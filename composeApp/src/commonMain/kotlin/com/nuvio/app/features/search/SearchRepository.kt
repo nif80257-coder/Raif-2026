@@ -157,11 +157,13 @@ object SearchRepository {
             requests.map { request -> suspend { request.toSection(forceRefresh = forceRefresh) } } +
                 serverSearches.map { ref ->
                     suspend {
-                        ServerCatalog.searchSection(ref, normalizedQuery).also { section ->
-                            require(section.items.isNotEmpty()) {
-                                getString(Res.string.search_error_no_results_for_catalog, section.title)
-                            }
+                        val section = ServerCatalog.searchSection(ref, normalizedQuery)
+                        require(section.items.isNotEmpty()) {
+                            getString(Res.string.search_error_no_results_for_catalog, section.title)
                         }
+                        section.copy(
+                            items = rankByWordMatch(section.items, normalizedQuery) { item -> item.name },
+                        )
                     }
                 }
         if (canReuseRequestState(forceRefresh, requestKey, lastRequestKey)) return
@@ -525,7 +527,7 @@ object SearchRepository {
                 catalogId = catalogId,
                 supportsPagination = supportsPagination,
             ),
-            items = items,
+            items = rankByWordMatch(items, query) { item -> item.name },
             availableItemCount = page.rawItemCount,
             hasMore = supportsPagination && page.nextSkip != null,
         )
