@@ -108,6 +108,20 @@ class ArchiveParsingTest {
     }
 
     @Test
+    fun genreLabelsMapToArchiveSubjects() {
+        assertEquals("Western", archiveGenreSubject("غربي"))
+        assertEquals("Action", archiveGenreSubject("أكشن"))
+        assertEquals(null, archiveGenreSubject("الكل"))
+        assertEquals(null, archiveGenreSubject(null))
+    }
+
+    @Test
+    fun genreLabelsAreUnique() {
+        assertEquals(ARCHIVE_GENRES.size, ARCHIVE_GENRES.map { it.first }.distinct().size)
+        assertEquals(ARCHIVE_GENRES.size, ARCHIVE_GENRES.map { it.second }.distinct().size)
+    }
+
+    @Test
     fun fileUrlsEncodeTheIdentifierAndName() {
         val url = archiveFileUrl("its-love-again-1936", "Its Love Again.mp4")
         assertEquals("https://archive.org/download/its-love-again-1936/Its%20Love%20Again.mp4", url)

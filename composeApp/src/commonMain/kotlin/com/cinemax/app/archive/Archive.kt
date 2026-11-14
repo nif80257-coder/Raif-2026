@@ -24,6 +24,29 @@ import kotlinx.serialization.json.longOrNull
 const val ARCHIVE_ID_PREFIX = "archive:"
 const val ARCHIVE_PROVIDER_NAME = "المكتبة الحرة"
 
+/**
+ * Genres offered for the archive shelf, as an Arabic label paired with the
+ * subject the collection actually uses in its metadata.
+ */
+val ARCHIVE_GENRES: List<Pair<String, String>> = listOf(
+    "أكشن" to "Action",
+    "مغامرة" to "Adventure",
+    "كوميدي" to "Comedy",
+    "دراما" to "Drama",
+    "رعب" to "Horror",
+    "خيال علمي" to "Sci-Fi",
+    "غربي" to "Western",
+    "جريمة" to "Crime",
+    "رومانسي" to "Romance",
+    "وثائقي" to "Documentary",
+    "رسوم متحركة" to "Animation",
+    "صامت" to "Silent"
+)
+
+/** The archive subject behind an Arabic genre label, or null for "all". */
+fun archiveGenreSubject(label: String?): String? =
+    ARCHIVE_GENRES.firstOrNull { it.first == label }?.second
+
 fun archiveItemId(identifier: String): String = ARCHIVE_ID_PREFIX + identifier
 
 fun isArchiveItemId(id: String): Boolean = id.startsWith(ARCHIVE_ID_PREFIX)
@@ -165,12 +188,16 @@ fun archiveFileUrl(identifier: String, fileName: String): String =
 /** Search and metadata calls against the Internet Archive. */
 class ArchiveClient(private val http: HttpClient) {
 
-    suspend fun popular(rows: Int = 60, page: Int = 1): List<StremioMetaPreview> = query(
-        "collection:feature_films AND mediatype:movies",
-        rows = rows,
-        page = page,
-        sort = "downloads desc"
-    )
+    suspend fun popular(
+        rows: Int = 60,
+        page: Int = 1,
+        genre: String? = null
+    ): List<StremioMetaPreview> {
+        val subject = archiveGenreSubject(genre)
+        val base = "collection:feature_films AND mediatype:movies"
+        val query = if (subject == null) base else "$base AND subject:\"$subject\""
+        return query(query, rows = rows, page = page, sort = "downloads desc")
+    }
 
     suspend fun search(text: String, rows: Int = 24): List<StremioMetaPreview> {
         val clean = text.replace(Regex("""[^\p{L}\p{N}\s]"""), " ").trim()

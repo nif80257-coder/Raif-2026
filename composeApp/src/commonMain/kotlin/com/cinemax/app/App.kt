@@ -59,6 +59,7 @@ import com.cinemax.app.addons.appendCatalogPage
 import com.cinemax.app.addons.catalogPageExtra
 import com.cinemax.app.addons.createCinemaxHttpClient
 import com.cinemax.app.addons.searchAllAddons
+import com.cinemax.app.archive.ARCHIVE_GENRES
 import com.cinemax.app.archive.ARCHIVE_PROVIDER_NAME
 import com.cinemax.app.archive.ArchiveClient
 import com.cinemax.app.archive.archiveIdentifier
@@ -705,7 +706,7 @@ fun App() {
         scope.launch {
             try {
                 val page = if (replace) 1 else browseArchivePage
-                val fetched = archive.popular(rows = 60, page = page)
+                val fetched = archive.popular(rows = 60, page = page, genre = browseGenre)
                 val merged = appendCatalogPage(
                     if (replace) emptyList() else browseItems.toList(),
                     fetched
@@ -896,7 +897,16 @@ fun App() {
     val shelves = buildList {
         // The built-in public-domain library comes first so a fresh install has
         // something to play before any addon is added.
-        if (archiveItems.isNotEmpty()) add(CinemaxShelf(ARCHIVE_PROVIDER_NAME, archiveItems, archive = true))
+        if (archiveItems.isNotEmpty()) {
+            add(
+                CinemaxShelf(
+                    title = ARCHIVE_PROVIDER_NAME,
+                    items = archiveItems,
+                    archive = true,
+                    genreOptions = ARCHIVE_GENRES.map { it.first }
+                )
+            )
+        }
         if (homeShelves.isNotEmpty()) {
             addAll(homeShelves)
         } else if (catalogItems.isNotEmpty()) {
