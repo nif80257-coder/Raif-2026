@@ -83,4 +83,33 @@ class ArchiveParsingTest {
         assertEquals(null, yearFromTitle("No year here"))
         assertEquals(null, yearFromTitle("Camera 2020 model"))
     }
+
+    @Test
+    fun sidecarSubtitlesAreAttachedToEveryVideoStream() {
+        val raw = """
+            {"metadata":{"title":"Fil m"},"files":[
+              {"name":"film.mp4","size":"90000000","height":"720"},
+              {"name":"film.en.srt","size":"1200"},
+              {"name":"film_ar.vtt","size":"1300"},
+              {"name":"poster.jpg","size":"9000"}
+            ]}
+        """.trimIndent()
+        val stream = parseArchiveStreams(raw, "item").single()
+        assertEquals(2, stream.subtitles.size)
+        assertEquals(listOf("en", "ar"), stream.subtitles.map { it.lang })
+        assertTrue(stream.subtitles.first().url.endsWith("/film.en.srt"))
+    }
+
+    @Test
+    fun subtitleLanguageIsReadFromTheFileNameTail() {
+        assertEquals("en", archiveSubtitleLanguage("movie.en.srt"))
+        assertEquals("ar", archiveSubtitleLanguage("movie_ar.vtt"))
+        assertEquals("und", archiveSubtitleLanguage("subtitles.srt"))
+    }
+
+    @Test
+    fun fileUrlsEncodeTheIdentifierAndName() {
+        val url = archiveFileUrl("its-love-again-1936", "Its Love Again.mp4")
+        assertEquals("https://archive.org/download/its-love-again-1936/Its%20Love%20Again.mp4", url)
+    }
 }

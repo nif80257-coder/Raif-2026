@@ -3,6 +3,7 @@ package com.cinemax.app.archive
 import com.cinemax.app.addons.StremioMeta
 import com.cinemax.app.addons.StremioMetaPreview
 import com.cinemax.app.addons.StremioStream
+import com.cinemax.app.addons.StremioSubtitle
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
@@ -97,21 +98,49 @@ fun parseArchiveMeta(raw: String, identifier: String): StremioMeta? = runCatchin
 }.getOrNull()
 
 /**
+ * Language code for a sidecar subtitle name: "film.en.srt" and "film_ar.vtt"
+ * both work, anything else is reported as unknown ("und").
+ */
+fun archiveSubtitleLanguage(fileName: String): String {
+    val stem = fileName.substringBeforeLast('.')
+    val tail = stem.substringAfterLast('.').ifEmpty { stem.substringAfterLast('_') }
+    return tail.lowercase().takeIf { it.length in 2..3 && it.all { char -> char in 'a'..'z' } }
+        ?: "und"
+}
+
+/**
  * Direct HTTPS files of one archive item, biggest first, labelled with the file's
- * height when the item reports it.
+ * height when the item reports it. Sidecar `.srt` / `.vtt` files next to the video
+ * are attached as subtitles, which these older films often ship with.
  */
 fun parseArchiveStreams(raw: String, identifier: String): List<StremioStream> = runCatching {
     val root = json.parseToJsonElement(raw) as? JsonObject ?: return emptyList()
     val files = root["files"] as? JsonArray ?: return emptyList()
-    files.mapNotNull { element -> element as? JsonObject }
+    val entries = files.mapNotNull { element -> element as? JsonObject }
         .mapNotNull { file ->
             val name = (file["name"] as? JsonPrimitive)?.contentOrNull ?: return@mapNotNull null
+            name to file
+        }
+    val subtitles = entries
+        .filter { (name, _) ->
             val lower = name.lowercase()
-            if (!lower.endsWith(".mp4") && !lower.endsWith(".m4v") && !lower.endsWith(".webm") &&
-                !lower.endsWith(".mkv")
-            ) {
-                return@mapNotNull null
-            }
+            lower.endsWith(".srt") || lower.endsWith(".vtt")
+        }
+        .map { (name, _) ->
+            StremioSubtitle(
+                id = name,
+                url = archiveFileUrl(identifier, name),
+                lang = archiveSubtitleLanguage(name),
+                label = name
+            )
+        }
+    entries
+        .filter { (name, _) ->
+            val lower = name.lowercase()
+            lower.endsWith(".mp4") || lower.endsWith(".m4v") ||
+                lower.endsWith(".webm") || lower.endsWith(".mkv")
+        }
+        .mapNotNull { (name, file) ->
             val size = (file["size"] as? JsonPrimitive)?.longOrNull ?: 0L
             if (size in 1L until 5_000_000L) return@mapNotNull null
             val height = (file["height"] as? JsonPrimitive)?.contentOrNull?.toIntOrNull()
@@ -122,16 +151,21 @@ fun parseArchiveStreams(raw: String, identifier: String): List<StremioStream> = 
                     name,
                     size.takeIf { it > 0L }?.let { "${it / (1024L * 1024L)} م.ب" }
                 ).joinToString(" • "),
-                url = "https://archive.org/download/${identifier.encodeURLParameter()}/${name.encodeURLParameter()}"
+                url = archiveFileUrl(identifier, name),
+                subtitles = subtitles
             )
         }
         .sortedByDescending { it.name?.replace("p", "")?.toIntOrNull() ?: 0 }
 }.getOrDefault(emptyList())
 
+/** The public HTTPS URL of one file inside an archive item. */
+fun archiveFileUrl(identifier: String, fileName: String): String =
+    "https://archive.org/download/${identifier.encodeURLParameter()}/${fileName.encodeURLParameter()}"
+
 /** Search and metadata calls against the Internet Archive. */
 class ArchiveClient(private val http: HttpClient) {
 
-    suspend fun popular(rows: Int = 24, page: Int = 1): List<StremioMetaPreview> = query(
+    suspend fun popular(rows: Int = 60, page: Int = 1): List<StremioMetaPreview> = query(
         "collection:feature_films AND mediatype:movies",
         rows = rows,
         page = page,

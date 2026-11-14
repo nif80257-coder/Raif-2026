@@ -238,7 +238,7 @@ fun App() {
     // The built-in public-domain library, loaded once so the app has content even
     // with no addon installed.
     LaunchedEffect(Unit) {
-        runCatching { archive.popular(rows = 24) }.getOrNull()?.let { found ->
+        runCatching { archive.popular(rows = 60) }.getOrNull()?.let { found ->
             if (found.isNotEmpty()) archiveItems = found
         }
     }
