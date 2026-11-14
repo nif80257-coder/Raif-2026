@@ -137,12 +137,53 @@ internal fun PluginRuntimeResult.toStreamItem(
 
 internal fun List<StreamItem>.sortedForGroupedDisplay(): List<StreamItem> =
     sortedWith(
-        compareBy<StreamItem>(
-            { it.sourceName.orEmpty().lowercase() },
-            { it.streamLabel.lowercase() },
-            { it.streamSubtitle.orEmpty().lowercase() },
-        ),
+        compareByDescending<StreamItem> { stream -> stream.qualityRank() }
+            .thenByDescending { stream -> stream.playbackReadinessRank() }
+            .thenBy { it.sourceName.orEmpty().lowercase() }
+            .thenBy { it.streamLabel.lowercase() }
+            .thenBy { it.streamSubtitle.orEmpty().lowercase() },
     )
+
+/**
+ * The quality a source advertises in the text it shows. Sources are not obliged to
+ * list themselves best-first, and this is what "a strong source" means to the user:
+ * 4K before 1080p, HDR above plain, a remux above a re-encode.
+ */
+private fun StreamItem.qualityRank(): Int {
+    val text = listOf(streamLabel, streamSubtitle.orEmpty())
+        .joinToString(separator = " ")
+        .lowercase()
+    val resolution = when {
+        text.contains("2160") || text.contains("4k") || text.contains("uhd") -> 4
+        text.contains("1080") -> 3
+        text.contains("720") -> 2
+        text.contains("576") || text.contains("480") || text.contains("360") -> 1
+        else -> 0
+    }
+    val hdr = if (
+        text.contains("hdr") || text.contains("dolby vision") || text.contains("dovi")
+    ) {
+        1
+    } else {
+        0
+    }
+    val remux = if (
+        text.contains("remux") || text.contains("bluray") || text.contains("blu-ray")
+    ) {
+        1
+    } else {
+        0
+    }
+    return resolution * 100 + hdr * 10 + remux * 5
+}
+
+/** A source that plays right away outranks one that still needs a debrid or torrent resolve. */
+private fun StreamItem.playbackReadinessRank(): Int = when {
+    isCachedDebridTorrentStream -> 3
+    playableDirectUrl != null || isDirectDebridStream -> 2
+    isTorrentStream -> 1
+    else -> 0
+}
 
 private fun String.fallbackRepositoryLabel(): String {
     val withoutQuery = substringBefore("?")
