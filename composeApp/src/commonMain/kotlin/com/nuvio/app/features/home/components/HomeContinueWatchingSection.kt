@@ -40,6 +40,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -712,6 +713,9 @@ private fun ContinueWatchingCard(
     Box(
         modifier = Modifier
             .width(cardMetrics.width)
+            // One VoiceOver stop per card: episode code, title, episode name and
+            // badge read together, and the artwork below does not repeat the title.
+            .semantics(mergeDescendants = true) {}
             .aspectRatio(PosterLandscapeAspectRatio)
             .clip(RoundedCornerShape(cardMetrics.cornerRadius))
             .background(MaterialTheme.colorScheme.surfaceVariant)
@@ -734,7 +738,7 @@ private fun ContinueWatchingCard(
             )
             AsyncImage(
                 model = cwImageModel,
-                contentDescription = item.title,
+                contentDescription = null,
                 modifier = Modifier
                     .fillMaxSize()
                     .then(if (shouldBlurArtwork) Modifier.blur(18.dp) else Modifier)
@@ -899,6 +903,7 @@ private fun ContinueWatchingWideCard(
         modifier = Modifier
             .width(layout.wideCardWidth)
             .height(layout.wideCardHeight)
+            .semantics(mergeDescendants = true) {}
             .clip(RoundedCornerShape(cornerRadius))
             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f))
             .border(
@@ -1031,7 +1036,9 @@ private fun ContinueWatchingPosterCard(
     val cornerRadius = rememberPosterCardStyleUiState().cornerRadiusDp.dp
     val imageUrl = item.continueWatchingPosterArtworkUrl(useEpisodeThumbnails)
     Column(
-        modifier = Modifier.width(layout.posterCardWidth),
+        modifier = Modifier
+            .width(layout.posterCardWidth)
+            .semantics(mergeDescendants = true) {},
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Box(
@@ -1064,7 +1071,7 @@ private fun ContinueWatchingPosterCard(
                 )
                 AsyncImage(
                     model = cwImageModel,
-                    contentDescription = item.title,
+                    contentDescription = null,
                     modifier = Modifier
                         .fillMaxSize()
                         .then(if (shouldBlurArtwork) Modifier.blur(18.dp) else Modifier),
