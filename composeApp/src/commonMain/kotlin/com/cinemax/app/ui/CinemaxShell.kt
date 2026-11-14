@@ -83,12 +83,16 @@ import com.cinemax.app.addons.StremioVideo
 import com.cinemax.app.core.LibrarySort
 import com.cinemax.app.core.PosterStatus
 import com.cinemax.app.core.episodeLabel
+import com.cinemax.app.core.episodeReleaseLabel
 import com.cinemax.app.core.librarySortLabel
 import com.cinemax.app.core.rankedSources
 import com.cinemax.app.core.streamBadges
 import com.cinemax.app.formatClock
 import com.cinemax.app.hapticTap
 import kotlinx.coroutines.delay
+import kotlinx.datetime.Clock
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 
 /**
  * One titled row of posters on the home screen. The addon and catalog it came
@@ -1212,6 +1216,19 @@ private fun EpisodeCard(
             episode.overview?.takeIf { it.isNotBlank() }?.let {
                 Text(it, color = CinemaxPalette.textMuted, fontSize = 11.sp, maxLines = 2)
             }
+            val release = remember(episode.released) {
+                val today = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()).date
+                episodeReleaseLabel(episode.released, today)
+            }
+            release?.let {
+                Text(
+                    it.text,
+                    color = if (it.upcoming) accent else CinemaxPalette.textMuted,
+                    fontSize = 10.sp,
+                    fontWeight = if (it.upcoming) FontWeight.SemiBold else FontWeight.Normal
+                )
+            }
+
             if (progress > 0.01f) {
                 Spacer(Modifier.height(4.dp))
                 LinearProgressIndicator(

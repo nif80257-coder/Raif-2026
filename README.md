@@ -23,7 +23,7 @@ CINEMAX is an early-stage, Arabic-first iPhone streaming client built with Kotli
 - Posters carry the user's own state: a thin accent bar across the bottom of the artwork for how far a title was watched (the most recently updated episode wins for a series) and a star for what is saved, on the home shelves, the catalog grid and the search results.
 - Playback speed is remembered: changing it in the player (or on the next episode) keeps it for the next launch, and when a title ends with autoplay off the player closes back to the detail screen instead of holding the last frame.
 - The detail screen fades in and out instead of appearing instantly, and its last opened title is kept during the exit so the animation never flashes empty content.
-- Episode list shows a progress bar for each episode you have started and a ✓ once you finished it, and the settings sheet sizes addon subtitles (صغير / وسط / كبير).
+- Episode list shows a progress bar for each episode you have started and a ✓ once you finished it, and the settings sheet sizes addon subtitles (صغير / وسط / كبير). Each episode also shows its release date in Arabic ("5 يناير 2020") read from the addon's `released` field, and an episode dated after today reads "قريبًا • …" in the accent colour so an episode with no sources yet explains why; a value that is not a date shows nothing.
 - Search tab keeps the last eight queries as one-tap chips with a "مسح السجل" action.
 - Shared Arabic-first Compose interface with responsive media cards, remote poster artwork, and persistent appearance/playback preferences.
 - CINEMAX visual identity with an iOS AppIcon generated from the shared SVG brand mark.
