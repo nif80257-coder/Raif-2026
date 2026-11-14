@@ -142,7 +142,19 @@ internal fun List<StreamItem>.sortedForGroupedDisplay(): List<StreamItem> =
             .thenBy { it.sourceName.orEmpty().lowercase() }
             .thenBy { it.streamLabel.lowercase() }
             .thenBy { it.streamSubtitle.orEmpty().lowercase() },
-    )
+    ).distinctBy { stream -> stream.dedupeKey() }
+
+/**
+ * The same file is often offered by two add-ons under different labels. Because this
+ * runs after the quality sort, the copy that survives is the strongest one.
+ */
+private fun StreamItem.dedupeKey(): String {
+    playableDirectUrl?.let { url -> return "url:$url" }
+    p2pInfoHash?.let { hash -> return "hash:$hash:${p2pFileIdx ?: 0}" }
+    externalOpenUrl?.let { url -> return "external:$url" }
+    youTubeIdToResolve?.let { id -> return "youtube:$id" }
+    return "label:$addonId:$streamLabel:${streamSubtitle.orEmpty()}"
+}
 
 /**
  * The quality a source advertises in the text it shows. Sources are not obliged to
