@@ -37,8 +37,24 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withTimeoutOrNull
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
+
+/**
+ * A search fans out to every installed add-on, and this build ships sixty of them.
+ * Six at a time keeps the phone's connection, and those servers, from being hit
+ * with a hundred parallel requests at once.
+ */
+private const val SEARCH_SOURCE_CONCURRENCY = 6
+
+/**
+ * One add-on that never answers must not hold the whole search open: its slot is
+ * released after this, and the results of the others still arrive.
+ */
+private const val SEARCH_SOURCE_TIMEOUT_MS = 12_000L
 
 internal fun <T> canReuseRequestState(
     forceRefresh: Boolean,
@@ -156,10 +172,15 @@ object SearchRepository {
 
         activeJob = scope.launch {
             val resultChannel = Channel<IndexedSearchResult>(Channel.UNLIMITED)
+            val limiter = Semaphore(SEARCH_SOURCE_CONCURRENCY)
+            val timeoutMessage = getString(Res.string.search_error_source_timeout)
             val jobs = loaders.mapIndexed { index, load ->
                 launch {
-                    runCatching { load() }
-                        .fold(
+                    limiter.withPermit {
+                        runCatching {
+                            withTimeoutOrNull(SEARCH_SOURCE_TIMEOUT_MS) { load() }
+                                ?: throw IllegalStateException(timeoutMessage)
+                        }.fold(
                             onSuccess = { section ->
                                 resultChannel.trySend(
                                     IndexedSearchResult(
@@ -178,6 +199,7 @@ object SearchRepository {
                                 )
                             },
                         )
+                    }
                 }
             }
             val closeChannelJob = launch {

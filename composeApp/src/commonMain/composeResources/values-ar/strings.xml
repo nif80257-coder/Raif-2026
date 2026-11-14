@@ -2285,6 +2285,7 @@
     <string name="plugins_test_failed">فشل اختبار المزود</string>
     <string name="plugins_test_results_count">نتائج الاختبار (%1$d)</string>
     <string name="search_error_no_results_for_catalog">لم يتم إرجاع نتائج بحث لـ %1$s.</string>
+    <string name="search_error_source_timeout">أحد المصادر لم يستجب في الوقت المحدد.</string>
     <string name="settings_playback_introdb_invalid_key">مفتاح API غير صالح أو فشل الاتصال</string>
     <string name="streams_plugin_repository_fallback">مستودع ملحقات</string>
     <string name="submit_intro_action">إرسال المقدمة</string>

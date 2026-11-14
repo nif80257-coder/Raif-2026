@@ -2323,6 +2323,7 @@
     <string name="plugins_test_failed">Provider test failed</string>
     <string name="plugins_test_results_count">Test results (%1$d)</string>
     <string name="search_error_no_results_for_catalog">No search results returned for %1$s.</string>
+    <string name="search_error_source_timeout">A source did not answer in time.</string>
     <string name="settings_playback_introdb_invalid_key">Invalid API Key or connection failed</string>
     <string name="streams_plugin_repository_fallback">Plugin repository</string>
     <string name="submit_intro_action">Submit Intro</string>
