@@ -813,7 +813,8 @@ fun CinemaxLibraryScreen(
     onQuery: (String) -> Unit,
     onOpenItem: (StremioMetaPreview) -> Unit,
     onResume: (WatchProgress) -> Unit,
-    onRemoveProgress: (WatchProgress) -> Unit
+    onRemoveProgress: (WatchProgress) -> Unit,
+    onRemoveFavorite: (StremioMetaPreview) -> Unit = {}
 ) {
     val visibleFavorites = favorites.filter {
         (filter == "all" || it.type == filter) && matchesLibraryQuery(it.name, query)
@@ -944,6 +945,7 @@ fun CinemaxLibraryScreen(
                             item = item,
                             accent = accent,
                             onClick = { onOpenItem(item) },
+                            onLongClick = { onRemoveFavorite(item) },
                             modifier = Modifier.weight(1f)
                         )
                     }

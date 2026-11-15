@@ -3,6 +3,9 @@
 CINEMAX is an early-stage, Arabic-first iPhone streaming client built with Kotlin Multiplatform and Compose Multiplatform. The Android target has been removed: the app targets iOS only.
 
 ## Implemented in the current repository
+- The library grid's genre and sort choice is remembered between launches (`cinemax.browse.genre` / `cinemax.browse.sort`), and opening the shelf restores it, fetching page one again so the chips and the posters always agree.
+- Subtitle size (صغير / وسط / كبير) is now reachable inside the subtitle sheet while watching, not only from settings.
+- A long press on a saved poster in the library removes it from the list, with the same haptic and status line as the other surfaces.
 - The player shows "جارٍ تجهيز المشاهدة…" with a small spinner until the first frame's position arrives, so a slow archive file no longer looks like a dead black screen.
 - Archive sidecar subtitles are labelled with the language name ("الإنجليزية"، "العربية") instead of the raw file name, and fall back to the file name when the language is unknown.
 - When the built-in library cannot be reached, home shows what went wrong and an "أعد المحاولة" button instead of an empty page.

@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
@@ -161,6 +162,7 @@ fun App() {
     val watchProgressStore = remember { WatchProgressStore() }
     val lastSourceStore = remember { PlaybackSourceStore() }
     val searchHistoryStore = remember { SearchHistoryStore() }
+    val browseStore = remember { BrowsePreferencesStore() }
     var searchHistory by remember { mutableStateOf(searchHistoryStore.load()) }
     var searchType by remember { mutableStateOf("movie") }
     var lastPlayedUrl by remember { mutableStateOf<String?>(null) }
@@ -747,19 +749,6 @@ fun App() {
         }
     }
 
-    /** Opens a home shelf as a full grid, keeping the page it already loaded. */
-    fun openShelf(shelf: CinemaxShelf) {
-        browseShelf = shelf
-        browseGenre = null
-        browseSort = null
-        browseItems.clear()
-        browseItems.addAll(shelf.items)
-        browseExhausted = !shelf.isBrowsable
-        // An archive shelf already holds page one, so the next request is page two.
-        browseArchivePage = if (shelf.archive) 2 else 1
-        status = "${shelf.title} • ${shelf.items.size} عنوانًا"
-    }
-
     /**
      * Requests one page of the opened shelf for the current genre. `replace`
      * starts the list again (first page, or after a genre change); otherwise the
@@ -809,6 +798,7 @@ fun App() {
     fun selectShelfSort(option: String) {
         if (browseSort == option) return
         browseSort = option
+        if (browseShelf?.archive == true) browseStore.saveSort(option)
         browseItems.clear()
         browseExhausted = false
         browseArchivePage = 1
@@ -819,6 +809,7 @@ fun App() {
     fun selectShelfGenre(genre: String?) {
         if (browseGenre == genre) return
         browseGenre = genre
+        if (browseShelf?.archive == true) browseStore.saveGenre(genre)
         browseItems.clear()
         browseExhausted = false
         loadShelfPage(replace = true)
@@ -832,6 +823,24 @@ fun App() {
         if (!wasSaved) favoriteItems.add(item)
         favoritesStore.save(favoriteItems.toList())
         status = if (wasSaved) "أزيل من قائمتي: ${item.name}" else "أضيف إلى قائمتي: ${item.name}"
+    }
+
+    /** Opens a home shelf as a full grid, keeping the page it already loaded. */
+    fun openShelf(shelf: CinemaxShelf) {
+        browseShelf = shelf
+        // The built-in library continues with the genre and order last used.
+        browseGenre = if (shelf.archive) browseStore.loadGenre() else null
+        browseSort = if (shelf.archive) browseStore.loadSort() else null
+        browseItems.clear()
+        browseItems.addAll(shelf.items)
+        browseExhausted = !shelf.isBrowsable
+        // An archive shelf already holds page one, so the next request is page two.
+        browseArchivePage = if (shelf.archive) 2 else 1
+        status = "${shelf.title} • ${shelf.items.size} عنوانًا"
+        // A restored genre or order needs page one fetched again with it applied.
+        if (shelf.archive && (browseGenre != null || browseSort != null)) {
+            loadShelfPage(replace = true)
+        }
     }
 
     /** "فيلم الليلة": a random title from the library that is not in progress. */
@@ -1078,6 +1087,12 @@ fun App() {
                     onRemoveProgress = { progress ->
                         watchProgressStore.remove(progress.key)
                         watchProgressItems.removeAll { it.key == progress.key }
+                    },
+                    onRemoveFavorite = { item ->
+                        hapticTap()
+                        favoriteItems.removeAll { it.id == item.id }
+                        favoritesStore.save(favoriteItems.toList())
+                        status = "أزيل من قائمتي: ${item.name}"
                     }
                 )
                 else -> CinemaxSettingsScreen(
@@ -1558,6 +1573,21 @@ fun App() {
                         Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("حجم الترجمة", color = Color.LightGray, fontSize = 12.sp)
+                            Spacer(Modifier.width(8.dp))
+                            listOf("small" to "صغير", "medium" to "وسط", "large" to "كبير")
+                                .forEach { (value, label) ->
+                                    FilterChip(
+                                        selected = preferences.subtitleSize == value,
+                                        onClick = {
+                                            preferences = preferences.copy(subtitleSize = value)
+                                            preferencesStore.save(preferences)
+                                        },
+                                        label = { Text(label, fontSize = 11.sp) }
+                                    )
+                                }
+                        }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("تأخير الترجمة", color = Color.LightGray, fontSize = 12.sp)
                             Spacer(Modifier.width(8.dp))
