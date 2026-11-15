@@ -561,7 +561,11 @@ private fun ContinueWatchingCard(
                 trackColor = CinemaxPalette.surfaceHigh
             )
             Spacer(Modifier.height(5.dp))
-            Text(remainingLabel(progress), color = CinemaxPalette.textMuted, fontSize = 10.sp)
+            Text(
+                "${remainingLabel(progress)} • ${(progress.progressFraction * 100).toInt()}٪",
+                color = CinemaxPalette.textMuted,
+                fontSize = 10.sp
+            )
         }
     }
 }

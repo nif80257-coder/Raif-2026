@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.sp
 import com.cinemax.app.addons.StremioMetaPreview
 import com.cinemax.app.core.PosterStatus
 import com.cinemax.app.core.matchesLibraryQuery
+import com.cinemax.app.core.normalizeForSearch
 
 /**
  * A whole catalog as a poster grid, the screen behind "المزيد" on a home shelf.
@@ -71,7 +72,26 @@ fun CinemaxCatalogScreen(
     onToggleFavorite: (StremioMetaPreview) -> Unit = {}
 ) {
     var query by remember { mutableStateOf("") }
-    val visibleItems = if (query.isBlank()) items else items.filter { matchesLibraryQuery(it.name, query) }
+    val visibleItems = if (query.isBlank()) {
+        items
+    } else {
+        // While searching, the closest names come first instead of the API order.
+        val needle = normalizeForSearch(query)
+        items.filter { matchesLibraryQuery(it.name, query) }
+            .sortedWith(
+                compareBy(
+                    {
+                        val name = normalizeForSearch(it.name)
+                        when {
+                            name == needle -> 0
+                            name.startsWith(needle) -> 1
+                            else -> 2
+                        }
+                    },
+                    { it.name }
+                )
+            )
+    }
     Column(Modifier.fillMaxSize().background(background)) {
         Row(
             modifier = Modifier

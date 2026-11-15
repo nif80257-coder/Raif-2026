@@ -104,6 +104,27 @@ fun parseArchivePreviews(raw: String): List<StremioMetaPreview> =
             .distinctBy { it.id }
     }.getOrDefault(emptyList())
 
+/** "1 س 32 د" from an archive `length` value ("5520" or "1:32:00"), or null. */
+fun archiveRuntime(length: String?): String? {
+    val raw = length?.trim().orEmpty()
+    if (raw.isEmpty()) return null
+    val seconds = if (raw.contains(':')) {
+        raw.split(':').mapNotNull { it.toIntOrNull() }
+            .fold(0L) { total, part -> total * 60 + part }
+    } else {
+        raw.toDoubleOrNull()?.toLong() ?: return null
+    }
+    if (seconds <= 0L) return null
+    val hours = seconds / 3600L
+    val minutes = (seconds % 3600L) / 60L
+    return when {
+        hours > 0L && minutes > 0L -> "$hours س $minutes د"
+        hours > 0L -> "$hours س"
+        minutes > 0L -> "$minutes د"
+        else -> null
+    }
+}
+
 /** Metadata for the detail screen, read from `metadata/{identifier}`. */
 fun parseArchiveMeta(raw: String, identifier: String): StremioMeta? = runCatching {
     val root = json.parseToJsonElement(raw) as? JsonObject ?: return null
@@ -128,6 +149,7 @@ fun parseArchiveMeta(raw: String, identifier: String): StremioMeta? = runCatchin
         background = poster,
         description = description?.takeIf { it.isNotBlank() },
         releaseInfo = year,
+        runtime = archiveRuntime((metadata["length"] as? JsonPrimitive)?.contentOrNull),
         genres = subjects.take(4)
     )
 }.getOrNull()

@@ -3,6 +3,8 @@
 CINEMAX is an early-stage, Arabic-first iPhone streaming client built with Kotlin Multiplatform and Compose Multiplatform. The Android target has been removed: the app targets iOS only.
 
 ## Implemented in the current repository
+- The archive detail screen shows the film's running time ("1 س 32 د") read from the item's `length`, and the continue-watching card shows the percentage watched next to the time left.
+- While the grid's search field is active, the closest names come first (exact, then prefix, then containment) instead of the API's order.
 - The catalog grid has a local search field that filters the loaded list by name with the same Arabic folding as the rest of the app, and its counter shows "12 من 60" while filtering.
 - The player offers a "التالي ‹" shortcut whenever a next episode exists, not only in the last 45 seconds, and the top bar shows the source that is playing ("Addon • 1080p").
 - The library grid's genre and sort choice is remembered between launches (`cinemax.browse.genre` / `cinemax.browse.sort`), and opening the shelf restores it, fetching page one again so the chips and the posters always agree.

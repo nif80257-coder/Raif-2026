@@ -129,6 +129,24 @@ class ArchiveParsingTest {
     }
 
     @Test
+    fun runtimeIsReadFromSecondsOrAColonValue() {
+        assertEquals("1 س 32 د", archiveRuntime("5520"))
+        assertEquals("1 س 32 د", archiveRuntime("1:32:00"))
+        assertEquals("45 د", archiveRuntime("2700"))
+        assertEquals(null, archiveRuntime(null))
+        assertEquals(null, archiveRuntime("abc"))
+        assertEquals(null, archiveRuntime("0"))
+    }
+
+    @Test
+    fun metaCarriesTheRuntimeWhenTheArchiveReportsIt() {
+        val raw = """
+            {"metadata":{"title":"Fil m","length":"5520"},"files":[]}
+        """.trimIndent()
+        assertEquals("1 س 32 د", parseArchiveMeta(raw, "x")?.runtime)
+    }
+
+    @Test
     fun sortLabelsMapToArchiveSortFields() {
         assertEquals("downloads desc", archiveSortValue("الأكثر تحميلًا"))
         assertEquals("addeddate desc", archiveSortValue("الأحدث إضافة"))
