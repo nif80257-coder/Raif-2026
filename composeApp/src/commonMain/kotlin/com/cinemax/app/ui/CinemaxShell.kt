@@ -1608,6 +1608,11 @@ fun CinemaxSettingsScreen(
     addons: List<InstalledAddon>,
     /** How many merged, de-duplicated sources the app ships with. */
     suggestedSourceCount: Int = 0,
+    /** Result of the manual manifest check, keyed by addon id. */
+    addonHealth: Map<String, Boolean> = emptyMap(),
+    checkingAddons: Boolean = false,
+    onCheckAddons: () -> Unit = {},
+    onRemoveDeadAddons: () -> Unit = {},
     activeAddonId: String?,
     onSelectAddon: (InstalledAddon) -> Unit,
     onRemoveAddon: (InstalledAddon) -> Unit,
@@ -1752,6 +1757,24 @@ fun CinemaxSettingsScreen(
             )
         }
         Text(status, color = CinemaxPalette.textMuted, fontSize = 12.sp, lineHeight = 18.sp)
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedButton(
+                onClick = onCheckAddons,
+                enabled = !checkingAddons && addons.isNotEmpty(),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text(if (checkingAddons) "جارٍ الفحص…" else "فحص المصادر", fontSize = 12.sp)
+            }
+            val dead = addons.count { addonHealth[it.id] == false }
+            if (dead > 0) {
+                TextButton(onClick = onRemoveDeadAddons) {
+                    Text("أزل $dead متوقفة", fontSize = 12.sp)
+                }
+            }
+        }
         if (addons.isEmpty()) {
             Text("لا توجد إضافة مثبتة بعد.", color = CinemaxPalette.textMuted, fontSize = 12.sp)
         }
@@ -1765,8 +1788,21 @@ fun CinemaxSettingsScreen(
                         fontWeight = FontWeight.SemiBold
                     )
                     Text(
-                        if (activeAddonId == addon.id) "الكتالوج النشط • ${addon.version}" else addon.version,
-                        color = if (activeAddonId == addon.id) accent else CinemaxPalette.textMuted,
+                        buildString {
+                            append(
+                                if (activeAddonId == addon.id) "الكتالوج النشط • ${addon.version}"
+                                else addon.version
+                            )
+                            when (addonHealth[addon.id]) {
+                                true -> append(" • يعمل")
+                                false -> append(" • متوقف")
+                                null -> Unit
+                            }
+                        },
+                        color = when (addonHealth[addon.id]) {
+                            false -> Color(0xFFFF6B6B)
+                            else -> if (activeAddonId == addon.id) accent else CinemaxPalette.textMuted
+                        },
                         fontSize = 11.sp
                     )
                 }

@@ -48,6 +48,7 @@ import platform.CoreMedia.CMTimeMakeWithSeconds
 import platform.Foundation.NSNotificationCenter
 import platform.Foundation.NSOperationQueue
 import platform.Foundation.NSURL
+import platform.UIKit.UIApplication
 
 actual fun isNativeFullFormatPlayerAvailable(): Boolean = CinemaxPlayerBridge.isRegistered
 
@@ -71,6 +72,11 @@ actual fun NativeVideoPlayer(
     onGestureTap: () -> Unit,
     onGestureHud: (message: String) -> Unit
 ) {
+    // The iPhone must not dim or lock itself while a video is playing.
+    DisposableEffect(Unit) {
+        UIApplication.sharedApplication.idleTimerDisabled = true
+        onDispose { UIApplication.sharedApplication.idleTimerDisabled = false }
+    }
     val nativePlayer = remember { CinemaxPlayerBridge.create() }
     if (nativePlayer != null && !useSystemPlayer) {
         MpvPlayerSurface(

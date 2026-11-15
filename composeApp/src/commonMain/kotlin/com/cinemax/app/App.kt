@@ -273,6 +273,10 @@ fun App() {
     // A failed link or a source switch gets a line of its own: the reset that runs
     // whenever the player reloads clears the player's own message, not this one.
     var sourceNotice by remember { mutableStateOf<String?>(null) }
+    // Result of the manual source check, keyed by addon id: true means the
+    // addon's manifest answered.
+    var addonHealth by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
+    var addonCheckRunning by remember { mutableStateOf(false) }
     val embeddedSubtitleTracks = remember { mutableStateListOf<EmbeddedSubtitleTrack>() }
     var selectedEmbeddedTrackId by remember { mutableStateOf<Long?>(null) }
     // Set once a subtitle choice was made, so a late track list cannot override it.
@@ -758,6 +762,56 @@ fun App() {
                 loading = false
             }
         }
+    }
+
+    /**
+     * Asks every installed addon for its manifest, so a dead one is visible
+     * before it is used. The results are keyed by addon id.
+     */
+    fun checkAddons() {
+        if (addonCheckRunning || addons.isEmpty()) return
+        addonCheckRunning = true
+        val targets = addons.toList()
+        scope.launch {
+            try {
+                val results = coroutineScope {
+                    targets.map { addon ->
+                        async {
+                            val ok = try {
+                                repository.loadManifest(addon.manifestUrl)
+                                true
+                            } catch (error: CancellationException) {
+                                throw error
+                            } catch (_: Throwable) {
+                                false
+                            }
+                            addon.id to ok
+                        }
+                    }.awaitAll()
+                }
+                addonHealth = results.toMap()
+                val dead = results.count { !it.second }
+                status = if (dead == 0) "كل الإضافات (${results.size}) تستجيب"
+                else "فحص المصادر: ${results.size - dead} يعمل و$dead متوقف"
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                status = "تعذر فحص المصادر: ${error.message ?: "خطأ غير معروف"}"
+            } finally {
+                addonCheckRunning = false
+            }
+        }
+    }
+
+    /** Drops every addon the last check found dead. */
+    fun removeDeadAddons() {
+        val dead = addons.filter { addonHealth[it.id] == false }
+        if (dead.isEmpty()) return
+        val deadIds = dead.map { it.id }.toSet()
+        addons.removeAll { it.id in deadIds }
+        addonStore.save(addons.toList())
+        addonHealth = addonHealth - deadIds
+        if (activeAddon?.id in deadIds) activeAddon = addons.lastOrNull()
+        status = "أُزيلت ${dead.size} إضافة متوقفة"
     }
 
     /** Reloads the active addon's catalog and shelves, for the home refresh button. */
@@ -1299,6 +1353,10 @@ fun App() {
                     },
                     addons = addons.toList(),
                     suggestedSourceCount = suggestedSources.size,
+                    addonHealth = addonHealth,
+                    checkingAddons = addonCheckRunning,
+                    onCheckAddons = { checkAddons() },
+                    onRemoveDeadAddons = { removeDeadAddons() },
                     activeAddonId = activeAddon?.id,
                     onSelectAddon = { addon -> selectAddon(addon) },
                     onRemoveAddon = { addon ->
@@ -1593,6 +1651,8 @@ fun App() {
                                         val label = next.first.stream.name ?: next.first.addonName
                                         switchToSource(next.first, next.second)
                                         sourceNotice = "تعذّر تشغيل المصدر — نجرّب: $label"
+                                    } else {
+                                        sourceNotice = "تعذّر تشغيل المصدر ولم يبقَ رابط آخر — افتح «المصادر» واختر غيره"
                                     }
                                 }
                             },
