@@ -21,6 +21,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
@@ -59,6 +61,13 @@ object AddonRepository {
     private val activeRefreshJobs = mutableMapOf<String, Job>()
     private var defaultAddonSeedJob: Job? = null
     private val pushJobsByProfile = mutableMapOf<Int, Job>()
+
+    /**
+     * A cold start resolves every installed add-on, and this build ships sixty of them.
+     * Four at a time keeps the launch from opening sixty connections at once; the rest
+     * queue behind and fill in as they answer.
+     */
+    private val manifestRefreshSemaphore = Semaphore(4)
 
     fun initialize() {
         val effectiveProfileId = resolveEffectiveProfileId(ProfileRepository.activeProfileId)
@@ -343,14 +352,16 @@ object AddonRepository {
         refreshJob = scope.launch {
             try {
                 val result = runCatching {
-                    val payload = fetchAddonResponseText(
-                        url = manifestUrl,
-                        forceRefresh = forceRefresh,
-                    )
-                    AddonManifestParser.parse(
-                        manifestUrl = manifestUrl,
-                        payload = payload,
-                    )
+                    manifestRefreshSemaphore.withPermit {
+                        val payload = fetchAddonResponseText(
+                            url = manifestUrl,
+                            forceRefresh = forceRefresh,
+                        )
+                        AddonManifestParser.parse(
+                            manifestUrl = manifestUrl,
+                            payload = payload,
+                        )
+                    }
                 }
 
                 _uiState.update { current ->
