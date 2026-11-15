@@ -3,6 +3,9 @@
 CINEMAX is an early-stage, Arabic-first iPhone streaming client built with Kotlin Multiplatform and Compose Multiplatform. The Android target has been removed: the app targets iOS only.
 
 ## Implemented in the current repository
+- The player shows "جارٍ تجهيز المشاهدة…" with a small spinner until the first frame's position arrives, so a slow archive file no longer looks like a dead black screen.
+- Archive sidecar subtitles are labelled with the language name ("الإنجليزية"، "العربية") instead of the raw file name, and fall back to the file name when the language is unknown.
+- When the built-in library cannot be reached, home shows what went wrong and an "أعد المحاولة" button instead of an empty page.
 - A long press on any poster — home shelves, the "المزيد" grid and search results — adds or removes that title from the saved list, with a haptic tap and a status line naming what happened ("أضيف إلى قائمتي: …").
 - The archive grid also has sort chips (الأكثر تحميلًا، الأحدث إضافة، أبجديًا) mapped to the archive's sort fields; changing the order restarts the grid from page one and keeps the chosen genre.
 - The built-in "المكتبة الحرة" shelf opens as a full grid like any other and pages itself through the archive's `page` parameter (60 films per page, duplicates dropped, "نهاية القائمة" when a page brings nothing new), so the whole 28k-film collection is reachable and not just the first shelf. The grid also has genre chips (أكشن، مغامرة، كوميدي، دراما، رعب، خيال علمي، غربي، جريمة، رومانسي، وثائقي، رسوم متحركة، صامت) mapped to the archive's own subjects — «غربي» returns 724 films — and the chosen genre is kept across pages.

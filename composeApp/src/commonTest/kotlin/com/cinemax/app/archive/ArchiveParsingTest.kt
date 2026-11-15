@@ -108,6 +108,13 @@ class ArchiveParsingTest {
     }
 
     @Test
+    fun subtitleLabelsUseTheLanguageNameWhenItIsKnown() {
+        assertEquals("الإنجليزية", archiveSubtitleLabel("movie.en.srt"))
+        assertEquals("العربية", archiveSubtitleLabel("movie_ar.vtt"))
+        assertEquals("subtitles.srt", archiveSubtitleLabel("subtitles.srt"))
+    }
+
+    @Test
     fun genreLabelsMapToArchiveSubjects() {
         assertEquals("Western", archiveGenreSubject("غربي"))
         assertEquals("Action", archiveGenreSubject("أكشن"))

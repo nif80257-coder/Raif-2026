@@ -4,6 +4,7 @@ import com.cinemax.app.addons.StremioMeta
 import com.cinemax.app.addons.StremioMetaPreview
 import com.cinemax.app.addons.StremioStream
 import com.cinemax.app.addons.StremioSubtitle
+import com.cinemax.app.core.subtitleLanguageName
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
@@ -142,6 +143,12 @@ fun archiveSubtitleLanguage(fileName: String): String {
         ?: "und"
 }
 
+/** "الإنجليزية" for "film.en.srt", or the file name when the language is unknown. */
+fun archiveSubtitleLabel(fileName: String): String {
+    val language = subtitleLanguageName(archiveSubtitleLanguage(fileName))
+    return language ?: fileName
+}
+
 /**
  * Direct HTTPS files of one archive item, biggest first, labelled with the file's
  * height when the item reports it. Sidecar `.srt` / `.vtt` files next to the video
@@ -165,7 +172,7 @@ fun parseArchiveStreams(raw: String, identifier: String): List<StremioStream> = 
                 id = name,
                 url = archiveFileUrl(identifier, name),
                 lang = archiveSubtitleLanguage(name),
-                label = name
+                label = archiveSubtitleLabel(name)
             )
         }
     entries

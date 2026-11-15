@@ -187,6 +187,8 @@ fun CinemaxHomeScreen(
     onAddAddon: () -> Unit,
     onNuvio: () -> Unit,
     onToggleFavorite: (StremioMetaPreview) -> Unit,
+    error: String? = null,
+    onRetry: () -> Unit = {},
     versionLabel: String,
     tonightPick: StremioMetaPreview?,
     onShuffleTonight: () -> Unit,
@@ -220,6 +222,35 @@ fun CinemaxHomeScreen(
                 item { ShimmerShelf() }
             } else {
                 item { CinemaxWelcomeCard(accent = accent, background = background, onAddAddon = onAddAddon, onNuvio = onNuvio) }
+                if (error != null) {
+                    item {
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(CinemaxPalette.surface)
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                "المكتبة الحرة لم تُحمّل",
+                                color = Color.White,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                error,
+                                color = CinemaxPalette.textMuted,
+                                fontSize = 12.sp,
+                                lineHeight = 18.sp
+                            )
+                            TextButton(onClick = onRetry) {
+                                Text("أعد المحاولة", color = accent, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
                 item {
                     Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                         Text(
@@ -1349,6 +1380,7 @@ fun CinemaxPlayerScreen(
     subtitleLabel: String?,
     accent: Color,
     message: String?,
+    loading: Boolean = false,
     controlsVisible: Boolean,
     hud: String?,
     positionMs: Long,
@@ -1411,6 +1443,28 @@ fun CinemaxPlayerScreen(
                     .background(Color(0xCC000000))
                     .padding(vertical = 6.dp, horizontal = 12.dp)
             )
+        }
+        if (loading) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xCC000000))
+                    .padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                CircularProgressIndicator(
+                    Modifier.size(14.dp),
+                    strokeWidth = 2.dp,
+                    color = accent
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "جارٍ تجهيز المشاهدة…",
+                    color = CinemaxPalette.textMuted,
+                    fontSize = 11.sp
+                )
+            }
         }
         Box(Modifier.fillMaxWidth().weight(1f)) {
             content()

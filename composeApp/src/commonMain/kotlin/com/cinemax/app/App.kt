@@ -170,6 +170,7 @@ fun App() {
     var lastDetailItem by remember { mutableStateOf<StremioMetaPreview?>(null) }
     val homeShelves = remember { mutableStateListOf<CinemaxShelf>() }
     var archiveItems by remember { mutableStateOf<List<StremioMetaPreview>>(emptyList()) }
+    var archiveError by remember { mutableStateOf<String?>(null) }
     // The shelf opened as a full grid ("المزيد"), and the pages appended to it.
     val browseItems = remember { mutableStateListOf<StremioMetaPreview>() }
     var browseShelf by remember { mutableStateOf<CinemaxShelf?>(null) }
@@ -196,6 +197,7 @@ fun App() {
     var playbackSpeed by remember { mutableStateOf(1f) }
     var subtitleDelayMs by remember { mutableStateOf(0L) }
     var playerDurationMs by remember { mutableStateOf(0L) }
+    var playerStarted by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val addons = remember { mutableStateListOf<InstalledAddon>().apply { addAll(addonStore.load()) } }
     val catalogItems = remember { mutableStateListOf<StremioMetaPreview>() }
@@ -241,12 +243,22 @@ fun App() {
     val addonSignature = addons.joinToString("|") { it.manifestUrl }
 
     // The built-in public-domain library, loaded once so the app has content even
-    // with no addon installed.
-    LaunchedEffect(Unit) {
-        runCatching { archive.popular(rows = 60) }.getOrNull()?.let { found ->
-            if (found.isNotEmpty()) archiveItems = found
+    // with no addon installed. A failure is kept so home can offer a retry.
+    fun loadArchive() {
+        scope.launch {
+            archiveError = null
+            try {
+                val found = archive.popular(rows = 60)
+                if (found.isNotEmpty()) archiveItems = found
+                else archiveError = "لم تُرجع المكتبة الحرة أي فيلم الآن"
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                archiveError = error.message ?: "تعذر الاتصال بالمكتبة الحرة"
+            }
         }
     }
+
+    LaunchedEffect(Unit) { loadArchive() }
 
     // Metadata may come from any installed addon that declares the `meta`
     // resource, and a series episode is chosen before its sources are requested.
@@ -468,6 +480,7 @@ fun App() {
         userChoseSubtitle = false
         playerPositionMs = 0L
         playerDurationMs = 0L
+        playerStarted = false
         playerMessage = null
         playerControls = null
         controlsVisible = true
@@ -997,6 +1010,8 @@ fun App() {
                     onAddAddon = { showAddDialog = true },
                     onNuvio = { showNuvioDialog = true },
                     onToggleFavorite = { toggleFavorite(it) },
+                    error = archiveError,
+                    onRetry = { loadArchive() },
                     versionLabel = appVersionLabel(),
                     tonightPick = tonightPick,
                     onShuffleTonight = { pickTonight() },
@@ -1220,6 +1235,7 @@ fun App() {
                     subtitleLabel = activeSubtitleLabel,
                     accent = appAccent,
                     message = playerMessage,
+                    loading = !playerStarted,
                     controlsVisible = controlsVisible,
                     hud = hud,
                     positionMs = playerPositionMs,
@@ -1300,7 +1316,7 @@ fun App() {
                                     if (positionMillis < durationMillis - 15_000L) watchProgressItems.add(0, progress)
                                 }
                             },
-                            onPosition = { playerPositionMs = it },
+                            onPosition = { playerPositionMs = it; if (it > 0L) playerStarted = true },
                             onEnded = {
                                 val next = if (preferences.autoplayNextEpisode) {
                                     nextEpisode(playingVideo, selectedMeta?.videos.orEmpty())
