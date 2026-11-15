@@ -27,8 +27,14 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -37,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cinemax.app.addons.StremioMetaPreview
 import com.cinemax.app.core.PosterStatus
+import com.cinemax.app.core.matchesLibraryQuery
 
 /**
  * A whole catalog as a poster grid, the screen behind "المزيد" on a home shelf.
@@ -63,6 +70,8 @@ fun CinemaxCatalogScreen(
     onSort: (String) -> Unit = {},
     onToggleFavorite: (StremioMetaPreview) -> Unit = {}
 ) {
+    var query by remember { mutableStateOf("") }
+    val visibleItems = if (query.isBlank()) items else items.filter { matchesLibraryQuery(it.name, query) }
     Column(Modifier.fillMaxSize().background(background)) {
         Row(
             modifier = Modifier
@@ -82,12 +91,24 @@ fun CinemaxCatalogScreen(
                     maxLines = 1
                 )
                 Text(
-                    "${items.size} عنوانًا",
+                    if (query.isBlank()) "${items.size} عنوانًا" else "${visibleItems.size} من ${items.size}",
                     color = CinemaxPalette.textMuted,
                     fontSize = 11.sp
                 )
             }
         }
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            singleLine = true,
+            placeholder = { Text("ابحث داخل هذه القائمة", fontSize = 12.sp) },
+            trailingIcon = {
+                if (query.isNotEmpty()) {
+                    TextButton(onClick = { query = "" }) { Text("مسح", color = accent, fontSize = 11.sp) }
+                }
+            }
+        )
         if (genres.isNotEmpty()) {
             Row(
                 modifier = Modifier
@@ -134,7 +155,7 @@ fun CinemaxCatalogScreen(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            gridItems(items) { item ->
+            gridItems(visibleItems) { item ->
                 CinemaxPosterCard(
                     name = item.name,
                     poster = item.poster,
@@ -166,7 +187,11 @@ fun CinemaxCatalogScreen(
                             )
                         ) { Text("تحميل المزيد", fontWeight = FontWeight.Bold, fontSize = 13.sp) }
                         else -> Text(
-                            if (items.isEmpty()) "لا يوجد عنوان في هذا الكتالوج." else "نهاية القائمة",
+                            when {
+                                items.isEmpty() -> "لا يوجد عنوان في هذا الكتالوج."
+                                visibleItems.isEmpty() -> "لا عنوان في هذه القائمة يطابق «${query.trim()}»."
+                                else -> "نهاية القائمة"
+                            },
                             color = CinemaxPalette.textMuted,
                             fontSize = 12.sp
                         )

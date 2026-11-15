@@ -1277,6 +1277,20 @@ fun App() {
                             activeSeason = upcomingEpisode.season
                         }
                     } else null,
+                    sourceLabel = playingStream?.let { option ->
+                        listOfNotNull(option.addonName, option.stream.name).joinToString(" • ")
+                    },
+                    onNextShortcut = upcomingEpisode?.let { next ->
+                        {
+                            autoplayQueued = true
+                            playbackUrl = null
+                            playingItem = null
+                            playingVideo = null
+                            playingStream = null
+                            selectedVideo = next
+                            activeSeason = next.season
+                        }
+                    },
                     onClose = {
                         playbackUrl = null
                         playingItem = null

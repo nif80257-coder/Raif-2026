@@ -1392,6 +1392,8 @@ fun CinemaxPlayerScreen(
     onSpeed: (speed: Float) -> Unit,
     nextEpisodeLabel: String?,
     onNextEpisode: (() -> Unit)?,
+    sourceLabel: String? = null,
+    onNextShortcut: (() -> Unit)? = null,
     onClose: () -> Unit,
     onSubtitles: () -> Unit,
     content: @Composable BoxScope.() -> Unit
@@ -1418,6 +1420,9 @@ fun CinemaxPlayerScreen(
                     )
                     episodeLabelText?.let {
                         Text(it, color = CinemaxPalette.textMuted, fontSize = 11.sp, maxLines = 1)
+                    }
+                    sourceLabel?.let {
+                        Text(it, color = CinemaxPalette.textMuted, fontSize = 10.sp, maxLines = 1)
                     }
                 }
                 TextButton(onClick = onSubtitles) {
@@ -1535,6 +1540,11 @@ fun CinemaxPlayerScreen(
                         )
                     }
                     Spacer(Modifier.weight(1f))
+                    onNextShortcut?.let { next ->
+                        TextButton(onClick = next) {
+                            Text("التالي ‹", color = accent, fontSize = 11.sp)
+                        }
+                    }
                     TextButton(onClick = onSubtitles) {
                         Text(
                             if (subtitleLabel != null) subtitleLabel else "ترجمة",
