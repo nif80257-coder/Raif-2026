@@ -14,6 +14,8 @@ import org.jetbrains.compose.resources.getString
 internal data class InstalledStreamAddonTarget(
     val addonName: String,
     val addonId: String,
+    /** Manifest URL of the installed add-on, the key its fetch failures are remembered under. */
+    val manifestUrl: String,
     val manifest: AddonManifest,
 )
 

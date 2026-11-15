@@ -2,10 +2,12 @@ package com.nuvio.app.features.streams
 
 import co.touchlab.kermit.Logger
 import com.nuvio.app.core.build.AppFeaturePolicy
+import com.nuvio.app.features.addons.AddonFailureMemory
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.buildAddonResourceUrl
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.addons.fetchAddonResponseText
+import com.nuvio.app.features.addons.withoutPausedAddons
 import com.nuvio.app.features.debrid.DirectDebridStreamPreparer
 import com.nuvio.app.features.debrid.DebridSettingsRepository
 import com.nuvio.app.features.debrid.DebridStreamPresentation
@@ -15,6 +17,7 @@ import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.plugins.PluginRepository
 import com.nuvio.app.features.plugins.pluginContentId
 import com.nuvio.app.features.plugins.PluginsUiState
+import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.servers.ServerStreams
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -168,7 +171,14 @@ object StreamsRepository {
         val isNativeServerRequest = ServerStreams.isNativeRequest(videoId)
         val serverSources = ServerStreams.sources(type, videoId, season, episode, forceRefresh)
         val preferredGroupIds = serverSources.filter { it.preferred }.mapTo(mutableSetOf()) { it.addonId }
-        val installedAddons = if (isNativeServerRequest) emptyList() else AddonRepository.uiState.value.addons.enabledAddons()
+        // Add-ons that failed three titles in a row are left out of automatic loads so they
+        // cannot keep holding a fetch worker; an explicit refresh asks all of them again.
+        val installedAddons = if (isNativeServerRequest) {
+            emptyList()
+        } else {
+            AddonRepository.uiState.value.addons.enabledAddons()
+                .withoutPausedAddons(includeAll = forceRefresh)
+        }
         val pluginScrapers = if (AppFeaturePolicy.pluginsEnabled && !isNativeServerRequest) {
             PluginRepository.getEnabledScrapersForType(type)
         } else {
@@ -197,6 +207,7 @@ object StreamsRepository {
                 InstalledStreamAddonTarget(
                     addonName = addon.displayTitle.ifBlank { manifest.name },
                     addonId = addon.streamAddonInstanceId(manifest.id),
+                    manifestUrl = addon.manifestUrl,
                     manifest = manifest,
                 )
             }
@@ -213,13 +224,47 @@ object StreamsRepository {
             return
         }
 
+        // Sources found last time open the sheet immediately and the live responses replace
+        // them group by group. A manual retry ignores the cache so nothing stale survives it,
+        // and so does an auto-play run: choosing a link that may have expired is worse than
+        // waiting the extra second for the live list.
+        val streamContentKey = StreamResponseCache.contentKey(
+            type = type,
+            videoId = videoId,
+            parentMetaId = parentMetaId,
+            season = season,
+            episode = episode,
+        )
+        val streamCacheProfileId = ProfileRepository.activeProfileId
+        val cachedStreamsByAddonId: Map<String, List<StreamItem>> =
+            if (forceRefresh || isDirectAutoPlayFlow || streamAddons.isEmpty()) {
+                emptyMap()
+            } else {
+                val cachedPayloads = StreamResponseCache.load(
+                    profileId = streamCacheProfileId,
+                    contentKey = streamContentKey,
+                )
+                streamAddons.mapNotNull { addon ->
+                    val payload = cachedPayloads[addon.addonId] ?: return@mapNotNull null
+                    val streams = runCatching {
+                        StreamParser.parse(
+                            payload = payload,
+                            addonName = addon.addonName,
+                            addonId = addon.addonId,
+                            addonLogo = addon.manifest.logoUrl,
+                        )
+                    }.getOrNull() ?: return@mapNotNull null
+                    addon.addonId to streams.sortedForGroupedDisplay()
+                }.toMap()
+            }
+
         // Initialise loading placeholders
         val installedAddonOrder = streamAddons.map { it.addonName }
         val initialGroups = StreamAutoPlaySelector.orderAddonStreams(streamAddons.map { addon ->
             AddonStreamGroup(
                 addonName = addon.addonName,
                 addonId = addon.addonId,
-                streams = emptyList(),
+                streams = cachedStreamsByAddonId[addon.addonId].orEmpty(),
                 isLoading = true,
             )
         } + pluginProviderGroups.map { providerGroup ->
@@ -472,10 +517,16 @@ object StreamsRepository {
                     log.d { "Fetching streams from: $url" }
 
                     val displayName = addon.addonName
-                    val group = runCatchingUnlessCancelled {
+                    val outcome = runCatchingUnlessCancelled {
                         val payload = fetchAddonResponseText(
                             url = url,
                             forceRefresh = forceRefresh,
+                        )
+                        StreamResponseCache.save(
+                            profileId = streamCacheProfileId,
+                            contentKey = streamContentKey,
+                            addonId = addon.addonId,
+                            payload = payload,
                         )
                         StreamParser.parse(
                             payload = payload,
@@ -483,7 +534,13 @@ object StreamsRepository {
                             addonId = addon.addonId,
                             addonLogo = addon.manifest.logoUrl,
                         )
-                    }.fold(
+                    }
+                    if (outcome.isSuccess) {
+                        AddonFailureMemory.recordSuccess(addon.manifestUrl)
+                    } else {
+                        AddonFailureMemory.recordFailure(addon.manifestUrl)
+                    }
+                    val group = outcome.fold(
                         onSuccess = { streams ->
                             log.d { "Got ${streams.size} streams from ${displayName}" }
                             AddonStreamGroup(

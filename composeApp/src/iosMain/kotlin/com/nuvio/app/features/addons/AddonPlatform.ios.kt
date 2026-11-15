@@ -83,8 +83,21 @@ actual object AddonStorage {
         NSUserDefaults.standardUserDefaults.removeObjectForKey(pendingSyncKey(accountId, profileId))
     }
 
+    actual fun loadStartupCache(profileId: Int, name: String): String? =
+        NSUserDefaults.standardUserDefaults.stringForKey(startupCacheKey(name, profileId))
+
+    actual fun saveStartupCache(profileId: Int, name: String, payload: String) {
+        NSUserDefaults.standardUserDefaults.setObject(
+            payload,
+            forKey = startupCacheKey(name, profileId),
+        )
+    }
+
     private fun pendingSyncKey(accountId: String, profileId: Int): String =
         "pending_user_addons_${profileId}_$accountId"
+
+    private fun startupCacheKey(name: String, profileId: Int): String =
+        "startup_cache_${name}_$profileId"
 }
 
 private fun parseEnabledStateLine(line: String): Pair<String, Boolean>? {

@@ -49,6 +49,10 @@ private data class AddonWriteRow(
 
 private const val ADDON_PUSH_DEBOUNCE_MS = 500L
 
+/** A cold start spreads its manifest refreshes out from the staggered queue. */
+private const val MANIFEST_REFRESH_STAGGER_MS = 150L
+private const val MAX_MANIFEST_STAGGER_SLOTS = 40
+
 object AddonRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val log = Logger.withTag("AddonRepository")
@@ -86,23 +90,32 @@ object AddonRepository {
         // Top up anything the first attempt could not fetch (a launch made while offline, say).
         seedDefaultAddonsIfNeeded(currentProfileId)
 
+        // Catalogs come from the manifests kept by the last launch, so the home screen has
+        // something to draw before the first response arrives. Anything stale is re-fetched in
+        // the background, staggered, instead of sixty sockets opening at once.
+        val cachedByUrl = CachedManifestStore.load(currentProfileId)
         val existingByUrl = _uiState.value.addons.associateBy(ManagedAddon::manifestUrl)
         _uiState.value = AddonsUiState(
             addons = storedUrls.map { manifestUrl ->
-                existingByUrl[manifestUrl].toPendingAddon(
+                existingByUrl[manifestUrl].toRestoredAddon(
                     manifestUrl = manifestUrl,
+                    cached = cachedByUrl[manifestUrl],
                     enabled = enabledByUrl[manifestUrl],
                 )
             },
         )
 
-        storedUrls.forEach { manifestUrl ->
-            val existing = existingByUrl[manifestUrl]
+        storedUrls.forEachIndexed { index, manifestUrl ->
             val addon = _uiState.value.addons.firstOrNull { it.manifestUrl == manifestUrl }
-            if (addon?.enabled == true && (existing == null || (addon.manifest == null && !addon.isRefreshing))) {
-                refreshAddon(manifestUrl)
-            }
+            if (addon?.enabled != true) return@forEachIndexed
+            if (cachedByUrl[manifestUrl]?.isFresh == true) return@forEachIndexed
+            refreshAddon(
+                manifestUrl = manifestUrl,
+                staggerIndex = index,
+                showProgress = addon.manifest == null,
+            )
         }
+        CachedManifestStore.retainOnly(currentProfileId, storedUrls.toSet())
     }
 
     fun onProfileChanged(profileId: Int) {
@@ -183,11 +196,13 @@ object AddonRepository {
                 .map { it.value }
             val urls = mergedRows.map { row -> ensureManifestSuffix(row.manifestUrl) }
             log.i { "pullFromServer() — server returned ${rows.size} addons; merged ${urls.size}" }
+            val cachedByUrl = CachedManifestStore.load(syncProfileId)
             _uiState.value = AddonsUiState(
                 addons = mergedRows.map { row ->
                     val url = ensureManifestSuffix(row.manifestUrl)
-                    currentByUrl[url].toPendingAddon(
+                    currentByUrl[url].toRestoredAddon(
                         manifestUrl = url,
+                        cached = cachedByUrl[url],
                         userSetName = row.name?.takeIf(String::isNotBlank),
                         enabled = row.enabled,
                     )
@@ -240,10 +255,16 @@ object AddonRepository {
         val manifest = try {
             withContext(Dispatchers.Default) {
                 val payload = fetchAddonResponseText(manifestUrl)
-                AddonManifestParser.parse(
+                val parsed = AddonManifestParser.parse(
                     manifestUrl = manifestUrl,
                     payload = payload,
                 )
+                CachedManifestStore.save(
+                    profileId = currentProfileId,
+                    manifestUrl = manifestUrl,
+                    payload = payload,
+                )
+                parsed
             }
         } catch (error: Throwable) {
             return AddAddonResult.Error(error.message ?: getString(Res.string.addon_load_manifest_failed))
@@ -275,6 +296,7 @@ object AddonRepository {
             if (changed) current.copy(addons = updatedAddons) else current
         }
         if (!changed) return
+        CachedManifestStore.remove(currentProfileId, manifestUrl)
         persist()
         queueAddonChanges(deletedManifestUrls = setOf(manifestUrl))
         pushToServer()
@@ -343,24 +365,36 @@ object AddonRepository {
     fun refreshAddon(
         manifestUrl: String,
         forceRefresh: Boolean = false,
+        staggerIndex: Int = 0,
+        showProgress: Boolean = true,
     ) {
         val existingJob = activeRefreshJobs[manifestUrl]
         if (existingJob?.isActive == true) return
 
-        markRefreshing(manifestUrl)
+        if (showProgress) markRefreshing(manifestUrl)
+        val profileId = currentProfileId
         var refreshJob: Job? = null
         refreshJob = scope.launch {
             try {
+                if (staggerIndex > 0) {
+                    delay(staggerIndex.coerceAtMost(MAX_MANIFEST_STAGGER_SLOTS) * MANIFEST_REFRESH_STAGGER_MS)
+                }
                 val result = runCatching {
                     manifestRefreshSemaphore.withPermit {
                         val payload = fetchAddonResponseText(
                             url = manifestUrl,
                             forceRefresh = forceRefresh,
                         )
-                        AddonManifestParser.parse(
+                        val manifest = AddonManifestParser.parse(
                             manifestUrl = manifestUrl,
                             payload = payload,
                         )
+                        CachedManifestStore.save(
+                            profileId = profileId,
+                            manifestUrl = manifestUrl,
+                            payload = payload,
+                        )
+                        manifest
                     }
                 }
 
@@ -529,10 +563,17 @@ object AddonRepository {
                 if (_uiState.value.addons.any { it.manifestUrl == source.manifestUrl }) return@forEach
 
                 val manifest = runCatching {
-                    AddonManifestParser.parse(
+                    val payload = fetchAddonResponseText(source.manifestUrl)
+                    val parsed = AddonManifestParser.parse(
                         manifestUrl = source.manifestUrl,
-                        payload = fetchAddonResponseText(source.manifestUrl),
+                        payload = payload,
                     )
+                    CachedManifestStore.save(
+                        profileId = profileId,
+                        manifestUrl = source.manifestUrl,
+                        payload = payload,
+                    )
+                    parsed
                 }.getOrNull() ?: return@forEach
 
                 _uiState.update { current ->
@@ -634,6 +675,29 @@ private fun ManagedAddon?.toPendingAddon(
             enabled = enabled ?: this.enabled,
         )
     }
+
+/**
+ * An add-on restored at launch: the manifest already in memory wins, then the copy kept
+ * from the last launch, and only an add-on with neither is left waiting on the network.
+ */
+private fun ManagedAddon?.toRestoredAddon(
+    manifestUrl: String,
+    cached: CachedManifest?,
+    userSetName: String? = null,
+    enabled: Boolean? = null,
+): ManagedAddon {
+    val pending = toPendingAddon(
+        manifestUrl = manifestUrl,
+        userSetName = userSetName,
+        enabled = enabled,
+    )
+    val manifest = this?.manifest ?: cached?.manifest ?: return pending
+    return pending.copy(
+        manifest = manifest,
+        isRefreshing = false,
+        errorMessage = null,
+    )
+}
 
 private fun dedupeManifestUrls(urls: List<String>): List<String> =
     urls.map(::ensureManifestSuffix).distinct()

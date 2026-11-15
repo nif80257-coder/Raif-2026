@@ -12,6 +12,13 @@ internal expect object AddonStorage {
     /** True once the bundled default add-ons were installed for this profile. */
     fun areDefaultAddonsSeeded(profileId: Int): Boolean
     fun markDefaultAddonsSeeded(profileId: Int)
+
+    /**
+     * An opaque blob kept between launches so a cold start does not begin with nothing
+     * on screen, scoped to the profile. The callers own the payload format.
+     */
+    fun loadStartupCache(profileId: Int, name: String): String?
+    fun saveStartupCache(profileId: Int, name: String, payload: String)
 }
 
 data class RawHttpResponse(

@@ -2,10 +2,12 @@ package com.nuvio.app.features.player
 
 import co.touchlab.kermit.Logger
 import com.nuvio.app.core.build.AppFeaturePolicy
+import com.nuvio.app.features.addons.AddonFailureMemory
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.buildAddonResourceUrl
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.addons.fetchAddonResponseText
+import com.nuvio.app.features.addons.withoutPausedAddons
 import com.nuvio.app.features.debrid.DebridSettingsRepository
 import com.nuvio.app.features.debrid.DebridStreamPresentation
 import com.nuvio.app.features.debrid.DirectDebridStreamPreparer
@@ -235,7 +237,13 @@ object PlayerStreamsRepository {
         val isNativeServerRequest = ServerStreams.isNativeRequest(videoId)
         val serverSources = ServerStreams.sources(type, videoId, season, episode, forceRefresh)
         val preferredGroupIds = serverSources.filter { it.preferred }.mapTo(mutableSetOf()) { it.addonId }
-        val installedAddons = if (isNativeServerRequest) emptyList() else AddonRepository.uiState.value.addons.enabledAddons()
+        // Same rule as the main source list: a manually refreshed list asks every add-on.
+        val installedAddons = if (isNativeServerRequest) {
+            emptyList()
+        } else {
+            AddonRepository.uiState.value.addons.enabledAddons()
+                .withoutPausedAddons(includeAll = forceRefresh)
+        }
         PlayerSettingsRepository.ensureLoaded()
         val playerSettings = PlayerSettingsRepository.uiState.value
         val debridSettings = DebridSettingsRepository.snapshot()
@@ -265,6 +273,7 @@ object PlayerStreamsRepository {
                 InstalledStreamAddonTarget(
                     addonName = addon.displayTitle.ifBlank { manifest.name },
                     addonId = addon.streamAddonInstanceId(manifest.id),
+                    manifestUrl = addon.manifestUrl,
                     manifest = manifest,
                 )
             }
@@ -387,7 +396,7 @@ object PlayerStreamsRepository {
                     )
 
                     val displayName = addon.addonName
-                    val group = runCatchingUnlessCancelled {
+                    val outcome = runCatchingUnlessCancelled {
                         val payload = fetchAddonResponseText(
                             url = url,
                             forceRefresh = forceRefresh,
@@ -398,7 +407,13 @@ object PlayerStreamsRepository {
                             addonId = addon.addonId,
                             addonLogo = addon.manifest.logoUrl,
                         )
-                    }.fold(
+                    }
+                    if (outcome.isSuccess) {
+                        AddonFailureMemory.recordSuccess(addon.manifestUrl)
+                    } else {
+                        AddonFailureMemory.recordFailure(addon.manifestUrl)
+                    }
+                    val group = outcome.fold(
                         onSuccess = { streams ->
                             AddonStreamGroup(displayName, addon.addonId, streams, isLoading = false)
                         },

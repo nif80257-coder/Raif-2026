@@ -11,6 +11,7 @@ actual object AddonHealthCheckStorage {
     private const val preferencesName = "nuvio_addon_health_check"
     private const val payloadKey = "addon_health_fingerprints"
     private const val alertShownDaysKey = "addon_health_alert_shown_days"
+    private const val streamFailuresKey = "addon_stream_failures"
 
     private val json = Json { ignoreUnknownKeys = true }
     private val serializer = MapSerializer(String.serializer(), String.serializer())
@@ -49,6 +50,20 @@ actual object AddonHealthCheckStorage {
         preferences
             ?.edit()
             ?.putString(ProfileScopedKey.of(alertShownDaysKey), json.encodeToString(alertShownDaysSerializer, days))
+            ?.apply()
+    }
+
+    actual fun loadStreamFailures(): Map<String, String> {
+        val payload = preferences?.getString(ProfileScopedKey.of(streamFailuresKey), null)
+            ?.takeIf { it.isNotBlank() }
+            ?: return emptyMap()
+        return runCatching { json.decodeFromString(serializer, payload) }.getOrDefault(emptyMap())
+    }
+
+    actual fun saveStreamFailures(failures: Map<String, String>) {
+        preferences
+            ?.edit()
+            ?.putString(ProfileScopedKey.of(streamFailuresKey), json.encodeToString(serializer, failures))
             ?.apply()
     }
 }

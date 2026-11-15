@@ -100,8 +100,21 @@ actual object AddonStorage {
             ?.apply()
     }
 
+    actual fun loadStartupCache(profileId: Int, name: String): String? =
+        preferences?.getString(startupCacheKey(name, profileId), null)
+
+    actual fun saveStartupCache(profileId: Int, name: String, payload: String) {
+        preferences
+            ?.edit()
+            ?.putString(startupCacheKey(name, profileId), payload)
+            ?.apply()
+    }
+
     private fun pendingSyncKey(accountId: String, profileId: Int): String =
         "pending_user_addons_${profileId}_$accountId"
+
+    private fun startupCacheKey(name: String, profileId: Int): String =
+        "startup_cache_${name}_$profileId"
 }
 
 private fun parseEnabledStateLine(line: String): Pair<String, Boolean>? {
