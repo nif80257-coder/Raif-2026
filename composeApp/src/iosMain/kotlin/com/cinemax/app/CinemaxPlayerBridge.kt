@@ -38,6 +38,13 @@ interface CinemaxNativePlayer {
      * turns embedded subtitles off.
      */
     fun setSubtitleTrackId(trackId: Long, ordinal: Int)
+    /** Embedded (in-file) audio tracks as JSON: see `parseEmbeddedAudioTracks`. */
+    fun getEmbeddedAudioTracksJson(): String
+    /**
+     * Selects an embedded audio track by its player track id, falling back to its
+     * ordinal [ordinal] when the player only accepts positions.
+     */
+    fun setAudioTrackId(trackId: Long, ordinal: Int)
     /** Tap, double-tap and drag gestures on the video surface. */
     fun setGestureListener(listener: CinemaxPlayerGestures?)
     fun refresh()

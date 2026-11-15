@@ -12,8 +12,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.viewinterop.UIKitViewController
+import com.cinemax.app.core.EmbeddedAudioTrack
 import com.cinemax.app.core.EmbeddedSubtitleTrack
 import com.cinemax.app.core.languageIndex
+import com.cinemax.app.core.parseEmbeddedAudioTracks
 import com.cinemax.app.core.parseEmbeddedSubtitleTracks
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.delay
@@ -61,9 +63,11 @@ actual fun NativeVideoPlayer(
     preferredSubtitleLanguage: String?,
     preferredAudioLanguage: String?,
     embeddedSubtitleTrackId: Long?,
+    selectedAudioTrackId: Long?,
     useSystemPlayer: Boolean,
     httpHeaders: Map<String, String>,
     onEmbeddedSubtitleTracks: (List<EmbeddedSubtitleTrack>) -> Unit,
+    onEmbeddedAudioTracks: (List<EmbeddedAudioTrack>) -> Unit,
     onProgress: (positionMillis: Long, durationMillis: Long) -> Unit,
     onPosition: (positionMillis: Long) -> Unit,
     onEnded: () -> Unit,
@@ -85,7 +89,9 @@ actual fun NativeVideoPlayer(
             httpHeaders = httpHeaders,
             initialPositionMillis = initialPositionMillis,
             embeddedSubtitleTrackId = embeddedSubtitleTrackId,
+            selectedAudioTrackId = selectedAudioTrackId,
             onEmbeddedSubtitleTracks = onEmbeddedSubtitleTracks,
+            onEmbeddedAudioTracks = onEmbeddedAudioTracks,
             modifier = modifier,
             onProgress = onProgress,
             onPosition = onPosition,
@@ -263,7 +269,9 @@ private fun MpvPlayerSurface(
     httpHeaders: Map<String, String>,
     initialPositionMillis: Long,
     embeddedSubtitleTrackId: Long?,
+    selectedAudioTrackId: Long?,
     onEmbeddedSubtitleTracks: (List<EmbeddedSubtitleTrack>) -> Unit,
+    onEmbeddedAudioTracks: (List<EmbeddedAudioTrack>) -> Unit,
     modifier: Modifier,
     onProgress: (positionMillis: Long, durationMillis: Long) -> Unit,
     onPosition: (positionMillis: Long) -> Unit,
@@ -316,6 +324,8 @@ private fun MpvPlayerSurface(
     // so the polling loop reads these instead of being restarted.
     val wantedTrackId by rememberUpdatedState(embeddedSubtitleTrackId)
     val reportTracks by rememberUpdatedState(onEmbeddedSubtitleTracks)
+    val wantedAudioTrackId by rememberUpdatedState(selectedAudioTrackId)
+    val reportAudioTracks by rememberUpdatedState(onEmbeddedAudioTracks)
     LaunchedEffect(player, url) {
         val headersJson = buildJsonObject {
             httpHeaders.forEach { (name, value) -> put(name, value) }
@@ -328,6 +338,9 @@ private fun MpvPlayerSurface(
         // No track has this id, so the first pass always applies the choice.
         var appliedTrackId: Long? = Long.MIN_VALUE
         var attempts = 0
+        var reportedAudio: List<EmbeddedAudioTrack>? = null
+        var appliedAudioId: Long? = Long.MIN_VALUE
+        var audioAttempts = 0
         while (isActive) {
             player.refresh()
             val position = player.getPositionMs()
@@ -358,6 +371,27 @@ private fun MpvPlayerSurface(
                     val ordinal = tracks.firstOrNull { it.id == wanted }?.index ?: -1
                     player.setSubtitleTrackId(wanted ?: -1L, ordinal)
                     attempts += 1
+                }
+                // The file's own audio tracks, listed once the stream is open, and
+                // the one the user picked. Audio is never turned off, so a null
+                // choice leaves the player's default track alone.
+                val audioTracks = parseEmbeddedAudioTracks(player.getEmbeddedAudioTracksJson())
+                if (audioTracks != reportedAudio) {
+                    reportedAudio = audioTracks
+                    reportAudioTracks(audioTracks)
+                }
+                val wantedAudio = wantedAudioTrackId
+                if (wantedAudio != null) {
+                    if (wantedAudio != appliedAudioId) {
+                        appliedAudioId = wantedAudio
+                        audioAttempts = 0
+                    }
+                    val settledAudio = audioTracks.any { it.id == wantedAudio && it.selected }
+                    if (!settledAudio && audioAttempts < 8) {
+                        val ordinal = audioTracks.firstOrNull { it.id == wantedAudio }?.index ?: -1
+                        player.setAudioTrackId(wantedAudio, ordinal)
+                        audioAttempts += 1
+                    }
                 }
             }
             if (player.isEnded()) {

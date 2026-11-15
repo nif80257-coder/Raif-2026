@@ -1430,6 +1430,10 @@ fun CinemaxPlayerScreen(
     onNextShortcut: (() -> Unit)? = null,
     /** Opens the in-player source picker; null hides the button. */
     onSources: (() -> Unit)? = null,
+    /** The audio track playing, shown on the audio button. */
+    audioLabel: String? = null,
+    /** Opens the audio-track sheet; null hides the button. */
+    onAudio: (() -> Unit)? = null,
     onClose: () -> Unit,
     onSubtitles: () -> Unit,
     content: @Composable BoxScope.() -> Unit
@@ -1459,6 +1463,16 @@ fun CinemaxPlayerScreen(
                     }
                     sourceLabel?.let {
                         Text(it, color = CinemaxPalette.textMuted, fontSize = 10.sp, maxLines = 1)
+                    }
+                }
+                onAudio?.let {
+                    TextButton(onClick = it) {
+                        Text(
+                            if (audioLabel != null) "الصوت • $audioLabel" else "الصوت",
+                            color = accent,
+                            fontSize = 12.sp,
+                            maxLines = 1
+                        )
                     }
                 }
                 onSources?.let {

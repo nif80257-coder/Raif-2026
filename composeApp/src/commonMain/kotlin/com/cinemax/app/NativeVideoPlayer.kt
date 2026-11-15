@@ -2,6 +2,7 @@ package com.cinemax.app
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import com.cinemax.app.core.EmbeddedAudioTrack
 import com.cinemax.app.core.EmbeddedSubtitleTrack
 
 /** True when the platform has a full-format native player (libmpv on iOS). */
@@ -15,10 +16,13 @@ expect fun NativeVideoPlayer(
     preferredSubtitleLanguage: String? = null,
     preferredAudioLanguage: String? = null,
     embeddedSubtitleTrackId: Long? = null,
+    /** The embedded audio track to play; null leaves the player's own choice. */
+    selectedAudioTrackId: Long? = null,
     /** Use the system AVPlayer even when libmpv is available. */
     useSystemPlayer: Boolean = false,
     httpHeaders: Map<String, String> = emptyMap(),
     onEmbeddedSubtitleTracks: (List<EmbeddedSubtitleTrack>) -> Unit = {},
+    onEmbeddedAudioTracks: (List<EmbeddedAudioTrack>) -> Unit = {},
     onProgress: (positionMillis: Long, durationMillis: Long) -> Unit = { _, _ -> },
     onPosition: (positionMillis: Long) -> Unit = {},
     onEnded: () -> Unit = {},

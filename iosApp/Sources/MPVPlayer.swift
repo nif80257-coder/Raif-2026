@@ -140,17 +140,64 @@ final class MPVViewController: UIViewController {
         return text
     }
 
-    /// True when the given libmpv track is the one currently selected.
-    private func isSubtitleSelected(_ ctx: OpaquePointer, trackId: Int64) -> Bool {
+    /// The file's embedded audio tracks as JSON, read from libmpv's track list.
+    func embeddedAudioTracksJson() -> String {
+        guard let mpv else { return "[]" }
+        var tracks: [[String: Any]] = []
+        var audioOrdinal: Int32 = 0
+        let count = Int(getInt64(mpv, "track-list/count") ?? 0)
+        for index in 0..<count {
+            let prefix = "track-list/\(index)"
+            guard getString(mpv, "\(prefix)/type") == "audio" else { continue }
+            let ordinal = audioOrdinal
+            audioOrdinal += 1
+            if getFlag(mpv, "\(prefix)/external") { continue }
+            let entry: [String: Any] = [
+                "id": getInt64(mpv, "\(prefix)/id") ?? -1,
+                "index": Int(ordinal),
+                "language": getString(mpv, "\(prefix)/lang") ?? "",
+                "title": getString(mpv, "\(prefix)/title") ?? "",
+                "codec": getString(mpv, "\(prefix)/codec") ?? "",
+                "channels": getString(mpv, "\(prefix)/demux-channel-count") ?? "",
+                "selected": getFlag(mpv, "\(prefix)/selected")
+            ]
+            tracks.append(entry)
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: tracks, options: []),
+              let text = String(data: data, encoding: .utf8) else {
+            return "[]"
+        }
+        return text
+    }
+
+    /// Selects an audio track packed inside the file. A negative id is ignored:
+    /// a film must never be left without sound.
+    func setAudioTrack(_ trackId: Int64, ordinal: Int32) {
+        guard let mpv, trackId >= 0 else { return }
+        setString(mpv, "aid", String(trackId))
+        guard !isTrackSelected(mpv, type: "audio", trackId: trackId) else { return }
+        let fallback = Int64(ordinal) + 1
+        if fallback > 0 {
+            setString(mpv, "aid", String(fallback))
+        }
+    }
+
+    /// True when the given libmpv track of `type` is the one currently selected.
+    private func isTrackSelected(_ ctx: OpaquePointer, type: String, trackId: Int64) -> Bool {
         let count = Int(getInt64(ctx, "track-list/count") ?? 0)
         for index in 0..<count {
             let prefix = "track-list/\(index)"
-            guard getString(ctx, "\(prefix)/type") == "sub" else { continue }
+            guard getString(ctx, "\(prefix)/type") == type else { continue }
             if getInt64(ctx, "\(prefix)/id") == trackId {
                 return getFlag(ctx, "\(prefix)/selected")
             }
         }
         return false
+    }
+
+    /// True when the given subtitle track is the one currently selected.
+    private func isSubtitleSelected(_ ctx: OpaquePointer, trackId: Int64) -> Bool {
+        isTrackSelected(ctx, type: "sub", trackId: trackId)
     }
 
     func refreshState() {
@@ -462,6 +509,12 @@ final class MPVCinemaxPlayer: NSObject, CinemaxNativePlayer {
 
     func setSubtitleTrackId(trackId: Int64, ordinal: Int32) {
         viewController.setSubtitleTrack(trackId, ordinal: ordinal)
+    }
+
+    func getEmbeddedAudioTracksJson() -> String { viewController.embeddedAudioTracksJson() }
+
+    func setAudioTrackId(trackId: Int64, ordinal: Int32) {
+        viewController.setAudioTrack(trackId, ordinal: ordinal)
     }
 
     func refresh() { viewController.refreshState() }

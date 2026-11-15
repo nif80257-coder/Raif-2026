@@ -74,11 +74,14 @@ import com.cinemax.app.archive.archiveIdentifier
 import com.cinemax.app.archive.isArchiveItemId
 import com.cinemax.app.core.CinemaxRoadmap
 import com.cinemax.app.core.LibrarySort
+import com.cinemax.app.core.EmbeddedAudioTrack
 import com.cinemax.app.core.EmbeddedSubtitleTrack
 import com.cinemax.app.core.SubtitleCue
 import com.cinemax.app.core.SuggestedSource
 import com.cinemax.app.core.activeCue
 import com.cinemax.app.core.appVersionLabel
+import com.cinemax.app.core.embeddedAudioDetail
+import com.cinemax.app.core.embeddedAudioLabel
 import com.cinemax.app.core.embeddedSubtitleDetail
 import com.cinemax.app.core.embeddedSubtitleLabel
 import com.cinemax.app.core.episodeLabel
@@ -281,6 +284,10 @@ fun App() {
     var selectedEmbeddedTrackId by remember { mutableStateOf<Long?>(null) }
     // Set once a subtitle choice was made, so a late track list cannot override it.
     var userChoseSubtitle by remember { mutableStateOf(false) }
+    // The audio tracks packed inside the file, and the one being played.
+    val embeddedAudioTracks = remember { mutableStateListOf<EmbeddedAudioTrack>() }
+    var selectedAudioTrackId by remember { mutableStateOf<Long?>(null) }
+    var showAudioPicker by remember { mutableStateOf(false) }
     val addonSignature = addons.joinToString("|") { it.manifestUrl }
 
     // The built-in public-domain library, loaded once so the app has content even
@@ -554,6 +561,9 @@ fun App() {
         embeddedSubtitleTracks.clear()
         selectedEmbeddedTrackId = null
         userChoseSubtitle = false
+        embeddedAudioTracks.clear()
+        selectedAudioTrackId = null
+        showAudioPicker = false
         playerPositionMs = 0L
         playerDurationMs = 0L
         playerStarted = false
@@ -1560,9 +1570,19 @@ fun App() {
                         playingStream = null
                         showSubtitlePicker = false
                         showPlayerSources = false
+                        showAudioPicker = false
                     },
                     onSources = if (streamOptions.count { it.stream.url != null } > 1) {
                         { showPlayerSources = true }
+                    } else null,
+                    audioLabel = embeddedAudioTracks
+                        .firstOrNull {
+                            it.id == selectedAudioTrackId ||
+                                (selectedAudioTrackId == null && it.selected)
+                        }
+                        ?.let { embeddedAudioLabel(it) },
+                    onAudio = if (embeddedAudioTracks.size > 1) {
+                        { showAudioPicker = true }
                     } else null,
                     onSubtitles = { showSubtitlePicker = true }
                 ) {
@@ -1577,6 +1597,13 @@ fun App() {
                             preferredSubtitleLanguage = preferences.preferredSubtitleLanguage.takeIf { it != "off" },
                             preferredAudioLanguage = preferences.preferredAudioLanguage.takeIf { it != "device" },
                             embeddedSubtitleTrackId = selectedEmbeddedTrackId,
+                            selectedAudioTrackId = selectedAudioTrackId,
+                            onEmbeddedAudioTracks = { tracks ->
+                                if (tracks != embeddedAudioTracks.toList()) {
+                                    embeddedAudioTracks.clear()
+                                    embeddedAudioTracks.addAll(tracks)
+                                }
+                            },
                             useSystemPlayer = preferences.preferredPlayer == "system",
                             onEmbeddedSubtitleTracks = { tracks ->
                                 if (tracks != embeddedSubtitleTracks.toList()) {
@@ -1639,6 +1666,7 @@ fun App() {
                                     playingVideo = null
                                     playingStream = null
                                     showSubtitlePicker = false
+                                    showAudioPicker = false
                                 }
                             },
                             onError = { message ->
@@ -2038,6 +2066,40 @@ fun App() {
                 },
                 confirmButton = {
                     TextButton(onClick = { showSubtitlePicker = false }) { Text("إغلاق") }
+                }
+            )
+        }
+
+        if (showAudioPicker) {
+            AlertDialog(
+                onDismissRequest = { showAudioPicker = false },
+                title = { Text("الصوت") },
+                text = {
+                    Column(
+                        Modifier.fillMaxWidth().heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Text(
+                            "مسارات الصوت المدمجة في الفيديو نفسه. اختيار مسار يبدّله فورًا بدون إعادة التشغيل.",
+                            color = Color.LightGray,
+                            fontSize = 11.sp
+                        )
+                        embeddedAudioTracks.forEach { track ->
+                            val current = (selectedAudioTrackId ?: embeddedAudioTracks.firstOrNull { it.selected }?.id) == track.id
+                            SubtitleRow(
+                                label = embeddedAudioLabel(track),
+                                detail = embeddedAudioDetail(track),
+                                selected = current,
+                                accent = appAccent
+                            ) {
+                                selectedAudioTrackId = track.id
+                                showAudioPicker = false
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showAudioPicker = false }) { Text("إغلاق") }
                 }
             )
         }
