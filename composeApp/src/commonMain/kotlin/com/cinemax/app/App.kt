@@ -59,7 +59,7 @@ import com.cinemax.app.addons.StremioVideo
 import com.cinemax.app.addons.appendCatalogPage
 import com.cinemax.app.addons.catalogPageExtra
 import com.cinemax.app.addons.createCinemaxHttpClient
-import com.cinemax.app.addons.searchAllAddons
+import com.cinemax.app.addons.searchAllAddonsStreaming
 import com.cinemax.app.archive.ARCHIVE_GENRES
 import com.cinemax.app.archive.ARCHIVE_PROVIDER_NAME
 import com.cinemax.app.archive.ARCHIVE_SORTS
@@ -75,6 +75,7 @@ import com.cinemax.app.core.CinemaxRoadmap
 import com.cinemax.app.core.LibrarySort
 import com.cinemax.app.core.EmbeddedSubtitleTrack
 import com.cinemax.app.core.SubtitleCue
+import com.cinemax.app.core.SuggestedSource
 import com.cinemax.app.core.activeCue
 import com.cinemax.app.core.appVersionLabel
 import com.cinemax.app.core.embeddedSubtitleDetail
@@ -83,8 +84,10 @@ import com.cinemax.app.core.episodeLabel
 import com.cinemax.app.core.languageIndex
 import com.cinemax.app.core.nextEpisode
 import com.cinemax.app.core.parseSubtitles
+import com.cinemax.app.core.parseSuggestedSources
 import com.cinemax.app.core.posterStatusById
 import com.cinemax.app.core.rankSearchResults
+import com.cinemax.app.core.dedupeSources
 import com.cinemax.app.core.sortLibrary
 import com.cinemax.app.core.unsupportedVideoContainer
 import com.cinemax.app.nuvio.InstalledNuvioRepository
@@ -109,6 +112,7 @@ import com.cinemax.app.ui.CinemaxTabBar
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -232,8 +236,17 @@ fun App() {
     var activeCatalogSupportsSkip by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var searching by remember { mutableStateOf(false) }
+    // The search in flight and the number of the current one, so a newer query
+    // cancels the older search and that search cannot overwrite its results.
+    var searchJob by remember { mutableStateOf<Job?>(null) }
+    var searchGeneration by remember { mutableStateOf(0) }
     var showAddDialog by remember { mutableStateOf(false) }
     var addonUrl by remember { mutableStateOf("") }
+    // The exported source files ship in the app bundle; they are merged and
+    // de-duplicated once at launch and offered for one-tap install.
+    var suggestedSources by remember { mutableStateOf<List<SuggestedSource>>(emptyList()) }
+    var suggestedQuery by remember { mutableStateOf("") }
+    var installingSourceUrl by remember { mutableStateOf<String?>(null) }
     var status by remember { mutableStateOf("أضف إضافة Stremio متوافقة للبدء") }
     var loading by remember { mutableStateOf(false) }
     var loadingMeta by remember { mutableStateOf(false) }
@@ -273,6 +286,22 @@ fun App() {
     }
 
     LaunchedEffect(Unit) { loadArchive() }
+
+    // Both exported source lists are read once, merged into one list with a
+    // single entry per manifest URL, and stripped of anything the app cannot
+    // install (a plain http address, say).
+    LaunchedEffect(Unit) {
+        val exported = listOf("raif-sources", "raif2-sources")
+            .mapNotNull { readBundledText(it, "json") }
+            .map { parseSuggestedSources(it) }
+        suggestedSources = dedupeSources(exported)
+            .mapNotNull { source ->
+                val normalized = com.cinemax.app.addons.StremioAddonClient.manifestUrl(source.url)
+                    ?: return@mapNotNull null
+                SuggestedSource(name = source.name, url = normalized)
+            }
+            .distinctBy { it.url.lowercase() }
+    }
 
     /** Downloads a Fusion badge pack and caches it so badges survive a cold start. */
     fun loadBadges(url: String) {
@@ -920,6 +949,73 @@ fun App() {
     }
 
 
+    /**
+     * Verifies one addon URL, installs it and makes it the active source. Both
+     * the paste field and the ready-made sources go through it.
+     */
+    fun installAddon(input: String) {
+        val trimmed = input.trim()
+        if (trimmed.isEmpty() || loading) return
+        val normalized = com.cinemax.app.addons.StremioAddonClient.manifestUrl(trimmed)
+        if (normalized == null) {
+            status = "رابط الإضافة يجب أن يبدأ بـ https://"
+            return
+        }
+        loading = true
+        installingSourceUrl = normalized
+        status = "جارٍ التحقق من الإضافة..."
+        scope.launch {
+            try {
+                val manifest = repository.loadManifest(trimmed)
+                availableCatalogs.clear()
+                availableCatalogs.addAll(manifest.catalogs)
+                val installed = InstalledAddon(
+                    manifestUrl = normalized, id = manifest.id, name = manifest.name,
+                    version = manifest.version, description = manifest.description,
+                    installedAtEpochMillis = Clock.System.now().toEpochMilliseconds(),
+                    resources = manifest.resourceNames().toList(),
+                    types = manifest.types,
+                    idPrefixes = manifest.idPrefixes,
+                    catalogs = manifest.catalogs
+                )
+                addons.removeAll { it.id == installed.id }
+                addons.add(installed)
+                addonStore.save(addons.toList())
+                activeAddon = installed
+                selectedItem = null
+                playbackUrl = null
+                streamOptions.clear()
+                searchQuery = ""
+                searchResults.clear()
+                catalogItems.clear()
+                val catalog = manifest.catalogs.firstOrNull()
+                if (catalog != null) {
+                    activeCatalogType = catalog.type
+                    activeCatalogId = catalog.id
+                    activeCatalogSupportsSearch = catalog.supportsExtra("search")
+                    activeCatalogSupportsSkip = catalog.supportsExtra("skip")
+                    val loaded = repository.loadCatalog(normalized, catalog.type, catalog.id)
+                    catalogItems.addAll(loaded)
+                    loadHomeShelves(installed, manifest)
+                    status = "تم تثبيت ${manifest.name} وجلب ${loaded.size} عنصرًا"
+                } else {
+                    activeCatalogType = null
+                    activeCatalogId = null
+                    activeCatalogSupportsSearch = false
+                    activeCatalogSupportsSkip = false
+                    status = "تم تثبيت ${manifest.name}، ولا تعلن الإضافة عن كتالوج."
+                }
+                addonUrl = ""
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                status = "تعذر تثبيت الإضافة: ${error.message ?: "خطأ غير معروف"}"
+            } finally {
+                loading = false
+                installingSourceUrl = null
+            }
+        }
+    }
+
     // Whether the search tab can ask anything with the current type choice.
     val canSearchNow = if (searchType == "all") {
         addons.isNotEmpty()
@@ -927,36 +1023,66 @@ fun App() {
         addons.any { AddonCapabilities.supports(it, "catalog", searchType) }
     }
 
-    /** Runs one cross-addon search and ranks the merged results. */
+    /**
+     * Runs one cross-addon search and replaces any search still in flight, so a
+     * slow addon can never hold the next query back. Results are shown addon by
+     * addon: every arrival re-ranks what is already there instead of waiting for
+     * the slowest source.
+     */
     fun runSearch(rawQuery: String) {
         val query = rawQuery.trim()
-        if (query.isEmpty() || searching) return
+        if (query.isEmpty()) return
+        searchJob?.cancel()
+        val generation = searchGeneration + 1
+        searchGeneration = generation
         searching = true
-        scope.launch {
+        searchResults.clear()
+        val collected = mutableListOf<CatalogEntry>()
+        val seenIds = mutableSetOf<String>()
+        fun publish() {
+            val filtered = collected.filter { matchesLibraryQuery(it.item.name, query) }
+            val ranked = rankSearchResults(filtered, query)
+            searchResults.clear()
+            searchResults.addAll(ranked)
+        }
+        searchJob = scope.launch {
             try {
                 val types = if (searchType == "all") listOf("movie", "series") else listOf(searchType)
-                val addonHits = types
-                    .flatMap { type -> searchAllAddons(repository, addons.toList(), type, query) }
+                for (type in types) {
+                    searchAllAddonsStreaming(repository, addons.toList(), type, query) { fresh ->
+                        for (entry in fresh) {
+                            if (seenIds.add(entry.item.id)) collected.add(entry)
+                        }
+                        if (searchGeneration == generation) publish()
+                    }
+                }
                 val archiveHits = if (searchType != "series") {
-                    runCatching { archive.search(query) }.getOrNull().orEmpty()
-                        .map { CatalogEntry("archive", ARCHIVE_PROVIDER_NAME, it) }
+                    try {
+                        archive.search(query)
+                            .map { CatalogEntry("archive", ARCHIVE_PROVIDER_NAME, it) }
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: Throwable) {
+                        emptyList()
+                    }
                 } else emptyList()
-                val results = (addonHits + archiveHits)
-                    .filter { matchesLibraryQuery(it.item.name, query) }
-                    .distinctBy { it.item.id }
-                val ranked = rankSearchResults(results, query)
+                for (entry in archiveHits) {
+                    if (seenIds.add(entry.item.id)) collected.add(entry)
+                }
+                if (searchGeneration != generation) return@launch
+                publish()
                 searchHistoryStore.add(query)
                 searchHistory = searchHistoryStore.load()
-                searchResults.clear()
-                searchResults.addAll(ranked)
-                val addonCount = ranked.map { it.addonName }.distinct().size
-                status = if (ranked.isEmpty()) "لا نتائج في إضافاتك"
-                else "نتائج البحث: ${ranked.size} من $addonCount إضافة"
+                val addonCount = searchResults.map { it.addonName }.distinct().size
+                status = if (searchResults.isEmpty()) "لا نتائج في إضافاتك"
+                else "نتائج البحث: ${searchResults.size} من $addonCount إضافة"
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
-                status = "تعذر البحث: ${error.message ?: "خطأ غير معروف"}"
+                if (searchGeneration == generation) {
+                    status = "تعذر البحث: ${error.message ?: "خطأ غير معروف"}"
+                }
             } finally {
-                searching = false
+                if (searchGeneration == generation) searching = false
             }
         }
     }
@@ -1460,7 +1586,9 @@ fun App() {
                 onDismissRequest = { showAddDialog = false },
                 title = { Text("إضافة مصدر") },
                 text = {
-                    Column {
+                    Column(
+                        Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())
+                    ) {
                         Text("الصق رابط الإضافة أو رابط manifest.json", fontSize = 13.sp)
                         Spacer(Modifier.height(10.dp))
                         OutlinedTextField(
@@ -1469,64 +1597,63 @@ fun App() {
                             singleLine = true,
                             placeholder = { Text("https://example.com/manifest.json") }
                         )
+                        if (suggestedSources.isNotEmpty()) {
+                            val typed = suggestedQuery.trim()
+                            val visible = if (typed.isEmpty()) suggestedSources
+                            else suggestedSources.filter { matchesLibraryQuery(it.name, typed) }
+                            Spacer(Modifier.height(18.dp))
+                            Text(
+                                "مصادر جاهزة (${suggestedSources.size})",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                "من ملفّاتك المصدَّرة، دُمجت وحُذف المكرر. اضغط «تثبيت» لإضافة المصدر.",
+                                fontSize = 11.sp,
+                                color = Color.LightGray
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedTextField(
+                                value = suggestedQuery,
+                                onValueChange = { suggestedQuery = it },
+                                singleLine = true,
+                                placeholder = { Text("ابحث بين المصادر") }
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            if (visible.isEmpty()) {
+                                Text("لا مصدر بهذا الاسم", fontSize = 12.sp, color = Color.LightGray)
+                            }
+                            for (source in visible) {
+                                val installed = addons.any { it.manifestUrl == source.url }
+                                val busy = installingSourceUrl == source.url
+                                Row(
+                                    Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        source.name,
+                                        Modifier.weight(1f),
+                                        fontSize = 12.sp,
+                                        maxLines = 2
+                                    )
+                                    when {
+                                        busy -> Text("جارٍ…", fontSize = 11.sp, color = Color.LightGray)
+                                        installed -> Text("مثبّت", fontSize = 11.sp, color = appAccent)
+                                        else -> TextButton(
+                                            enabled = !loading,
+                                            onClick = { installAddon(source.url) }
+                                        ) { Text("تثبيت", fontSize = 12.sp) }
+                                    }
+                                }
+                            }
+                        }
                     }
                 },
                 confirmButton = {
                     Button(enabled = addonUrl.isNotBlank() && !loading, onClick = {
                         val input = addonUrl.trim()
                         showAddDialog = false
-                        loading = true
-                        status = "جارٍ التحقق من الإضافة..."
-                        scope.launch {
-                            try {
-                                val manifest = repository.loadManifest(input)
-                                availableCatalogs.clear()
-                                availableCatalogs.addAll(manifest.catalogs)
-                                val normalized = com.cinemax.app.addons.StremioAddonClient.manifestUrl(input)!!
-                                val installed = InstalledAddon(
-                                    manifestUrl = normalized, id = manifest.id, name = manifest.name,
-                                    version = manifest.version, description = manifest.description,
-                                    installedAtEpochMillis = Clock.System.now().toEpochMilliseconds(),
-                                    resources = manifest.resourceNames().toList(),
-                                    types = manifest.types,
-                                    idPrefixes = manifest.idPrefixes,
-                                    catalogs = manifest.catalogs
-                                )
-                                addons.removeAll { it.id == installed.id }
-                                addons.add(installed)
-                                addonStore.save(addons.toList())
-                                activeAddon = installed
-                                selectedItem = null
-                                playbackUrl = null
-                                streamOptions.clear()
-                                searchQuery = ""
-                                searchResults.clear()
-                                catalogItems.clear()
-                                val catalog = manifest.catalogs.firstOrNull()
-                                if (catalog != null) {
-                                    activeCatalogType = catalog.type
-                                    activeCatalogId = catalog.id
-                                    activeCatalogSupportsSearch = catalog.supportsExtra("search")
-                                    activeCatalogSupportsSkip = catalog.supportsExtra("skip")
-                                    val loaded = repository.loadCatalog(normalized, catalog.type, catalog.id)
-                                    catalogItems.addAll(loaded)
-                                    loadHomeShelves(installed, manifest)
-                                    status = "تم تثبيت ${manifest.name} وجلب ${loaded.size} عنصرًا"
-                                } else {
-                                    activeCatalogType = null
-                                    activeCatalogId = null
-                                    activeCatalogSupportsSearch = false
-                                    activeCatalogSupportsSkip = false
-                                    status = "تم تثبيت ${manifest.name}، ولا تعلن الإضافة عن كتالوج."
-                                }
-                                addonUrl = ""
-                            } catch (error: Throwable) {
-                                if (error is CancellationException) throw error
-                                status = "تعذر تثبيت الإضافة: ${error.message ?: "خطأ غير معروف"}"
-                            } finally {
-                                loading = false
-                            }
-                        }
+                        installAddon(input)
                     }) { Text("تحقق وأضف") }
                 },
                 dismissButton = { TextButton(onClick = { showAddDialog = false }) { Text("إلغاء") } }

@@ -14,6 +14,8 @@
 		D4F52D9CF762AAF93A3907B6 /* MPVPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64A4E8EDDFEC84BEAFAD3243 /* MPVPlayer.swift */; };
 		EA4427D75ACCBE608727AFDD /* MPVMetalLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78C407E766722C78198F9991 /* MPVMetalLayer.swift */; };
 		C1A0000000000000000000B7 /* nuvio-compat.js in Resources */ = {isa = PBXBuildFile; fileRef = C1A0000000000000000000F3 /* nuvio-compat.js */; };
+		C1A0000000000000000000B8 /* raif-sources.json in Resources */ = {isa = PBXBuildFile; fileRef = C1A0000000000000000000F4 /* raif-sources.json */; };
+		C1A0000000000000000000B9 /* raif2-sources.json in Resources */ = {isa = PBXBuildFile; fileRef = C1A0000000000000000000F5 /* raif2-sources.json */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -24,6 +26,8 @@
 		86D8962F93B52421BDC84975 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		C0D3B0BB72171AD456896D23 /* CINEMAXApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CINEMAXApp.swift; sourceTree = "<group>"; };
 		C1A0000000000000000000F3 /* nuvio-compat.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "nuvio-compat.js"; sourceTree = "<group>"; };
+		C1A0000000000000000000F4 /* raif-sources.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "raif-sources.json"; sourceTree = "<group>"; };
+		C1A0000000000000000000F5 /* raif2-sources.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "raif2-sources.json"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -63,6 +67,8 @@
 				78C407E766722C78198F9991 /* MPVMetalLayer.swift */,
 				64A4E8EDDFEC84BEAFAD3243 /* MPVPlayer.swift */,
 				C1A0000000000000000000F3 /* nuvio-compat.js */,
+				C1A0000000000000000000F4 /* raif-sources.json */,
+				C1A0000000000000000000F5 /* raif2-sources.json */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -132,6 +138,8 @@
 				451177947F0750D99D9D6440 /* Assets.xcassets in Resources */,
 				1DE57886683CED117CF66154 /* LaunchScreen.storyboard in Resources */,
 				C1A0000000000000000000B7 /* nuvio-compat.js in Resources */,
+				C1A0000000000000000000B8 /* raif-sources.json in Resources */,
+				C1A0000000000000000000B9 /* raif2-sources.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -240,7 +248,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 121;
+				CURRENT_PROJECT_VERSION = 122;
 				DEAD_CODE_STRIPPING = NO;
 				ENABLE_BITCODE = NO;
 				FRAMEWORK_SEARCH_PATHS = (
@@ -345,7 +353,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 121;
+				CURRENT_PROJECT_VERSION = 122;
 				DEAD_CODE_STRIPPING = NO;
 				ENABLE_BITCODE = NO;
 				FRAMEWORK_SEARCH_PATHS = (
