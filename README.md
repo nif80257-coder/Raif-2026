@@ -3,6 +3,8 @@
 CINEMAX is an early-stage, Arabic-first iPhone streaming client built with Kotlin Multiplatform and Compose Multiplatform. The Android target has been removed: the app targets iOS only.
 
 ## Implemented in the current repository
+- Fusion badge packs: the source sheet draws the pack's own badge images (regex-matched against the stream name/title, up to six, 18dp chips) instead of the plain text pills, with four packs in Settings → "شارات المصادر (Fusion)" (زجاجي، نيون، صلب، خفيف, from `farizmohd70/FR-Badges`), the choice and rules cached so badges survive a cold start, and the plain pills kept as the fallback while a pack is loading or when nothing matches. The pack parser drops disabled rules and invalid regexes (with tests).
+- Search only lists hits whose name actually matches the query (Arabic folding included), instead of showing each addon's unfiltered catalogue when an addon ignores the search term.
 - The episodes heading counts what is finished ("الحلقات • 3/10 مشاهدة"), the library's sort order and the search tab's type filter are remembered between launches, and the continue-watching card shows both the time left and the watched percentage.
 - The archive detail screen shows the film's running time ("1 س 32 د") read from the item's `length`, and the continue-watching card shows the percentage watched next to the time left.
 - While the grid's search field is active, the closest names come first (exact, then prefix, then containment) instead of the API's order.

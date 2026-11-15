@@ -64,6 +64,10 @@ import com.cinemax.app.archive.ARCHIVE_GENRES
 import com.cinemax.app.archive.ARCHIVE_PROVIDER_NAME
 import com.cinemax.app.archive.ARCHIVE_SORTS
 import com.cinemax.app.archive.archiveSortValue
+import com.cinemax.app.core.BADGE_PACKS
+import com.cinemax.app.core.BadgeFilter
+import com.cinemax.app.core.matchesLibraryQuery
+import com.cinemax.app.core.parseBadgePack
 import com.cinemax.app.archive.ArchiveClient
 import com.cinemax.app.archive.archiveIdentifier
 import com.cinemax.app.archive.isArchiveItemId
@@ -163,6 +167,9 @@ fun App() {
     val lastSourceStore = remember { PlaybackSourceStore() }
     val searchHistoryStore = remember { SearchHistoryStore() }
     val browseStore = remember { BrowsePreferencesStore() }
+    val badgeStore = remember { BadgePackStore() }
+    var badgePackUrl by remember { mutableStateOf(badgeStore.loadPackUrl()) }
+    var badgeFilters by remember { mutableStateOf(parseBadgePack(badgeStore.loadRawPack() ?: "")) }
     var searchHistory by remember { mutableStateOf(searchHistoryStore.load()) }
     var searchType by remember { mutableStateOf(browseStore.loadSearchType() ?: "movie") }
     var lastPlayedUrl by remember { mutableStateOf<String?>(null) }
@@ -266,6 +273,25 @@ fun App() {
     }
 
     LaunchedEffect(Unit) { loadArchive() }
+
+    /** Downloads a Fusion badge pack and caches it so badges survive a cold start. */
+    fun loadBadges(url: String) {
+        scope.launch {
+            try {
+                val raw = http.get(url).bodyAsText()
+                val filters = parseBadgePack(raw)
+                if (filters.isNotEmpty()) {
+                    badgeFilters = filters
+                    badgeStore.saveRawPack(raw)
+                }
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                status = "تعذر تحميل شارات المصادر: ${error.message ?: "خطأ غير معروف"}"
+            }
+        }
+    }
+
+    LaunchedEffect(badgePackUrl) { loadBadges(badgePackUrl) }
 
     // Metadata may come from any installed addon that declares the `meta`
     // resource, and a series episode is chosen before its sources are requested.
@@ -915,7 +941,9 @@ fun App() {
                     runCatching { archive.search(query) }.getOrNull().orEmpty()
                         .map { CatalogEntry("archive", ARCHIVE_PROVIDER_NAME, it) }
                 } else emptyList()
-                val results = (addonHits + archiveHits).distinctBy { it.item.id }
+                val results = (addonHits + archiveHits)
+                    .filter { matchesLibraryQuery(it.item.name, query) }
+                    .distinctBy { it.item.id }
                 val ranked = rankSearchResults(results, query)
                 searchHistoryStore.add(query)
                 searchHistory = searchHistoryStore.load()
@@ -1141,6 +1169,12 @@ fun App() {
                     accent = appAccent,
                     favoriteCount = favoriteItems.size,
                     progressCount = watchProgressItems.size,
+                    badgePackUrl = badgePackUrl,
+                    badgeCount = badgeFilters.size,
+                    onBadgePack = { url ->
+                        badgePackUrl = url
+                        badgeStore.savePackUrl(url)
+                    },
                     onClearProgress = {
                         watchProgressStore.clear()
                         watchProgressItems.clear()
@@ -1209,6 +1243,7 @@ fun App() {
                         background = appBackground,
                         lastPlayedUrl = lastPlayedUrl,
                         providerIssues = providerIssues,
+                        packBadges = badgeFilters,
                         resumeLabel = resumeProgress?.let { "من ${formatClock(it.positionMillis)}" },
                         episodeProgress = watchProgressItems.associate { it.key to it.progressFraction },
                         onToggleFavorite = {

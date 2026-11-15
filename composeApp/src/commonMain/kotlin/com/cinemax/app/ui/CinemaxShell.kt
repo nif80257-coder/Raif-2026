@@ -83,6 +83,9 @@ import com.cinemax.app.addons.StremioMetaPreview
 import com.cinemax.app.addons.StremioVideo
 import com.cinemax.app.core.LibrarySort
 import com.cinemax.app.core.PosterStatus
+import com.cinemax.app.core.BADGE_PACKS
+import com.cinemax.app.core.BadgeFilter
+import com.cinemax.app.core.matchingBadges
 import com.cinemax.app.core.episodeLabel
 import com.cinemax.app.core.episodeReleaseLabel
 import com.cinemax.app.core.librarySortLabel
@@ -1044,6 +1047,7 @@ fun CinemaxDetailScreen(
     background: Color,
     lastPlayedUrl: String?,
     providerIssues: List<String>,
+    packBadges: List<BadgeFilter> = emptyList(),
     resumeLabel: String?,
     episodeProgress: Map<String, Float>,
     onToggleFavorite: () -> Unit,
@@ -1254,6 +1258,7 @@ fun CinemaxDetailScreen(
                         option = option,
                         accent = accent,
                         isLastPlayed = lastPlayedUrl != null && option.stream.url == lastPlayedUrl,
+                        packBadges = packBadges,
                         onPlay = onPlay
                     )
                 }
@@ -1335,6 +1340,7 @@ private fun SourceCard(
     option: StreamOption,
     accent: Color,
     isLastPlayed: Boolean,
+    packBadges: List<BadgeFilter> = emptyList(),
     onPlay: (StreamOption) -> Unit
 ) {
     val stream = option.stream
@@ -1366,7 +1372,25 @@ private fun SourceCard(
         }
         stream.title?.let { Text(it, color = CinemaxPalette.textMuted, fontSize = 12.sp) }
         val badges = streamBadges(stream.name, stream.title)
-        if (badges.isNotEmpty()) {
+        val matchedBadges = matchingBadges(
+            packBadges,
+            listOfNotNull(stream.name, stream.title).joinToString(" ")
+        )
+        if (matchedBadges.isNotEmpty()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                matchedBadges.forEach { badge ->
+                    AsyncImage(
+                        model = badge.imageURL,
+                        contentDescription = badge.name,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .height(18.dp)
+                            .aspectRatio(3.1f)
+                            .clip(RoundedCornerShape(4.dp))
+                    )
+                }
+            }
+        } else if (badges.isNotEmpty()) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 badges.forEach { badge -> CinemaxPill(badge, accent) }
             }
@@ -1589,6 +1613,9 @@ fun CinemaxSettingsScreen(
     accent: Color,
     favoriteCount: Int,
     progressCount: Int,
+    badgePackUrl: String,
+    badgeCount: Int,
+    onBadgePack: (String) -> Unit,
     onClearProgress: () -> Unit,
     onClearFavorites: () -> Unit,
     onOpenRoadmap: () -> Unit
@@ -1748,6 +1775,27 @@ fun CinemaxSettingsScreen(
             color = CinemaxPalette.textMuted,
             lineHeight = 17.sp
         )
+
+        Spacer(Modifier.height(10.dp))
+        CinemaxSectionTitle(title = "شارات المصادر (Fusion)", accent = accent)
+        Text(
+            "شارات مرسومة فوق كل مصدر بحسب اسمه وجودته، ويُظهر المختار $badgeCount شارة.",
+            color = CinemaxPalette.textMuted,
+            fontSize = 12.sp,
+            lineHeight = 18.sp
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            BADGE_PACKS.forEach { (label, url) ->
+                FilterChip(
+                    selected = badgePackUrl == url,
+                    onClick = { onBadgePack(url) },
+                    label = { Text(label, fontSize = 11.sp) }
+                )
+            }
+        }
 
         Spacer(Modifier.height(10.dp))
         CinemaxSectionTitle(title = "بيانات التطبيق", accent = accent)
