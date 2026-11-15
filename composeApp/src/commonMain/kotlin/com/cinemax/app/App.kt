@@ -39,6 +39,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -86,7 +87,9 @@ import com.cinemax.app.core.nextEpisode
 import com.cinemax.app.core.parseSubtitles
 import com.cinemax.app.core.parseSuggestedSources
 import com.cinemax.app.core.posterStatusById
+import com.cinemax.app.core.nextUntriedSource
 import com.cinemax.app.core.rankSearchResults
+import com.cinemax.app.core.rankedSources
 import com.cinemax.app.core.dedupeSources
 import com.cinemax.app.core.sortLibrary
 import com.cinemax.app.core.unsupportedVideoContainer
@@ -263,6 +266,13 @@ fun App() {
     var showSubtitlePicker by remember { mutableStateOf(false) }
     var playerPositionMs by remember { mutableStateOf(0L) }
     var playerMessage by remember { mutableStateOf<String?>(null) }
+    // The source picker inside the player and the links already tried for the
+    // title being watched, so a failing source moves on instead of looping.
+    var showPlayerSources by remember { mutableStateOf(false) }
+    var attemptedSourceUrls by remember { mutableStateOf<Set<String>>(emptySet()) }
+    // A failed link or a source switch gets a line of its own: the reset that runs
+    // whenever the player reloads clears the player's own message, not this one.
+    var sourceNotice by remember { mutableStateOf<String?>(null) }
     val embeddedSubtitleTracks = remember { mutableStateListOf<EmbeddedSubtitleTrack>() }
     var selectedEmbeddedTrackId by remember { mutableStateOf<Long?>(null) }
     // Set once a subtitle choice was made, so a late track list cannot override it.
@@ -946,7 +956,33 @@ fun App() {
             }
         }
         playbackUrl = mediaUrl
+        attemptedSourceUrls = setOf(mediaUrl)
+        showPlayerSources = false
+        sourceNotice = null
     }
+
+    /**
+     * Plays another source in the running player, without leaving it: the new
+     * link replaces the current one and the player reloads itself.
+     */
+    fun switchToSource(option: StreamOption, url: String) {
+        val item = playingItem ?: return
+        lastSourceStore.save(item.id, url)
+        lastPlayedUrl = url
+        playingStream = option
+        attemptedSourceUrls = attemptedSourceUrls + url
+        showPlayerSources = false
+        sourceNotice = null
+        playbackUrl = url
+    }
+
+    /**
+     * The next untried direct link, used when the current source fails to play.
+     * Three links at most, so a broken title cannot bounce through a long list.
+     */
+    fun nextPlayableSource(): Pair<StreamOption, String>? =
+        nextUntriedSource(streamOptions.toList(), attemptedSourceUrls, lastPlayedUrl)
+            ?.let { option -> option.stream.url?.let { url -> option to url } }
 
 
     /**
@@ -1262,6 +1298,7 @@ fun App() {
                         preferencesStore.save(updated)
                     },
                     addons = addons.toList(),
+                    suggestedSourceCount = suggestedSources.size,
                     activeAddonId = activeAddon?.id,
                     onSelectAddon = { addon -> selectAddon(addon) },
                     onRemoveAddon = { addon ->
@@ -1416,7 +1453,7 @@ fun App() {
                     episodeLabelText = playingVideo?.let { episodeLabel(it) },
                     subtitleLabel = activeSubtitleLabel,
                     accent = appAccent,
-                    message = playerMessage,
+                    message = playerMessage ?: sourceNotice,
                     loading = !playerStarted,
                     controlsVisible = controlsVisible,
                     hud = hud,
@@ -1464,7 +1501,11 @@ fun App() {
                         playingVideo = null
                         playingStream = null
                         showSubtitlePicker = false
+                        showPlayerSources = false
                     },
+                    onSources = if (streamOptions.count { it.stream.url != null } > 1) {
+                        { showPlayerSources = true }
+                    } else null,
                     onSubtitles = { showSubtitlePicker = true }
                 ) {
                     Box(Modifier.fillMaxSize()) {
@@ -1512,7 +1553,13 @@ fun App() {
                                     if (positionMillis < durationMillis - 15_000L) watchProgressItems.add(0, progress)
                                 }
                             },
-                            onPosition = { playerPositionMs = it; if (it > 0L) playerStarted = true },
+                            onPosition = { position ->
+                                playerPositionMs = position
+                                if (position > 0L) {
+                                    playerStarted = true
+                                    sourceNotice = null
+                                }
+                            },
                             onEnded = {
                                 val next = if (preferences.autoplayNextEpisode) {
                                     nextEpisode(playingVideo, selectedMeta?.videos.orEmpty())
@@ -1536,7 +1583,19 @@ fun App() {
                                     showSubtitlePicker = false
                                 }
                             },
-                            onError = { playerMessage = it },
+                            onError = { message ->
+                                playerMessage = message
+                                // A source that never started playing is dead:
+                                // move to the next ranked link on its own.
+                                if (!playerStarted) {
+                                    val next = nextPlayableSource()
+                                    if (next != null) {
+                                        val label = next.first.stream.name ?: next.first.addonName
+                                        switchToSource(next.first, next.second)
+                                        sourceNotice = "تعذّر تشغيل المصدر — نجرّب: $label"
+                                    }
+                                }
+                            },
                             onControlsReady = { playerControls = it },
                             onGestureTap = {
                                 controlsVisible = !controlsVisible
@@ -1566,6 +1625,78 @@ fun App() {
                                     .padding(horizontal = 8.dp, vertical = 4.dp)
                             )
                         }
+                    }
+                }
+            }
+
+            if (showPlayerSources) {
+                Dialog(
+                    onDismissRequest = { showPlayerSources = false },
+                    properties = DialogProperties(usePlatformDefaultWidth = false)
+                ) {
+                    Column(
+                        Modifier
+                            .fillMaxWidth(0.94f)
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(Panel)
+                            .padding(16.dp)
+                    ) {
+                        Text("بدّل المصدر", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "المصادر مرتّبة بالأفضل. التبديل يبدأ من مصدر آخر ويُبقي المشغّل مفتوحًا.",
+                            color = Color.LightGray,
+                            fontSize = 11.sp
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 420.dp)
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            rankedSources(
+                                streamOptions.toList(),
+                                onlyDirect = true,
+                                lastPlayedUrl = lastPlayedUrl
+                            ).forEach { option ->
+                                val url = option.stream.url ?: return@forEach
+                                val current = url == playbackUrl
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(if (current) appAccent.copy(alpha = 0.12f) else Color(0xFF10131C))
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            option.stream.name ?: option.stream.title ?: "مصدر",
+                                            color = Color.White,
+                                            fontSize = 12.sp,
+                                            maxLines = 1
+                                        )
+                                        Text(
+                                            listOfNotNull(option.addonName, option.stream.title)
+                                                .joinToString(" · "),
+                                            color = Color.LightGray,
+                                            fontSize = 10.sp,
+                                            maxLines = 1
+                                        )
+                                    }
+                                    if (current) {
+                                        Text("يعمل الآن", color = appAccent, fontSize = 11.sp)
+                                    } else {
+                                        TextButton(onClick = { switchToSource(option, url) }) {
+                                            Text("تشغيل", fontSize = 12.sp, color = appAccent)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        TextButton(onClick = { showPlayerSources = false }) { Text("إغلاق") }
                     }
                 }
             }

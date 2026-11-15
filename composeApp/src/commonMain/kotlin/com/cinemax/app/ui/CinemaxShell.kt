@@ -1428,6 +1428,8 @@ fun CinemaxPlayerScreen(
     onNextEpisode: (() -> Unit)?,
     sourceLabel: String? = null,
     onNextShortcut: (() -> Unit)? = null,
+    /** Opens the in-player source picker; null hides the button. */
+    onSources: (() -> Unit)? = null,
     onClose: () -> Unit,
     onSubtitles: () -> Unit,
     content: @Composable BoxScope.() -> Unit
@@ -1457,6 +1459,11 @@ fun CinemaxPlayerScreen(
                     }
                     sourceLabel?.let {
                         Text(it, color = CinemaxPalette.textMuted, fontSize = 10.sp, maxLines = 1)
+                    }
+                }
+                onSources?.let {
+                    TextButton(onClick = it) {
+                        Text("المصادر", color = accent, fontSize = 12.sp, maxLines = 1)
                     }
                 }
                 TextButton(onClick = onSubtitles) {
@@ -1599,6 +1606,8 @@ fun CinemaxSettingsScreen(
     preferences: CinemaxPreferences,
     onPreferences: (CinemaxPreferences) -> Unit,
     addons: List<InstalledAddon>,
+    /** How many merged, de-duplicated sources the app ships with. */
+    suggestedSourceCount: Int = 0,
     activeAddonId: String?,
     onSelectAddon: (InstalledAddon) -> Unit,
     onRemoveAddon: (InstalledAddon) -> Unit,
@@ -1733,6 +1742,14 @@ fun CinemaxSettingsScreen(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onAddAddon, shape = RoundedCornerShape(12.dp)) { Text("＋ إضافة Stremio") }
             OutlinedButton(onClick = onNuvio, shape = RoundedCornerShape(12.dp)) { Text("Nuvio") }
+        }
+        if (suggestedSourceCount > 0) {
+            Text(
+                "لديك $suggestedSourceCount مصدرًا جاهزًا مدموجًا من ملفّاتك. افتح «إضافة Stremio» واختر «تثبيت» بجانب أي مصدر.",
+                color = CinemaxPalette.textMuted,
+                fontSize = 11.sp,
+                lineHeight = 16.sp
+            )
         }
         Text(status, color = CinemaxPalette.textMuted, fontSize = 12.sp, lineHeight = 18.sp)
         if (addons.isEmpty()) {

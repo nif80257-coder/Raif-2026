@@ -46,4 +46,29 @@ class SourceRankingTest {
         assertEquals(1, ranks.size)
         assertTrue(ranks.all { it.stream.url != null })
     }
+
+    @Test
+    fun nextUntriedSourceSkipsWhatFailedAndKeepsTheRanking() {
+        val best = option("2160p 4K", url = "https://cdn.example.com/a.mp4")
+        val second = option("1080p", url = "https://cdn.example.com/b.mp4")
+        val options = listOf(second, best)
+        assertEquals(best.stream.url, nextUntriedSource(options, emptySet())?.stream?.url)
+        assertEquals(
+            second.stream.url,
+            nextUntriedSource(options, setOf(best.stream.url!!))?.stream?.url
+        )
+    }
+
+    @Test
+    fun nextUntriedSourceGivesUpAfterThreeAttempts() {
+        val options = (1..5).map { option("1080p", url = "https://cdn.example.com/$it.mp4") }
+        val tried = options.take(3).mapNotNull { it.stream.url }.toSet()
+        assertEquals(null, nextUntriedSource(options, tried))
+    }
+
+    @Test
+    fun nextUntriedSourceIgnoresTorrentOnlyEntries() {
+        val torrent = option("2160p 4K", url = null)
+        assertEquals(null, nextUntriedSource(listOf(torrent), emptySet()))
+    }
 }

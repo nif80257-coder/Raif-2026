@@ -35,3 +35,22 @@ fun rankedSources(
     if (lastPlayedUrl == null) return ranked
     return ranked.sortedByDescending { it.stream.url == lastPlayedUrl }
 }
+
+/**
+ * The next direct link to try when a source fails: the best ranked link that has
+ * not been attempted yet, or null once [maxAttempts] links have been tried, so a
+ * title whose sources are all dead cannot bounce through the whole list.
+ */
+fun nextUntriedSource(
+    options: List<StreamOption>,
+    attemptedUrls: Set<String>,
+    lastPlayedUrl: String? = null,
+    maxAttempts: Int = 3
+): StreamOption? {
+    if (attemptedUrls.size >= maxAttempts) return null
+    return rankedSources(options, onlyDirect = true, lastPlayedUrl = lastPlayedUrl)
+        .firstOrNull { option ->
+            val url = option.stream.url
+            url != null && url !in attemptedUrls
+        }
+}
