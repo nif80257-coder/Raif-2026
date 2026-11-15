@@ -47,6 +47,17 @@ val ARCHIVE_GENRES: List<Pair<String, String>> = listOf(
 fun archiveGenreSubject(label: String?): String? =
     ARCHIVE_GENRES.firstOrNull { it.first == label }?.second
 
+/** Sort orders offered for the archive shelf, as a label and the archive sort field. */
+val ARCHIVE_SORTS: List<Pair<String, String>> = listOf(
+    "الأكثر تحميلًا" to "downloads desc",
+    "الأحدث إضافة" to "addeddate desc",
+    "أبجديًا" to "title asc"
+)
+
+/** The archive sort expression behind a label, defaulting to most downloaded. */
+fun archiveSortValue(label: String?): String =
+    ARCHIVE_SORTS.firstOrNull { it.first == label }?.second ?: "downloads desc"
+
 fun archiveItemId(identifier: String): String = ARCHIVE_ID_PREFIX + identifier
 
 fun isArchiveItemId(id: String): Boolean = id.startsWith(ARCHIVE_ID_PREFIX)
@@ -191,12 +202,13 @@ class ArchiveClient(private val http: HttpClient) {
     suspend fun popular(
         rows: Int = 60,
         page: Int = 1,
-        genre: String? = null
+        genre: String? = null,
+        sort: String = "downloads desc"
     ): List<StremioMetaPreview> {
         val subject = archiveGenreSubject(genre)
         val base = "collection:feature_films AND mediatype:movies"
         val query = if (subject == null) base else "$base AND subject:\"$subject\""
-        return query(query, rows = rows, page = page, sort = "downloads desc")
+        return query(query, rows = rows, page = page, sort = sort)
     }
 
     suspend fun search(text: String, rows: Int = 24): List<StremioMetaPreview> {

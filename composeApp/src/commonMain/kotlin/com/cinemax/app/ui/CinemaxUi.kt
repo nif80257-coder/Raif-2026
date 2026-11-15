@@ -3,6 +3,7 @@ package com.cinemax.app.ui
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -188,6 +189,7 @@ fun CinemaxPosterCard(
     width: Dp = 126.dp,
     accent: Color,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
     status: PosterStatus? = null,
     // Grids hand in a fillMaxWidth modifier instead of a fixed poster width.
     modifier: Modifier = Modifier.width(width)
@@ -201,7 +203,12 @@ fun CinemaxPosterCard(
                 scaleX = scale
                 scaleY = scale
             }
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .combinedClickable(
+                interactionSource = interaction,
+                indication = null,
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
     ) {
         Box(
             Modifier

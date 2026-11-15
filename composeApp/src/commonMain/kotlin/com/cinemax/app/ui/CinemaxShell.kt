@@ -9,6 +9,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -109,7 +110,9 @@ data class CinemaxShelf(
     /** Genres the catalog declares, offered as chips in the full grid. */
     val genreOptions: List<String> = emptyList(),
     /** True for the built-in Internet Archive shelf, which pages itself. */
-    val archive: Boolean = false
+    val archive: Boolean = false,
+    /** Sort orders the shelf offers (only the archive shelf has any for now). */
+    val sortOptions: List<String> = emptyList()
 ) {
     val isBrowsable: Boolean
         get() = archive || (manifestUrl != null && catalogType != null && catalogId != null)
@@ -183,6 +186,7 @@ fun CinemaxHomeScreen(
     onRemoveProgress: (WatchProgress) -> Unit,
     onAddAddon: () -> Unit,
     onNuvio: () -> Unit,
+    onToggleFavorite: (StremioMetaPreview) -> Unit,
     versionLabel: String,
     tonightPick: StremioMetaPreview?,
     onShuffleTonight: () -> Unit,
@@ -274,6 +278,7 @@ fun CinemaxHomeScreen(
                                     badge = item.releaseInfo,
                                     accent = accent,
                                     onClick = { onOpenItem(item) },
+                                    onLongClick = { onToggleFavorite(item) },
                                     status = posterStatus[item.id]
                                 )
                             }
@@ -654,6 +659,7 @@ fun CinemaxSearchScreen(
     canSearch: Boolean,
     type: String,
     onType: (String) -> Unit,
+    onToggleFavorite: (StremioMetaPreview) -> Unit,
     onOpenItem: (StremioMetaPreview) -> Unit,
     statuses: Map<String, PosterStatus>
 ) {
@@ -748,6 +754,7 @@ fun CinemaxSearchScreen(
                                 item = entry.item,
                                 accent = accent,
                                 onClick = { onOpenItem(entry.item) },
+                                onLongClick = { onToggleFavorite(entry.item) },
                                 modifier = Modifier.weight(1f),
                                 sourceLabel = entry.addonName,
                                 status = statuses[entry.item.id]
@@ -921,6 +928,7 @@ private fun GridPoster(
     item: StremioMetaPreview,
     accent: Color,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     sourceLabel: String? = null,
     status: PosterStatus? = null
@@ -934,7 +942,12 @@ private fun GridPoster(
                 scaleX = scale
                 scaleY = scale
             }
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .combinedClickable(
+                interactionSource = interaction,
+                indication = null,
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
     ) {
         Box(
             Modifier

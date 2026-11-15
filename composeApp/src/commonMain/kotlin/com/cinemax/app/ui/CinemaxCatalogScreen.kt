@@ -57,7 +57,11 @@ fun CinemaxCatalogScreen(
     statuses: Map<String, PosterStatus>,
     genres: List<String> = emptyList(),
     selectedGenre: String? = null,
-    onGenre: (String?) -> Unit = {}
+    onGenre: (String?) -> Unit = {},
+    sorts: List<String> = emptyList(),
+    selectedSort: String? = null,
+    onSort: (String) -> Unit = {},
+    onToggleFavorite: (StremioMetaPreview) -> Unit = {}
 ) {
     Column(Modifier.fillMaxSize().background(background)) {
         Row(
@@ -106,6 +110,23 @@ fun CinemaxCatalogScreen(
                 }
             }
         }
+        if (sorts.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(start = 16.dp, end = 16.dp, bottom = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                sorts.forEach { option ->
+                    FilterChip(
+                        selected = (selectedSort ?: sorts.first()) == option,
+                        onClick = { onSort(option) },
+                        label = { Text(option, fontSize = 11.sp) }
+                    )
+                }
+            }
+        }
         LazyVerticalGrid(
             columns = GridCells.Fixed(3),
             modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.navigationBars),
@@ -120,6 +141,7 @@ fun CinemaxCatalogScreen(
                     badge = item.releaseInfo,
                     accent = accent,
                     onClick = { onOpen(item) },
+                    onLongClick = { onToggleFavorite(item) },
                     status = statuses[item.id],
                     modifier = Modifier.fillMaxWidth()
                 )

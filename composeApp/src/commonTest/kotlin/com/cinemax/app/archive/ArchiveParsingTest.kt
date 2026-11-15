@@ -122,6 +122,15 @@ class ArchiveParsingTest {
     }
 
     @Test
+    fun sortLabelsMapToArchiveSortFields() {
+        assertEquals("downloads desc", archiveSortValue("الأكثر تحميلًا"))
+        assertEquals("addeddate desc", archiveSortValue("الأحدث إضافة"))
+        assertEquals("title asc", archiveSortValue("أبجديًا"))
+        assertEquals("downloads desc", archiveSortValue(null))
+        assertEquals(ARCHIVE_SORTS.size, ARCHIVE_SORTS.map { it.first }.distinct().size)
+    }
+
+    @Test
     fun fileUrlsEncodeTheIdentifierAndName() {
         val url = archiveFileUrl("its-love-again-1936", "Its Love Again.mp4")
         assertEquals("https://archive.org/download/its-love-again-1936/Its%20Love%20Again.mp4", url)

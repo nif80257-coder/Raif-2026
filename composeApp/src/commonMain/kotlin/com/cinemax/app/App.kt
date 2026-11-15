@@ -61,6 +61,8 @@ import com.cinemax.app.addons.createCinemaxHttpClient
 import com.cinemax.app.addons.searchAllAddons
 import com.cinemax.app.archive.ARCHIVE_GENRES
 import com.cinemax.app.archive.ARCHIVE_PROVIDER_NAME
+import com.cinemax.app.archive.ARCHIVE_SORTS
+import com.cinemax.app.archive.archiveSortValue
 import com.cinemax.app.archive.ArchiveClient
 import com.cinemax.app.archive.archiveIdentifier
 import com.cinemax.app.archive.isArchiveItemId
@@ -174,6 +176,7 @@ fun App() {
     var browseLoadingMore by remember { mutableStateOf(false) }
     var browseExhausted by remember { mutableStateOf(false) }
     var browseArchivePage by remember { mutableStateOf(1) }
+    var browseSort by remember { mutableStateOf<String?>(null) }
     var browseGenre by remember { mutableStateOf<String?>(null) }
     var libraryFilter by remember { mutableStateOf("all") }
     var librarySort by remember { mutableStateOf(LibrarySort.Recent) }
@@ -706,7 +709,12 @@ fun App() {
         scope.launch {
             try {
                 val page = if (replace) 1 else browseArchivePage
-                val fetched = archive.popular(rows = 60, page = page, genre = browseGenre)
+                val fetched = archive.popular(
+                    rows = 60,
+                    page = page,
+                    genre = browseGenre,
+                    sort = archiveSortValue(browseSort)
+                )
                 val merged = appendCatalogPage(
                     if (replace) emptyList() else browseItems.toList(),
                     fetched
@@ -730,6 +738,7 @@ fun App() {
     fun openShelf(shelf: CinemaxShelf) {
         browseShelf = shelf
         browseGenre = null
+        browseSort = null
         browseItems.clear()
         browseItems.addAll(shelf.items)
         browseExhausted = !shelf.isBrowsable
@@ -783,6 +792,16 @@ fun App() {
         }
     }
 
+    /** Switches the opened grid to another sort order, restarting it. */
+    fun selectShelfSort(option: String) {
+        if (browseSort == option) return
+        browseSort = option
+        browseItems.clear()
+        browseExhausted = false
+        browseArchivePage = 1
+        loadShelfPage(replace = true)
+    }
+
     /** Switches the opened grid to another genre, restarting it from page one. */
     fun selectShelfGenre(genre: String?) {
         if (browseGenre == genre) return
@@ -790,6 +809,16 @@ fun App() {
         browseItems.clear()
         browseExhausted = false
         loadShelfPage(replace = true)
+    }
+
+    /** Adds or removes a title from the saved list, from a long press on a poster. */
+    fun toggleFavorite(item: StremioMetaPreview) {
+        hapticTap()
+        val wasSaved = item.id in favoriteIds
+        favoriteItems.removeAll { it.id == item.id }
+        if (!wasSaved) favoriteItems.add(item)
+        favoritesStore.save(favoriteItems.toList())
+        status = if (wasSaved) "أزيل من قائمتي: ${item.name}" else "أضيف إلى قائمتي: ${item.name}"
     }
 
     /** "فيلم الليلة": a random title from the library that is not in progress. */
@@ -903,7 +932,8 @@ fun App() {
                     title = ARCHIVE_PROVIDER_NAME,
                     items = archiveItems,
                     archive = true,
-                    genreOptions = ARCHIVE_GENRES.map { it.first }
+                    genreOptions = ARCHIVE_GENRES.map { it.first },
+                    sortOptions = ARCHIVE_SORTS.map { it.first }
                 )
             )
         }
@@ -966,6 +996,7 @@ fun App() {
                     },
                     onAddAddon = { showAddDialog = true },
                     onNuvio = { showNuvioDialog = true },
+                    onToggleFavorite = { toggleFavorite(it) },
                     versionLabel = appVersionLabel(),
                     tonightPick = tonightPick,
                     onShuffleTonight = { pickTonight() },
@@ -1000,6 +1031,7 @@ fun App() {
                         searchType = value
                         searchResults.clear()
                     },
+                    onToggleFavorite = { toggleFavorite(it) },
                     onOpenItem = { item ->
                         pendingVideoId = null
                         selectedItem = item
@@ -1098,7 +1130,7 @@ fun App() {
                         title = shelf.title,
                         items = browseItems.toList(),
                         loadingMore = browseLoadingMore,
-                        canLoadMore = shelf.supportsSkip && !browseExhausted,
+                        canLoadMore = (shelf.supportsSkip || shelf.archive) && !browseExhausted,
                         accent = appAccent,
                         background = appBackground,
                         onOpen = { item ->
@@ -1110,7 +1142,11 @@ fun App() {
                         statuses = posterStatuses,
                         genres = shelf.genreOptions,
                         selectedGenre = browseGenre,
-                        onGenre = { genre -> selectShelfGenre(genre) }
+                        onGenre = { genre -> selectShelfGenre(genre) },
+                        sorts = shelf.sortOptions,
+                        selectedSort = browseSort,
+                        onSort = { option -> selectShelfSort(option) },
+                        onToggleFavorite = { toggleFavorite(it) }
                     )
                 }
             }
