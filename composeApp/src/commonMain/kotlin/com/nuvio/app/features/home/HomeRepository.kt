@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.absoluteValue
 import kotlin.random.Random
 
@@ -96,7 +97,9 @@ object HomeRepository {
                 val results = batch.map { request ->
                     async {
                         request to runCatching {
-                            request.toSection(forceRefresh = force)
+                            withTimeoutOrNull(HOME_SHELF_TIMEOUT_MS) {
+                                request.toSection(forceRefresh = force)
+                            } ?: throw HomeShelfTimeoutException()
                         }
                     }
                 }.awaitAll()
@@ -333,10 +336,12 @@ object HomeRepository {
             val sourceResults = sources.map { source ->
                 async {
                     runCatching {
-                        source.resolveCollectionHeroItems(
-                            addons = addons,
-                            forceRefresh = forceRefresh,
-                        )
+                        withTimeoutOrNull(HOME_SHELF_TIMEOUT_MS) {
+                            source.resolveCollectionHeroItems(
+                                addons = addons,
+                                forceRefresh = forceRefresh,
+                            )
+                        } ?: emptyList()
                     }.getOrDefault(emptyList())
                 }
             }.awaitAll()
@@ -461,6 +466,15 @@ private const val HOME_HERO_ITEM_LIMIT = 8
 private const val HOME_COLLECTION_HERO_SOURCE_LIMIT = 6
 private const val HOME_COLLECTION_HERO_SOURCE_ITEM_LIMIT = 8
 private const val HOME_CATALOG_FETCH_BATCH_SIZE = 4
+
+/**
+ * Four catalogs load at a time; without a limit of its own one add-on that never
+ * answers would hold that batch, and every batch after it, open. A shelf that times
+ * out is simply left out — the row is hidden instead of blocking the screen.
+ */
+private const val HOME_SHELF_TIMEOUT_MS = 12_000L
+
+private class HomeShelfTimeoutException : Exception()
 private const val HOME_CATALOG_PREVIEW_FETCH_LIMIT = 18
 private const val HOME_CATALOG_PUBLISH_INTERVAL = 2
 
