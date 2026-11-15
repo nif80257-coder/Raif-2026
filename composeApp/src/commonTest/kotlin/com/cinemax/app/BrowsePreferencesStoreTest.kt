@@ -43,4 +43,21 @@ class BrowsePreferencesStoreTest {
         assertNull(store.loadGenre())
         assertNull(store.loadSort())
     }
+
+    @Test
+    fun librarySortAndSearchTypePersist() {
+        val store = BrowsePreferencesStore(MapSettings())
+        assertNull(store.loadLibrarySort())
+        assertNull(store.loadSearchType())
+
+        store.saveLibrarySort("Title")
+        store.saveSearchType("series")
+
+        assertEquals("Title", store.loadLibrarySort())
+        assertEquals("series", store.loadSearchType())
+
+        store.clear()
+        assertNull(store.loadLibrarySort())
+        assertNull(store.loadSearchType())
+    }
 }

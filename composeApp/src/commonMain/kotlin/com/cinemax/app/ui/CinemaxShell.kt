@@ -1153,7 +1153,13 @@ fun CinemaxDetailScreen(
                 }
             }
             if (videos.isNotEmpty()) {
-                item { CinemaxSectionTitle(title = "الحلقات", accent = accent) }
+                item {
+                    val watched = videos.count { (episodeProgress[it.id] ?: 0f) >= 0.95f }
+                    CinemaxSectionTitle(
+                        title = if (watched > 0) "الحلقات • $watched/${videos.size} مشاهدة" else "الحلقات",
+                        accent = accent
+                    )
+                }
                 val seasons = videos.mapNotNull { it.season }.distinct().sorted()
                 if (seasons.size > 1) {
                     item {

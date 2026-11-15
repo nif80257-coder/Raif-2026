@@ -164,7 +164,7 @@ fun App() {
     val searchHistoryStore = remember { SearchHistoryStore() }
     val browseStore = remember { BrowsePreferencesStore() }
     var searchHistory by remember { mutableStateOf(searchHistoryStore.load()) }
-    var searchType by remember { mutableStateOf("movie") }
+    var searchType by remember { mutableStateOf(browseStore.loadSearchType() ?: "movie") }
     var lastPlayedUrl by remember { mutableStateOf<String?>(null) }
     var providerIssues by remember { mutableStateOf<List<String>>(emptyList()) }
     var tonightPick by remember { mutableStateOf<StremioMetaPreview?>(null) }
@@ -182,7 +182,12 @@ fun App() {
     var browseSort by remember { mutableStateOf<String?>(null) }
     var browseGenre by remember { mutableStateOf<String?>(null) }
     var libraryFilter by remember { mutableStateOf("all") }
-    var librarySort by remember { mutableStateOf(LibrarySort.Recent) }
+    var librarySort by remember {
+        mutableStateOf(
+            runCatching { LibrarySort.valueOf(browseStore.loadLibrarySort() ?: "") }
+                .getOrDefault(LibrarySort.Recent)
+        )
+    }
     var libraryQuery by remember { mutableStateOf("") }
     val watchProgressItems = remember { mutableStateListOf<WatchProgress>().apply { addAll(watchProgressStore.load()) } }
     // The progress bar and the saved star every poster draws, keyed by title id.
@@ -1053,6 +1058,7 @@ fun App() {
                     type = searchType,
                     onType = { value ->
                         searchType = value
+                        browseStore.saveSearchType(value)
                         searchResults.clear()
                     },
                     onToggleFavorite = { toggleFavorite(it) },
@@ -1073,7 +1079,7 @@ fun App() {
                     accent = appAccent,
                     onFilter = { libraryFilter = it },
                     sort = librarySort,
-                    onSort = { librarySort = it },
+                    onSort = { librarySort = it; browseStore.saveLibrarySort(it.name) },
                     query = libraryQuery,
                     onQuery = { libraryQuery = it },
                     onOpenItem = { item ->
