@@ -2727,4 +2727,6 @@
     <string name="watch_log_undo_action">تراجع</string>
     <string name="auth_email_link_invalid">رابط البريد غير صالح أو انتهت صلاحيته. اطلب رابطًا جديدًا من التطبيق وافتحه على هذا الجهاز.</string>
     <string name="auth_email_link_cancelled">تم إلغاء رابط البريد. اطلب رابطًا جديدًا من التطبيق.</string>
+    <string name="settings_appearance_reduced_effects">تقليل المؤثرات</string>
+    <string name="settings_appearance_reduced_effects_description">يوقف عمق الكروت المتحرك وانتقال الرماد. كل شيء يبقى مكانه، لكنه يتوقف عن الحركة، فيبقى التمرير سلسًا على الأجهزة الأقدم.</string>
 </resources>

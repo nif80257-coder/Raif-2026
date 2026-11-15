@@ -2756,4 +2756,6 @@
     <string name="watch_log_undo_action">Undo</string>
     <string name="auth_email_link_invalid">This email link is invalid or has expired. Request a new one from the app and open it on this device.</string>
     <string name="auth_email_link_cancelled">This email link was cancelled. Request a new one from the app.</string>
+    <string name="settings_appearance_reduced_effects">Reduce effects</string>
+    <string name="settings_appearance_reduced_effects_description">Turns off the animated card depth and the ash transition. Everything stays where it is, it simply stops moving, which keeps scrolling smooth on older devices.</string>
 </resources>

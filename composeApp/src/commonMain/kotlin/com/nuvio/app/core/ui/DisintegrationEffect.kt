@@ -6,6 +6,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,9 +46,17 @@ fun DisintegratingContainer(
     val seed = remember { Random.nextLong() }
     val onDisintegratedState = rememberUpdatedState(onDisintegrated)
     val onDisintegrationStartedState = rememberUpdatedState(onDisintegrationStarted)
+    RenderPreferences.ensureLoaded()
+    val reducedEffects by RenderPreferences.reducedEffects.collectAsState()
 
-    LaunchedEffect(disintegrating) {
+    LaunchedEffect(disintegrating, reducedEffects) {
         if (!disintegrating) return@LaunchedEffect
+        // With effects reduced the screen still leaves, it just does not burn away first.
+        if (reducedEffects) {
+            onDisintegrationStartedState.value()
+            onDisintegratedState.value()
+            return@LaunchedEffect
+        }
         val bitmap = runCatching { graphicsLayer.toImageBitmap() }.getOrNull()
         if (bitmap == null) {
             onDisintegrationStartedState.value()

@@ -16,6 +16,7 @@ import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.plugins.PluginRepository
 import com.nuvio.app.features.plugins.PluginsUiState
 import com.nuvio.app.features.plugins.pluginContentId
+import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.servers.ServerStreams
 import com.nuvio.app.features.streams.AddonStreamGroup
 import com.nuvio.app.features.streams.InstalledStreamAddonTarget
@@ -25,6 +26,7 @@ import com.nuvio.app.features.streams.StreamBadgeSettingsRepository
 import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.streams.StreamLoadCompletion
 import com.nuvio.app.features.streams.StreamParser
+import com.nuvio.app.features.streams.StreamResponseCache
 import com.nuvio.app.features.streams.StreamsUiState
 import com.nuvio.app.features.streams.runCatchingUnlessCancelled
 import com.nuvio.app.features.streams.sortedForGroupedDisplay
@@ -287,11 +289,41 @@ object PlayerStreamsRepository {
         }
 
         val installedAddonOrder = streamAddons.map { it.addonName }
+        // The panel opens on the sources it found last time; each live response replaces its
+        // own group as it arrives. A manual refresh asks the add-ons again without the cache.
+        val streamContentKey = StreamResponseCache.contentKey(
+            type = type,
+            videoId = videoId,
+            season = season,
+            episode = episode,
+        )
+        val streamCacheProfileId = ProfileRepository.activeProfileId
+        val cachedStreamsByAddonId: Map<String, List<StreamItem>> =
+            if (forceRefresh || streamAddons.isEmpty()) {
+                emptyMap()
+            } else {
+                val cachedPayloads = StreamResponseCache.load(
+                    profileId = streamCacheProfileId,
+                    contentKey = streamContentKey,
+                )
+                streamAddons.mapNotNull { addon ->
+                    val payload = cachedPayloads[addon.addonId] ?: return@mapNotNull null
+                    val streams = runCatching {
+                        StreamParser.parse(
+                            payload = payload,
+                            addonName = addon.addonName,
+                            addonId = addon.addonId,
+                            addonLogo = addon.manifest.logoUrl,
+                        )
+                    }.getOrNull() ?: return@mapNotNull null
+                    addon.addonId to streams.sortedForGroupedDisplay()
+                }.toMap()
+            }
         val initialGroups = StreamAutoPlaySelector.orderAddonStreams(streamAddons.map { addon ->
             AddonStreamGroup(
                 addonName = addon.addonName,
                 addonId = addon.addonId,
-                streams = emptyList(),
+                streams = cachedStreamsByAddonId[addon.addonId].orEmpty(),
                 isLoading = true,
             )
         } + pluginProviderGroups.map { providerGroup ->
@@ -400,6 +432,12 @@ object PlayerStreamsRepository {
                         val payload = fetchAddonResponseText(
                             url = url,
                             forceRefresh = forceRefresh,
+                        )
+                        StreamResponseCache.save(
+                            profileId = streamCacheProfileId,
+                            contentKey = streamContentKey,
+                            addonId = addon.addonId,
+                            payload = payload,
                         )
                         StreamParser.parse(
                             payload = payload,

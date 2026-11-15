@@ -27,8 +27,10 @@ fun Modifier.nuvioCardDepth(
     surface: NuvioCardDepthSurface,
     fallbackBorderAlpha: Float = 0f,
 ): Modifier {
+    RenderPreferences.ensureLoaded()
+    val reducedEffects by RenderPreferences.reducedEffects.collectAsState()
     val state = rememberCardDepthStyleUiState()
-    if (!state.isEnabledFor(surface)) {
+    if (reducedEffects || !state.isEnabledFor(surface)) {
         return if (fallbackBorderAlpha > 0f) {
             border(
                 width = 1.dp,

@@ -59,6 +59,7 @@ import com.nuvio.app.features.details.MetaScreenSettingsRepository
 import com.nuvio.app.features.details.MetaScreenSettingsUiState
 import com.nuvio.app.core.ui.PosterCardStyleRepository
 import com.nuvio.app.core.ui.PosterCardStyleUiState
+import com.nuvio.app.core.ui.RenderPreferences
 import com.nuvio.app.features.collection.CollectionRepository
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.addons.firstEnabledManifestError
@@ -166,6 +167,10 @@ fun SettingsScreen(
             ThemeSettingsRepository.selectedTheme
         }.collectAsStateWithLifecycle()
         val amoledEnabled by remember { ThemeSettingsRepository.amoledEnabled }.collectAsStateWithLifecycle()
+        val reducedEffects by remember {
+            RenderPreferences.ensureLoaded()
+            RenderPreferences.reducedEffects
+        }.collectAsStateWithLifecycle()
         val useNativeNavigation = LocalUseNativeNavigation.current
         val liquidGlassNativeTabBarSupported = remember(useNativeNavigation) {
             !useNativeNavigation && isLiquidGlassNativeTabBarSupported()
@@ -393,6 +398,8 @@ fun SettingsScreen(
                         onThemeSelected = ThemeSettingsRepository::setTheme,
                         amoledEnabled = amoledEnabled,
                         onAmoledToggle = ThemeSettingsRepository::setAmoled,
+                        reducedEffects = reducedEffects,
+                        onReducedEffectsToggle = RenderPreferences::setReducedEffects,
                         liquidGlassNativeTabBarSupported = liquidGlassNativeTabBarSupported,
                         appIconState = appIconState,
                         onAppIconSelected = onAppIconSelected,
@@ -438,6 +445,8 @@ fun SettingsScreen(
                         onThemeSelected = ThemeSettingsRepository::setTheme,
                         amoledEnabled = amoledEnabled,
                         onAmoledToggle = ThemeSettingsRepository::setAmoled,
+                        reducedEffects = reducedEffects,
+                        onReducedEffectsToggle = RenderPreferences::setReducedEffects,
                         liquidGlassNativeTabBarSupported = liquidGlassNativeTabBarSupported,
                         appIconState = appIconState,
                         onAppIconSelected = onAppIconSelected,
@@ -495,6 +504,8 @@ private fun MobileSettingsScreen(
     onThemeSelected: (AppTheme) -> Unit,
     amoledEnabled: Boolean,
     onAmoledToggle: (Boolean) -> Unit,
+    reducedEffects: Boolean,
+    onReducedEffectsToggle: (Boolean) -> Unit,
     liquidGlassNativeTabBarSupported: Boolean,
     appIconState: AppIconSettingsState,
     onAppIconSelected: (AppIconOption) -> Unit,
@@ -686,6 +697,8 @@ private fun MobileSettingsScreen(
                     onThemeSelected = onThemeSelected,
                     amoledEnabled = amoledEnabled,
                     onAmoledToggle = onAmoledToggle,
+                    reducedEffects = reducedEffects,
+                    onReducedEffectsToggle = onReducedEffectsToggle,
                     appIconState = appIconState,
                     onAppIconSelected = onAppIconSelected,
                     onAppIconFailureDismissed = onAppIconFailureDismissed,
@@ -856,6 +869,8 @@ private fun TabletSettingsScreen(
     onThemeSelected: (AppTheme) -> Unit,
     amoledEnabled: Boolean,
     onAmoledToggle: (Boolean) -> Unit,
+    reducedEffects: Boolean,
+    onReducedEffectsToggle: (Boolean) -> Unit,
     liquidGlassNativeTabBarSupported: Boolean,
     appIconState: AppIconSettingsState,
     onAppIconSelected: (AppIconOption) -> Unit,
@@ -1100,6 +1115,8 @@ private fun TabletSettingsScreen(
                         onThemeSelected = onThemeSelected,
                         amoledEnabled = amoledEnabled,
                         onAmoledToggle = onAmoledToggle,
+                        reducedEffects = reducedEffects,
+                        onReducedEffectsToggle = onReducedEffectsToggle,
                         appIconState = appIconState,
                         onAppIconSelected = onAppIconSelected,
                         onAppIconFailureDismissed = onAppIconFailureDismissed,
