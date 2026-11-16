@@ -9,6 +9,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -541,11 +543,15 @@ private fun ContinueWatchingCard(
     Column(
         modifier = Modifier
             .width(240.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(CinemaxPalette.surface)
             .clickable(onClick = onOpen)
     ) {
-        Box(Modifier.fillMaxWidth().height(135.dp)) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(135.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(CinemaxPalette.surfaceHigh)
+        ) {
             AsyncImage(
                 model = progress.item.background ?: progress.item.poster,
                 contentDescription = progress.item.name,
@@ -553,42 +559,59 @@ private fun ContinueWatchingCard(
                 modifier = Modifier.fillMaxSize()
             )
             Box(Modifier.fillMaxSize().background(CinemaxPalette.artworkScrim(CinemaxPalette.surface)))
+            Text(
+                remainingLabel(progress),
+                color = Color.White,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(8.dp)
+                    .background(CinemaxPalette.frostedStrong, RoundedCornerShape(50))
+                    .padding(horizontal = 8.dp, vertical = 3.dp)
+            )
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(8.dp)
+                    .size(24.dp)
                     .clip(CircleShape)
-                    .background(Color(0xCC000000))
-                    .clickable(onClick = onRemove)
-                    .padding(horizontal = 8.dp, vertical = 3.dp)
+                    .background(Color(0x8C000000))
+                    .clickable(onClick = onRemove),
+                contentAlignment = Alignment.Center
             ) { Text("✕", color = Color.White, fontSize = 10.sp) }
-        }
-        Column(Modifier.padding(10.dp)) {
-            progress.videoLabel?.let {
-                Text(it, color = accent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            Box(
+                Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .background(Color(0x66000000))
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxWidth(progress.progressFraction.coerceIn(0f, 1f))
+                        .fillMaxHeight()
+                        .background(accent)
+                )
             }
-            Text(
-                progress.item.name,
-                color = Color.White,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Spacer(Modifier.height(6.dp))
-            LinearProgressIndicator(
-                progress = { progress.progressFraction },
-                modifier = Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp)),
-                color = accent,
-                trackColor = CinemaxPalette.surfaceHigh
-            )
-            Spacer(Modifier.height(5.dp))
-            Text(
-                "${remainingLabel(progress)} • ${(progress.progressFraction * 100).toInt()}٪",
-                color = CinemaxPalette.textMuted,
-                fontSize = 10.sp
-            )
         }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            progress.item.name,
+            color =Color.White,
+            fontSize = 14.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        val subtitle = progress.videoLabel
+            ?: "${(progress.progressFraction * 100).toInt()}٪ مشاهدة"
+        Text(
+            subtitle,
+            color = CinemaxPalette.textMuted,
+            fontSize = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -1215,7 +1238,14 @@ fun CinemaxDetailScreen(
                 item { LinearProgressIndicator(Modifier.fillMaxWidth(), color = accent) }
             }
             meta?.genres?.takeIf { it.isNotEmpty() }?.let { genres ->
-                item { Text(genres.joinToString("  •  "), color = accent, fontSize = 12.sp) }
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        genres.take(8).forEach { genre -> CinemaxPill(genre, accent) }
+                    }
+                }
             }
             overview?.takeIf { it.isNotBlank() }?.let { text ->
                 item { Text(text, color = CinemaxPalette.text.copy(alpha = 0.9f), fontSize = 14.sp, lineHeight = 21.sp) }
@@ -1419,14 +1449,15 @@ private fun EpisodeCard(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(if (selected) accent.copy(alpha = 0.16f) else CinemaxPalette.surface)
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (selected) CinemaxPalette.surfaceHigh else CinemaxPalette.surface)
+            .then(if (selected) Modifier.border(1.5.dp, accent, RoundedCornerShape(12.dp)) else Modifier)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         episode.thumbnail?.let { thumb ->
-            Box(Modifier.width(110.dp).height(62.dp).clip(RoundedCornerShape(9.dp))) {
+            Box(Modifier.width(110.dp).height(62.dp).clip(RoundedCornerShape(6.dp))) {
                 AsyncImage(
                     model = thumb,
                     contentDescription = episode.name ?: episode.title,
@@ -1471,7 +1502,13 @@ private fun EpisodeCard(
             }
         }
         if (progress >= 0.95f) {
-            Text("✓", color = accent, fontSize = 14.sp)
+            Box(
+                modifier = Modifier
+                    .size(24.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(accent),
+                contentAlignment = Alignment.Center
+            ) { Text("✓", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
         }
     }
 }
