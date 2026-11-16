@@ -67,6 +67,22 @@ class SourceStatsTest {
     }
 
     @Test
+    fun nextUntriedSourceSkipsALinkThatJustFailed() {
+        val dead = option("https://cdn.example.com/dead.mp4")
+        val good = option("https://cdn.example.com/good.mp4")
+        val stats = mapOf(streamFingerprint(dead) to SourceStats(lastFailureAtEpochMillis = now - hour))
+
+        val next = nextUntriedSource(
+            listOf(dead, good),
+            emptySet(),
+            stats = stats,
+            nowEpochMillis = now
+        )
+
+        assertEquals(good.stream.url, next?.stream?.url)
+    }
+
+    @Test
     fun theLastPlayedLinkStaysOnTopEvenAfterAFailure() {
         val played = option("https://cdn.example.com/played.mp4", name = "1080p")
         val other = option("https://cdn.example.com/other.mp4")

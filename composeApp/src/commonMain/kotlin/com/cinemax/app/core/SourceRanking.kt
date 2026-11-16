@@ -45,14 +45,21 @@ fun nextUntriedSource(
     options: List<StreamOption>,
     attemptedUrls: Set<String>,
     lastPlayedUrl: String? = null,
+    stats: Map<String, SourceStats> = emptyMap(),
+    nowEpochMillis: Long = 0L,
     maxAttempts: Int = 3
 ): StreamOption? {
     if (attemptedUrls.size >= maxAttempts) return null
-    return rankedSources(options, onlyDirect = true, lastPlayedUrl = lastPlayedUrl)
-        .firstOrNull { option ->
-            val url = option.stream.url
-            url != null && url !in attemptedUrls
-        }
+    return rankSources(
+        options,
+        stats = stats,
+        onlyDirect = true,
+        lastPlayedUrl = lastPlayedUrl,
+        nowEpochMillis = nowEpochMillis
+    ).firstOrNull { option ->
+        val url = option.stream.url
+        url != null && url !in attemptedUrls
+    }
 }
 
 /**

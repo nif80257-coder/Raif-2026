@@ -1345,7 +1345,9 @@ fun CinemaxDetailScreen(
             } else if (shown.isEmpty()) {
                 item {
                     Text(
-                        if (hiddenDeadCount > 0) {
+                        if (qualityFilter != null) {
+                            "لا مصادر بجودة $qualityFilter. اختر «كل الجودات»."
+                        } else if (hiddenDeadCount > 0) {
                             "كل المصادر معطلة أو مخفية. أوقف «إخفاء المصادر المعطلة» من الإعدادات لعرضها."
                         } else {
                             "لا يوجد مصدر مباشر لهذا العنوان. اضغط «الكل» لعرض مصادر التورنت."

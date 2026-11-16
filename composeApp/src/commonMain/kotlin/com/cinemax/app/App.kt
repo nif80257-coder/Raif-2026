@@ -381,6 +381,7 @@ fun App() {
         }
         if (lastOpenedItemId != item.id) {
             lastOpenedItemId = item.id
+            selectedMeta = null
             selectedVideo = null
             activeSeason = null
         }
@@ -934,6 +935,10 @@ fun App() {
         } else {
             val next = watchedEpisodes + key
             watchedStore.save(next)
+            // A manual mark replaces the resume point, so the episode stops
+            // appearing in continue-watching.
+            watchProgressStore.remove(key)
+            watchProgressItems.removeAll { it.key == key }
             status = "تمت المشاهدة: ${episodeLabel(video)}"
             next
         }
@@ -1173,8 +1178,13 @@ fun App() {
      * Three links at most, so a broken title cannot bounce through a long list.
      */
     fun nextPlayableSource(): Pair<StreamOption, String>? =
-        nextUntriedSource(streamOptions.toList(), attemptedSourceUrls, lastPlayedUrl)
-            ?.let { option -> option.stream.url?.let { url -> option to url } }
+        nextUntriedSource(
+            streamOptions.toList(),
+            attemptedSourceUrls,
+            lastPlayedUrl = lastPlayedUrl,
+            stats = sourceStats,
+            nowEpochMillis = Clock.System.now().toEpochMilliseconds()
+        )?.let { option -> option.stream.url?.let { url -> option to url } }
 
 
     /**
@@ -1591,7 +1601,9 @@ fun App() {
             ) {
                 val item = lastDetailItem
                 if (item != null) {
-                    val resumeProgress = watchProgressItems.firstOrNull { it.item.id == item.id }
+                    val resumeProgress = watchProgressItems.firstOrNull {
+                        it.key == (selectedVideo?.id ?: item.id)
+                    } ?: watchProgressItems.firstOrNull { it.item.id == item.id }
                     CinemaxDetailScreen(
                         item = item,
                         meta = selectedMeta,
