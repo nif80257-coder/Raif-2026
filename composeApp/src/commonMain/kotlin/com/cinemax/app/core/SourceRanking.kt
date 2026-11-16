@@ -81,3 +81,37 @@ fun rankSources(
     if (pinnedUrl == null) return withLastPlayed
     return withLastPlayed.sortedByDescending { it.stream.url == pinnedUrl }
 }
+
+/** Whether a source carries the quality tier the viewer prefers ("auto" always does). */
+fun matchesQualityPreference(option: StreamOption, preference: String): Boolean {
+    if (preference == "auto") return true
+    return preference in streamBadges(option.stream.name, option.stream.title)
+}
+
+/**
+ * The link "play the best source" should use: the pinned one when there is one,
+ * else the preferred quality tier when a playable link has it, else the head of
+ * the normal ranking. Dead links are already pushed down by [rankSources].
+ */
+fun bestSource(
+    options: List<StreamOption>,
+    preference: String = "auto",
+    stats: Map<String, SourceStats> = emptyMap(),
+    onlyDirect: Boolean = true,
+    pinnedUrl: String? = null,
+    nowEpochMillis: Long = 0L
+): StreamOption? {
+    val ranked = rankSources(
+        options,
+        stats = stats,
+        onlyDirect = onlyDirect,
+        pinnedUrl = pinnedUrl,
+        nowEpochMillis = nowEpochMillis
+    )
+    if (ranked.isEmpty()) return null
+    if (pinnedUrl != null) {
+        ranked.firstOrNull { it.stream.url == pinnedUrl }?.let { return it }
+    }
+    if (preference == "auto") return ranked.first()
+    return ranked.firstOrNull { matchesQualityPreference(it, preference) } ?: ranked.first()
+}

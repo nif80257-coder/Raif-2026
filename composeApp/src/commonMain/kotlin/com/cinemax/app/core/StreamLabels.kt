@@ -23,3 +23,18 @@ fun streamBadges(name: String?, title: String?): List<String> {
     if (text.contains("remux")) badges.add("REMUX")
     return badges.distinct().take(3)
 }
+
+/**
+ * The language a stream advertises in its own text — "مدبلج", "arabic", "multi" —
+ * as an Arabic label, or null when the addon says nothing about it.
+ */
+fun streamLanguageLabel(name: String?, title: String?): String? {
+    val text = listOfNotNull(name, title).joinToString(" ").lowercase()
+    if (text.isBlank()) return null
+    return when {
+        text.contains("مدبلج") || text.contains("dub") -> "مدبلج"
+        text.contains("arabic") || text.contains("عربي") || text.contains("عربية") -> "عربي"
+        text.contains("multi") -> "متعدد اللغات"
+        else -> null
+    }
+}

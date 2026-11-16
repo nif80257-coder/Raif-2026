@@ -95,6 +95,7 @@ import com.cinemax.app.core.rankSearchResults
 import com.cinemax.app.core.rankedSources
 import com.cinemax.app.core.dedupeSources
 import com.cinemax.app.core.SourceStats
+import com.cinemax.app.core.bestSource
 import com.cinemax.app.core.mergeSources
 import com.cinemax.app.core.isFailedRecently
 import com.cinemax.app.core.streamFingerprint
@@ -474,7 +475,13 @@ fun App() {
             sourceProviders = merged.associate { it.fingerprint to it.providers }
             if (autoplayQueued) {
                 autoplayQueued = false
-                val auto = streamOptions.firstOrNull { option ->
+                val auto = bestSource(
+                    streamOptions.toList(),
+                    preference = preferences.preferredQuality,
+                    stats = sourceStats,
+                    pinnedUrl = pinnedSourceUrl,
+                    nowEpochMillis = Clock.System.now().toEpochMilliseconds()
+                )?.takeIf { option ->
                     option.stream.url?.let { com.cinemax.app.addons.StremioAddonClient.isSafeMediaUrl(it) } == true
                 }
                 val autoUrl = auto?.stream?.url
@@ -1243,6 +1250,9 @@ fun App() {
             val ranked = rankSearchResults(filtered, query)
             searchResults.clear()
             searchResults.addAll(ranked)
+            val responders = collected.map { it.addonName }.distinct().size
+            status = if (ranked.isEmpty()) "البحث…"
+            else "نتائج حتى الآن: ${ranked.size} من $responders إضافة…"
         }
         searchJob = scope.launch {
             try {
@@ -1579,6 +1589,7 @@ fun App() {
                         hideDeadSources = preferences.hideDeadSources,
                         pinnedUrl = pinnedSourceUrl,
                         onPinSource = { option -> togglePinnedSource(option) },
+                        preferredQuality = preferences.preferredQuality,
                         packBadges = badgeFilters,
                         resumeLabel = resumeProgress?.let { "من ${formatClock(it.positionMillis)}" },
                         episodeProgress = watchProgressItems.associate { it.key to it.progressFraction },

@@ -90,11 +90,13 @@ import com.cinemax.app.core.episodeLabel
 import com.cinemax.app.core.episodeReleaseLabel
 import com.cinemax.app.core.librarySortLabel
 import com.cinemax.app.core.matchesLibraryQuery
+import com.cinemax.app.core.bestSource
 import com.cinemax.app.core.SourceStats
 import com.cinemax.app.core.isFailedRecently
 import com.cinemax.app.core.rankSources
 import com.cinemax.app.core.streamBadges
 import com.cinemax.app.core.streamFingerprint
+import com.cinemax.app.core.streamLanguageLabel
 import com.cinemax.app.formatClock
 import com.cinemax.app.hapticTap
 import kotlinx.coroutines.delay
@@ -1059,6 +1061,8 @@ fun CinemaxDetailScreen(
     /** The link the user pinned for this title, tried first every time. */
     pinnedUrl: String? = null,
     onPinSource: (StreamOption) -> Unit = {},
+    /** "auto", "4K", "1080p" or "720p": what "play the best source" prefers. */
+    preferredQuality: String = "auto",
     packBadges: List<BadgeFilter> = emptyList(),
     resumeLabel: String?,
     episodeProgress: Map<String, Float>,
@@ -1092,7 +1096,19 @@ fun CinemaxDetailScreen(
         pinnedUrl = pinnedUrl,
         nowEpochMillis = nowEpochMillis
     )
-    val firstPlayable = ranked.firstOrNull { it.stream.url != null }
+    val firstPlayable = bestSource(
+        visibleSources,
+        preference = preferredQuality,
+        stats = sourceStats,
+        pinnedUrl = pinnedUrl,
+        nowEpochMillis = nowEpochMillis
+    )
+    var qualityFilter by remember { mutableStateOf<String?>(null) }
+    val shown = if (qualityFilter == null) {
+        ranked
+    } else {
+        ranked.filter { qualityFilter in streamBadges(it.stream.name, it.stream.title) }
+    }
     Column(Modifier.fillMaxSize().background(background)) {
         Box(Modifier.fillMaxWidth().height(300.dp)) {
             AsyncImage(
@@ -1252,9 +1268,29 @@ fun CinemaxDetailScreen(
                     }
                 }
                 item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf(
+                            null to "كل الجودات",
+                            "4K" to "4K",
+                            "1080p" to "1080p",
+                            "720p" to "720p",
+                            "480p" to "480p"
+                        ).forEach { (value, label) ->
+                            FilterChip(
+                                selected = qualityFilter == value,
+                                onClick = { qualityFilter = value },
+                                label = { Text(label, fontSize = 11.sp) }
+                            )
+                        }
+                    }
+                }
+                item {
                     Text(
                         buildString {
-                            append("${ranked.size} مصدرًا")
+                            append("${shown.size} مصدرًا")
                             if (providerCount > 1) append(" من $providerCount إضافة")
                             if (hiddenDeadCount > 0) append(" • أخفيت $hiddenDeadCount معطلة")
                         },
@@ -1296,7 +1332,7 @@ fun CinemaxDetailScreen(
                         lineHeight = 19.sp
                     )
                 }
-            } else if (ranked.isEmpty()) {
+            } else if (shown.isEmpty()) {
                 item {
                     Text(
                         if (hiddenDeadCount > 0) {
@@ -1309,7 +1345,7 @@ fun CinemaxDetailScreen(
                     )
                 }
             } else {
-                items(ranked) { option ->
+                items(shown) { option ->
                     SourceCard(
                         option = option,
                         accent = accent,
@@ -1460,6 +1496,9 @@ private fun SourceCard(
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 badges.forEach { badge -> CinemaxPill(badge, accent) }
             }
+        }
+        streamLanguageLabel(stream.name, stream.title)?.let { label ->
+            CinemaxPill(label, accent)
         }
         if (providers.size > 1) {
             Text(
@@ -1789,6 +1828,18 @@ fun CinemaxSettingsScreen(
                 onClick = { onPreferences(preferences.copy(preferredPlayer = "system")) },
                 label = { Text("مشغل النظام") }
             )
+        }
+
+        Text("الجودة المفضلة عند التشغيل", fontSize = 13.sp, color = CinemaxPalette.text)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("auto" to "تلقائي", "4K" to "4K", "1080p" to "1080p", "720p" to "720p")
+                .forEach { (value, label) ->
+                    FilterChip(
+                        selected = preferences.preferredQuality == value,
+                        onClick = { onPreferences(preferences.copy(preferredQuality = value)) },
+                        label = { Text(label, fontSize = 11.sp) }
+                    )
+                }
         }
 
         Spacer(Modifier.height(8.dp))
