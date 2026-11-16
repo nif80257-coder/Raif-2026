@@ -842,6 +842,13 @@ fun App() {
         status = "أُزيلت ${dead.size} إضافة متوقفة"
     }
 
+    /** Forgets what the app learned about link health. */
+    fun clearSourceStats() {
+        statsStore.clear()
+        sourceStats = emptyMap()
+        status = "تم مسح سجل جودة المصادر"
+    }
+
     /** Reloads the active addon's catalog and shelves, for the home refresh button. */
     fun refreshHome() {
         val addon = activeAddon ?: return
@@ -1391,6 +1398,7 @@ fun App() {
                     checkingAddons = addonCheckRunning,
                     onCheckAddons = { checkAddons() },
                     onRemoveDeadAddons = { removeDeadAddons() },
+                    onClearSourceStats = { clearSourceStats() },
                     activeAddonId = activeAddon?.id,
                     onSelectAddon = { addon -> selectAddon(addon) },
                     onRemoveAddon = { addon ->
@@ -1500,6 +1508,7 @@ fun App() {
                         providerIssues = providerIssues,
                         sourceStats = sourceStats,
                         sourceProviders = sourceProviders,
+                        hideDeadSources = preferences.hideDeadSources,
                         packBadges = badgeFilters,
                         resumeLabel = resumeProgress?.let { "من ${formatClock(it.positionMillis)}" },
                         episodeProgress = watchProgressItems.associate { it.key to it.progressFraction },
@@ -1807,8 +1816,9 @@ fun App() {
                                             maxLines = 1
                                         )
                                         Text(
-                                            listOfNotNull(option.addonName, option.stream.title)
-                                                .joinToString(" · "),
+                                            sourceProviders[streamFingerprint(option)]
+                                                ?.joinToString(" · ")
+                                                ?: option.addonName,
                                             color = Color.LightGray,
                                             fontSize = 10.sp,
                                             maxLines = 1

@@ -15,6 +15,10 @@ private const val SIX_HOURS = 6L * 60L * 60L * 1000L
 private const val ONE_DAY = 24L * 60L * 60L * 1000L
 private const val THREE_DAYS = 3L * ONE_DAY
 
+/** True when this link failed recently enough to be treated as dead right now. */
+fun SourceStats.isFailedRecently(nowEpochMillis: Long, withinMs: Long = ONE_DAY): Boolean =
+    lastFailureAtEpochMillis > 0L && nowEpochMillis - lastFailureAtEpochMillis < withinMs
+
 /**
  * How much a link's track record moves it in the list. A recent failure drops it
  * below the rest without hiding it, older failures fade, a link that played

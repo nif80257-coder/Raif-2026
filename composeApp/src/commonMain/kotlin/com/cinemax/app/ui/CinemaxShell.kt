@@ -91,6 +91,7 @@ import com.cinemax.app.core.episodeReleaseLabel
 import com.cinemax.app.core.librarySortLabel
 import com.cinemax.app.core.matchesLibraryQuery
 import com.cinemax.app.core.SourceStats
+import com.cinemax.app.core.isFailedRecently
 import com.cinemax.app.core.rankSources
 import com.cinemax.app.core.streamBadges
 import com.cinemax.app.core.streamFingerprint
@@ -1053,6 +1054,8 @@ fun CinemaxDetailScreen(
     sourceStats: Map<String, SourceStats> = emptyMap(),
     /** Every addon that offers each file, keyed by its fingerprint. */
     sourceProviders: Map<String, List<String>> = emptyMap(),
+    /** Hide links that failed in the last day instead of only demoting them. */
+    hideDeadSources: Boolean = false,
     packBadges: List<BadgeFilter> = emptyList(),
     resumeLabel: String?,
     episodeProgress: Map<String, Float>,
@@ -1065,14 +1068,25 @@ fun CinemaxDetailScreen(
     val title = meta?.name ?: item.name
     val videos = meta?.videos.orEmpty()
     val overview = meta?.description ?: item.description
-    val directCount = sources.count { it.stream.url != null }
+    val nowEpochMillis = Clock.System.now().toEpochMilliseconds()
+    val deadFingerprints = sources.map { streamFingerprint(it) }
+        .filter { sourceStats[it]?.isFailedRecently(nowEpochMillis) == true }
+        .toSet()
+    val visibleSources = if (hideDeadSources) {
+        sources.filterNot { streamFingerprint(it) in deadFingerprints }
+    } else {
+        sources
+    }
+    val hiddenDeadCount = sources.size - visibleSources.size
+    val directCount = visibleSources.count { it.stream.url != null }
+    val providerCount = sourceProviders.values.flatten().distinct().size
     var onlyDirect by remember { mutableStateOf(false) }
     val ranked = rankSources(
-        sources,
+        visibleSources,
         stats = sourceStats,
         onlyDirect = onlyDirect,
         lastPlayedUrl = lastPlayedUrl,
-        nowEpochMillis = Clock.System.now().toEpochMilliseconds()
+        nowEpochMillis = nowEpochMillis
     )
     val firstPlayable = ranked.firstOrNull { it.stream.url != null }
     Column(Modifier.fillMaxSize().background(background)) {
@@ -1123,7 +1137,18 @@ fun CinemaxDetailScreen(
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Color.Black)
-                    ) { Text(if (resumeLabel != null) "▶ أكمل $resumeLabel" else "▶ مشاهدة", fontWeight = FontWeight.Bold) }
+                    ) {
+                        val bestQuality = firstPlayable?.let {
+                            streamBadges(it.stream.name, it.stream.title).firstOrNull()
+                        }
+                        Text(
+                            listOfNotNull(
+                                if (resumeLabel != null) "▶ أكمل $resumeLabel" else "▶ مشاهدة",
+                                bestQuality
+                            ).joinToString(" • "),
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                     OutlinedButton(
                         onClick = onToggleFavorite,
                         modifier = Modifier.weight(1f),
@@ -1213,7 +1238,7 @@ fun CinemaxDetailScreen(
                         FilterChip(
                             selected = !onlyDirect,
                             onClick = { onlyDirect = false },
-                            label = { Text("الكل (${sources.size})", fontSize = 11.sp) }
+                            label = { Text("الكل (${visibleSources.size})", fontSize = 11.sp) }
                         )
                         FilterChip(
                             selected = onlyDirect,
@@ -1221,6 +1246,17 @@ fun CinemaxDetailScreen(
                             label = { Text("مباشر ($directCount)", fontSize = 11.sp) }
                         )
                     }
+                }
+                item {
+                    Text(
+                        buildString {
+                            append("${ranked.size} مصدرًا")
+                            if (providerCount > 1) append(" من $providerCount إضافة")
+                            if (hiddenDeadCount > 0) append(" • أخفيت $hiddenDeadCount معطلة")
+                        },
+                        color = CinemaxPalette.textMuted,
+                        fontSize = 11.sp
+                    )
                 }
             }
             if (providerIssues.isNotEmpty() && !loadingSources) {
@@ -1259,7 +1295,11 @@ fun CinemaxDetailScreen(
             } else if (ranked.isEmpty()) {
                 item {
                     Text(
-                        "لا يوجد مصدر مباشر لهذا العنوان. اضغط «الكل» لعرض مصادر التورنت.",
+                        if (hiddenDeadCount > 0) {
+                            "كل المصادر معطلة أو مخفية. أوقف «إخفاء المصادر المعطلة» من الإعدادات لعرضها."
+                        } else {
+                            "لا يوجد مصدر مباشر لهذا العنوان. اضغط «الكل» لعرض مصادر التورنت."
+                        },
                         color = CinemaxPalette.textMuted,
                         fontSize = 13.sp
                     )
@@ -1649,6 +1689,7 @@ fun CinemaxSettingsScreen(
     checkingAddons: Boolean = false,
     onCheckAddons: () -> Unit = {},
     onRemoveDeadAddons: () -> Unit = {},
+    onClearSourceStats: () -> Unit = {},
     activeAddonId: String?,
     onSelectAddon: (InstalledAddon) -> Unit,
     onRemoveAddon: (InstalledAddon) -> Unit,
@@ -1810,6 +1851,12 @@ fun CinemaxSettingsScreen(
                     Text("أزل $dead متوقفة", fontSize = 12.sp)
                 }
             }
+        }
+        PreferenceSwitch("إخفاء المصادر المعطلة", preferences.hideDeadSources) {
+            onPreferences(preferences.copy(hideDeadSources = it))
+        }
+        TextButton(onClick = onClearSourceStats) {
+            Text("مسح سجل جودة المصادر", fontSize = 12.sp)
         }
         if (addons.isEmpty()) {
             Text("لا توجد إضافة مثبتة بعد.", color = CinemaxPalette.textMuted, fontSize = 12.sp)

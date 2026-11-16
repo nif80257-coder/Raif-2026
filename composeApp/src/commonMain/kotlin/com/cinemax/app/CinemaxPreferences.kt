@@ -16,7 +16,9 @@ data class CinemaxPreferences(
     /** Playback speed remembered between episodes and launches (1f is normal). */
     val preferredSpeed: Float = 1f,
     /** "mpv" (libmpv through MPVKit) or "system" (AVPlayer). */
-    val preferredPlayer: String = "mpv"
+    val preferredPlayer: String = "mpv",
+    /** Hide links that failed in the last day instead of only demoting them. */
+    val hideDeadSources: Boolean = false
 )
 
 class CinemaxPreferencesStore(
@@ -32,7 +34,8 @@ class CinemaxPreferencesStore(
         preferredAudioLanguage = settings.getString(AUDIO, "device"),
         subtitleSize = settings.getString(SUBTITLE_SIZE, "medium"),
         preferredSpeed = settings.getFloat(SPEED, 1f),
-        preferredPlayer = settings.getString(PLAYER, "mpv")
+        preferredPlayer = settings.getString(PLAYER, "mpv"),
+        hideDeadSources = settings.getBoolean(HIDE_DEAD, false)
     )
 
     fun save(value: CinemaxPreferences) {
@@ -46,6 +49,7 @@ class CinemaxPreferencesStore(
         settings.putString(SUBTITLE_SIZE, value.subtitleSize)
         settings.putFloat(SPEED, value.preferredSpeed)
         settings.putString(PLAYER, value.preferredPlayer)
+        settings.putBoolean(HIDE_DEAD, value.hideDeadSources)
     }
 
     private companion object {
@@ -59,5 +63,6 @@ class CinemaxPreferencesStore(
         const val SUBTITLE_SIZE = "cinemax.subtitle.size"
         const val SPEED = "cinemax.playback.speed"
         const val PLAYER = "cinemax.playback.player"
+        const val HIDE_DEAD = "cinemax.sources.hidedead"
     }
 }

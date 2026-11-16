@@ -37,6 +37,14 @@ public class CinemaxPreferencesStoreTest {
     }
 
     @Test
+    public fun hidingDeadSourcesRoundTrips() {
+        val store = CinemaxPreferencesStore(MapSettings())
+        store.save(CinemaxPreferences(hideDeadSources = true))
+
+        assertTrue(store.load().hideDeadSources)
+    }
+
+    @Test
     public fun missingPreferencesUseSafeDefaults() {
         val preferences = CinemaxPreferencesStore(MapSettings()).load()
 
@@ -49,5 +57,6 @@ public class CinemaxPreferencesStoreTest {
         assertEquals("medium", preferences.subtitleSize)
         assertEquals(1f, preferences.preferredSpeed)
         assertEquals("mpv", preferences.preferredPlayer)
+        assertFalse(preferences.hideDeadSources)
     }
 }

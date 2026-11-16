@@ -36,6 +36,16 @@ class SourceStatsTest {
     }
 
     @Test
+    fun aFailureInTheLastDayCountsAsDead() {
+        assertTrue(SourceStats(lastFailureAtEpochMillis = now - hour).isFailedRecently(now))
+        assertEquals(
+            false,
+            SourceStats(lastFailureAtEpochMillis = now - 2L * 24L * hour).isFailedRecently(now)
+        )
+        assertEquals(false, SourceStats().isFailedRecently(now))
+    }
+
+    @Test
     fun rankSourcesPutsARecentlyFailedLinkBelowAWorkingOne() {
         val dead = option("https://cdn.example.com/dead.mp4")
         val good = option("https://cdn.example.com/good.mp4")
