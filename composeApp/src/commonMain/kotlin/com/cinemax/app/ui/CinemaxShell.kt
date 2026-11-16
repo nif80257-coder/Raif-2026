@@ -471,7 +471,7 @@ private fun CinemaxHeroPager(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(430.dp)
-                    .clip(RoundedCornerShape(26.dp))
+                    .clip(RoundedCornerShape(20.dp))
                     .background(CinemaxPalette.surfaceHigh)
             ) {
                 AsyncImage(
@@ -490,7 +490,7 @@ private fun CinemaxHeroPager(
                     Text(
                         item.name,
                         color = Color.White,
-                        fontSize = 28.sp,
+                        fontSize = 30.sp,
                         fontWeight = FontWeight.Black,
                         maxLines = 2
                     )
@@ -1143,21 +1143,36 @@ fun CinemaxDetailScreen(
             ) {
                 CinemaxCircleButton("‹") { onBack() }
                 Spacer(Modifier.weight(1f))
-                CinemaxCircleButton(if (isFavorite) "★" else "☆") { onToggleFavorite() }
+                CinemaxCircleButton(if (isFavorite) "♥" else "♡") { onToggleFavorite() }
             }
             Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(16.dp)) {
                 Text(title, color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Black, maxLines = 2)
                 Spacer(Modifier.height(6.dp))
-                Text(
-                    listOfNotNull(
-                        if (item.type == "series") "مسلسل" else "فيلم",
-                        meta?.releaseInfo ?: item.releaseInfo,
-                        (meta?.imdbRating ?: item.imdbRating)?.let { "★ $it" },
-                        meta?.runtime
-                    ).joinToString(" • "),
-                    color = CinemaxPalette.textMuted,
-                    fontSize = 12.sp
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    (meta?.imdbRating ?: item.imdbRating)?.let { rating ->
+                        Text(
+                            "★ $rating",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .background(CinemaxPalette.frosted, RoundedCornerShape(50))
+                                .padding(horizontal = 9.dp, vertical = 3.dp)
+                        )
+                    }
+                    Text(
+                        listOfNotNull(
+                            if (item.type == "series") "مسلسل" else "فيلم",
+                            meta?.releaseInfo ?: item.releaseInfo,
+                            meta?.runtime
+                        ).joinToString(" • "),
+                        color = CinemaxPalette.textMuted,
+                        fontSize = 12.sp
+                    )
+                }
             }
         }
         LazyColumn(
