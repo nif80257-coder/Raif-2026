@@ -22,4 +22,14 @@ class TrackAndBadgeTest {
         assertTrue(streamBadges("1080p", "WEB-DL").contains("1080p"))
         assertTrue(streamBadges(null, null).isEmpty())
     }
+
+    @Test
+    fun labelsArabicAndDubbedStreamsFromTheirText() {
+        assertEquals("مدبلج", streamLanguageLabel("1080p مدبلج", null))
+        assertEquals("مدبلج", streamLanguageLabel("1080p Arabic DUB", null))
+        assertEquals("عربي", streamLanguageLabel("Arabic", "1080p"))
+        assertEquals("متعدد اللغات", streamLanguageLabel("Multi audio", null))
+        assertNull(streamLanguageLabel("1080p WEB-DL", null))
+        assertNull(streamLanguageLabel(null, null))
+    }
 }
