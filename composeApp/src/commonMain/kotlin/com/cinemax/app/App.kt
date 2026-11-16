@@ -111,6 +111,7 @@ import com.cinemax.app.nuvio.createNuvioHttpClient
 import com.cinemax.app.nuvio.createNuvioScriptRuntime
 import com.cinemax.app.nuvio.nuvioSourcesFrom
 import com.cinemax.app.ui.CinemaxCatalogScreen
+import com.cinemax.app.ui.CinemaxFilterChip
 import com.cinemax.app.ui.CinemaxDetailScreen
 import com.cinemax.app.ui.CinemaxHomeScreen
 import com.cinemax.app.ui.CinemaxLibraryScreen
@@ -135,7 +136,7 @@ import kotlin.random.Random
 
 private val Ink = Color(0xFF090B12)
 private val Panel = Color(0xFF171B28)
-private val Accent = Color(0xFF8B5CF6)
+private val Accent = Color(0xFFC173E6)
 
 /** How many of an addon's catalogs the home feed turns into shelves. */
 private const val MAX_HOME_SHELVES = 5
@@ -2152,7 +2153,7 @@ fun App() {
                             Spacer(Modifier.width(8.dp))
                             listOf("small" to "صغير", "medium" to "وسط", "large" to "كبير")
                                 .forEach { (value, label) ->
-                                    FilterChip(
+                                    CinemaxFilterChip(
                                         selected = preferences.subtitleSize == value,
                                         onClick = {
                                             preferences = preferences.copy(subtitleSize = value)

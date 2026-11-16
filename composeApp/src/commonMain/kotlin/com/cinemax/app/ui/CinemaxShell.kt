@@ -138,42 +138,46 @@ fun CinemaxTabBar(selected: Int, accent: Color, onSelect: (Int) -> Unit) {
         "مكتبتي" to "▤",
         "الإعدادات" to "⚙"
     )
-    Row(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .windowInsetsPadding(WindowInsets.navigationBars)
-            .padding(horizontal = 20.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(30.dp))
-            .background(Color(0xF512141C))
-            .padding(horizontal = 6.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(bottom = 8.dp),
+        contentAlignment = Alignment.Center
     ) {
-        entries.forEachIndexed { index, entry ->
-            val active = selected == index
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(if (active) accent.copy(alpha = 0.16f) else Color.Transparent)
-                    .clickable {
-                        hapticTap()
-                        onSelect(index)
-                    }
-                    .padding(vertical = 8.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    entry.second,
-                    color = if (active) accent else CinemaxPalette.textMuted,
-                    fontSize = 17.sp
-                )
-                Text(
-                    entry.first,
-                    color = if (active) accent else CinemaxPalette.textMuted,
-                    fontSize = 10.sp,
-                    maxLines = 1
-                )
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .background(Color(0xE61C1C1E))
+                .padding(5.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            entries.forEachIndexed { index, entry ->
+                val active = selected == index
+                Column(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(if (active) Color(0xFF3A3A3C) else Color.Transparent)
+                        .clickable {
+                            hapticTap()
+                            onSelect(index)
+                        }
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        entry.second,
+                        color = if (active) accent else Color.White,
+                        fontSize = 17.sp
+                    )
+                    Text(
+                        entry.first,
+                        color = if (active) accent else CinemaxPalette.textMuted,
+                        fontSize = 10.sp,
+                        maxLines = 1
+                    )
+                }
             }
         }
     }
@@ -210,17 +214,27 @@ fun CinemaxHomeScreen(
     ) {
         item {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp, bottom = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars)
+                    .padding(start = 20.dp, end = 12.dp, top = 10.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.Bottom
             ) {
-                Text("CINEMAX", fontSize = 22.sp, fontWeight = FontWeight.Black, color = Color.White)
+                Column {
+                    Text(
+                        "CINEMAX",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = 3.sp,
+                        color = CinemaxPalette.textMuted
+                    )
+                    Text("الرئيسية", fontSize = 34.sp, fontWeight = FontWeight.Black, color = Color.White)
+                }
                 Spacer(Modifier.weight(1f))
                 if (loading) {
                     CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = accent)
                     Spacer(Modifier.width(8.dp))
                 }
                 TextButton(onClick = onRefresh) {
-                    Text("↻", color = accent, fontSize = 18.sp)
+                    Text("↻", color = Color.White, fontSize = 20.sp)
                 }
             }
         }
@@ -721,7 +735,7 @@ fun CinemaxSearchScreen(
         )
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf("all" to "الكل", "movie" to "أفلام", "series" to "مسلسلات").forEach { (value, label) ->
-                FilterChip(
+                CinemaxFilterChip(
                     selected = type == value,
                     onClick = { onType(value) },
                     label = { Text(label, fontSize = 11.sp) }
@@ -756,7 +770,7 @@ fun CinemaxSearchScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 history.forEach { entry ->
-                    FilterChip(
+                    CinemaxFilterChip(
                         selected = false,
                         onClick = { onPickHistory(entry) },
                         label = { Text(entry, fontSize = 11.sp) }
@@ -861,7 +875,7 @@ fun CinemaxLibraryScreen(
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf("all" to "الكل", "movie" to "أفلام", "series" to "مسلسلات").forEach { (value, label) ->
-                    FilterChip(
+                    CinemaxFilterChip(
                         selected = filter == value,
                         onClick = { onFilter(value) },
                         label = { Text(label, fontSize = 11.sp) }
@@ -875,7 +889,7 @@ fun CinemaxLibraryScreen(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 LibrarySort.entries.forEach { option ->
-                    FilterChip(
+                    CinemaxFilterChip(
                         selected = sort == option,
                         onClick = { onSort(option) },
                         label = { Text(librarySortLabel(option), fontSize = 11.sp) }
@@ -998,7 +1012,7 @@ private fun GridPoster(
             Modifier
                 .fillMaxWidth()
                 .aspectRatio(2f / 3f)
-                .clip(RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(8.dp))
                 .background(CinemaxPalette.surfaceHigh)
         ) {
             AsyncImage(
@@ -1016,22 +1030,22 @@ private fun GridPoster(
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .padding(6.dp)
-                        .background(CinemaxPalette.rating, RoundedCornerShape(5.dp))
-                        .padding(horizontal = 4.dp, vertical = 1.dp)
+                        .background(CinemaxPalette.rating, RoundedCornerShape(50))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
                 )
             }
             PosterStatusMarks(status = status, accent = accent)
         }
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(8.dp))
         Text(
             item.name,
             color = CinemaxPalette.text,
-            fontSize = 12.sp,
+            fontSize = 14.sp,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis
         )
         sourceLabel?.let {
-            Text(it, color = accent, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(it, color = CinemaxPalette.textMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -1156,8 +1170,8 @@ fun CinemaxDetailScreen(
                     Button(
                         onClick = { firstPlayable?.let(onPlay) },
                         enabled = firstPlayable != null,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.weight(1.4f).height(52.dp),
+                        shape = CircleShape,
                         colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Color.Black)
                     ) {
                         val bestQuality = firstPlayable?.let {
@@ -1171,11 +1185,15 @@ fun CinemaxDetailScreen(
                             fontWeight = FontWeight.Bold
                         )
                     }
-                    OutlinedButton(
+                    Button(
                         onClick = onToggleFavorite,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(14.dp)
-                    ) { Text(if (isFavorite) "✓ محفوظ" else "＋ حفظ", fontWeight = FontWeight.SemiBold) }
+                        modifier = Modifier.weight(1f).height(52.dp),
+                        shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = CinemaxPalette.frosted,
+                            contentColor = Color.White
+                        )
+                    ) { Text(if (isFavorite) "✓ محفوظ" else "♥ حفظ", fontWeight = FontWeight.SemiBold) }
                 }
             }
             if (loadingMeta) {
@@ -1231,7 +1249,7 @@ fun CinemaxDetailScreen(
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             seasons.forEach { season ->
-                                FilterChip(
+                                CinemaxFilterChip(
                                     selected = (activeSeason ?: seasons.first()) == season,
                                     onClick = { onSeason(season) },
                                     label = { Text("الموسم $season") }
@@ -1258,12 +1276,12 @@ fun CinemaxDetailScreen(
             if (sources.isNotEmpty()) {
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        FilterChip(
+                        CinemaxFilterChip(
                             selected = !onlyDirect,
                             onClick = { onlyDirect = false },
                             label = { Text("الكل (${visibleSources.size})", fontSize = 11.sp) }
                         )
-                        FilterChip(
+                        CinemaxFilterChip(
                             selected = onlyDirect,
                             onClick = { onlyDirect = true },
                             label = { Text("مباشر ($directCount)", fontSize = 11.sp) }
@@ -1282,7 +1300,7 @@ fun CinemaxDetailScreen(
                             "720p" to "720p",
                             "480p" to "480p"
                         ).forEach { (value, label) ->
-                            FilterChip(
+                            CinemaxFilterChip(
                                 selected = qualityFilter == value,
                                 onClick = { qualityFilter = value },
                                 label = { Text(label, fontSize = 11.sp) }
@@ -1736,7 +1754,7 @@ fun CinemaxPlayerScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     listOf(0.5f, 1f, 1.25f, 1.5f, 2f).forEach { option ->
-                        FilterChip(
+                        CinemaxFilterChip(
                             selected = speed == option,
                             onClick = { onSpeed(option) },
                             label = { Text("×$option", fontSize = 11.sp) }
@@ -1815,7 +1833,7 @@ fun CinemaxSettingsScreen(
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             listOf("Violet" to "بنفسجي", "Blue" to "أزرق", "Rose" to "وردي", "Emerald" to "أخضر", "Amber" to "ذهبي")
                 .forEach { (tone, label) ->
-                    FilterChip(
+                    CinemaxFilterChip(
                         selected = preferences.accent == tone,
                         onClick = { onPreferences(preferences.copy(accent = tone)) },
                         label = { Text(label, fontSize = 12.sp) }
@@ -1844,12 +1862,12 @@ fun CinemaxSettingsScreen(
             lineHeight = 18.sp
         )
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            FilterChip(
+            CinemaxFilterChip(
                 selected = preferences.preferredPlayer != "system",
                 onClick = { onPreferences(preferences.copy(preferredPlayer = "mpv")) },
                 label = { Text("MPV (كل الصيغ)") }
             )
-            FilterChip(
+            CinemaxFilterChip(
                 selected = preferences.preferredPlayer == "system",
                 onClick = { onPreferences(preferences.copy(preferredPlayer = "system")) },
                 label = { Text("مشغل النظام") }
@@ -1860,7 +1878,7 @@ fun CinemaxSettingsScreen(
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf("auto" to "تلقائي", "4K" to "4K", "1080p" to "1080p", "720p" to "720p")
                 .forEach { (value, label) ->
-                    FilterChip(
+                    CinemaxFilterChip(
                         selected = preferences.preferredQuality == value,
                         onClick = { onPreferences(preferences.copy(preferredQuality = value)) },
                         label = { Text(label, fontSize = 11.sp) }
@@ -1872,17 +1890,17 @@ fun CinemaxSettingsScreen(
         CinemaxSectionTitle(title = "الترجمة والصوت", accent = accent)
         Text("لغة الترجمة المفضلة", fontSize = 13.sp, color = CinemaxPalette.text)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            FilterChip(
+            CinemaxFilterChip(
                 selected = preferences.preferredSubtitleLanguage == "ar",
                 onClick = { onPreferences(preferences.copy(preferredSubtitleLanguage = "ar")) },
                 label = { Text("العربية") }
             )
-            FilterChip(
+            CinemaxFilterChip(
                 selected = preferences.preferredSubtitleLanguage == "en",
                 onClick = { onPreferences(preferences.copy(preferredSubtitleLanguage = "en")) },
                 label = { Text("English") }
             )
-            FilterChip(
+            CinemaxFilterChip(
                 selected = preferences.preferredSubtitleLanguage == "off",
                 onClick = { onPreferences(preferences.copy(preferredSubtitleLanguage = "off")) },
                 label = { Text("إيقاف") }
@@ -1890,17 +1908,17 @@ fun CinemaxSettingsScreen(
         }
         Text("لغة الصوت المفضلة", fontSize = 13.sp, color = CinemaxPalette.text)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            FilterChip(
+            CinemaxFilterChip(
                 selected = preferences.preferredAudioLanguage == "device",
                 onClick = { onPreferences(preferences.copy(preferredAudioLanguage = "device")) },
                 label = { Text("لغة الجهاز") }
             )
-            FilterChip(
+            CinemaxFilterChip(
                 selected = preferences.preferredAudioLanguage == "ar",
                 onClick = { onPreferences(preferences.copy(preferredAudioLanguage = "ar")) },
                 label = { Text("العربية") }
             )
-            FilterChip(
+            CinemaxFilterChip(
                 selected = preferences.preferredAudioLanguage == "en",
                 onClick = { onPreferences(preferences.copy(preferredAudioLanguage = "en")) },
                 label = { Text("English") }
@@ -1909,7 +1927,7 @@ fun CinemaxSettingsScreen(
         Text("حجم ترجمة الإضافات", fontSize = 13.sp, color = CinemaxPalette.text)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf("small" to "صغير", "medium" to "وسط", "large" to "كبير").forEach { (value, label) ->
-                FilterChip(
+                CinemaxFilterChip(
                     selected = preferences.subtitleSize == value,
                     onClick = { onPreferences(preferences.copy(subtitleSize = value)) },
                     label = { Text(label, fontSize = 11.sp) }
@@ -2023,7 +2041,7 @@ fun CinemaxSettingsScreen(
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             BADGE_PACKS.forEach { (label, url) ->
-                FilterChip(
+                CinemaxFilterChip(
                     selected = badgePackUrl == url,
                     onClick = { onBadgePack(url) },
                     label = { Text(label, fontSize = 11.sp) }

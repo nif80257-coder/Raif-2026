@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -29,11 +28,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -52,56 +52,93 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.cinemax.app.core.PosterStatus
 
-/** CINEMAX palette: near-black canvas, elevated cards and one accent colour. */
+/**
+ * Palette and shapes after Swiftfin (the open-source Jellyfin client for iOS): a
+ * pure black canvas, white type, one accent colour, and frosted translucent
+ * capsules for every control instead of opaque boxes.
+ */
 object CinemaxPalette {
-    val background = Color(0xFF08090D)
-    val surface = Color(0xFF12141C)
-    val surfaceHigh = Color(0xFF1A1D28)
-    val outline = Color(0xFF262A38)
-    val text = Color(0xFFF6F7FB)
-    val textMuted = Color(0xFF98A0B0)
-    val rating = Color(0xFFFFC857)
+    val background = Color.Black
+    val surface = Color(0xFF0E0E10)
+    val surfaceHigh = Color(0xFF1C1C1E)
+    val outline = Color(0xFF2C2C2E)
+    val text = Color.White
+    val textMuted = Color(0xFF8E8E93)
+    val rating = Color.White
+
+    /** Translucent fill for chips, secondary buttons and circular controls. */
+    val frosted = Color(0x33FFFFFF)
+    val frostedStrong = Color(0x59FFFFFF)
+
+    /** The pink-red heart Swiftfin draws on a saved poster. */
+    val favorite = Color(0xFFFF4B83)
 
     /** Bottom scrim that fades artwork into the page background. */
     fun artworkScrim(bottom: Color): Brush = Brush.verticalGradient(
         0f to Color.Transparent,
-        0.45f to bottom.copy(alpha = 0.55f),
+        0.40f to bottom.copy(alpha = 0.45f),
         1f to bottom
     )
 }
 
-/** Small rounded label such as "4K" or "HDR". */
+/** Capsule label such as "4K", "HDR" or "مفضل", frosted like Swiftfin's chips. */
 @Composable
 fun CinemaxPill(text: String, accent: Color, modifier: Modifier = Modifier) {
     Text(
         text,
-        color = accent,
+        color = Color.White,
         fontSize = 10.sp,
-        fontWeight = FontWeight.Bold,
+        fontWeight = FontWeight.SemiBold,
         modifier = modifier
-            .background(accent.copy(alpha = 0.16f), RoundedCornerShape(6.dp))
-            .padding(horizontal = 7.dp, vertical = 3.dp)
+            .background(CinemaxPalette.frosted, RoundedCornerShape(50))
+            .padding(horizontal = 8.dp, vertical = 4.dp)
     )
 }
 
-/** Section header with an accent tick, used for every poster row. */
+/**
+ * Filter chip in Swiftfin's style: a translucent capsule that turns solid white
+ * with black text when selected.
+ */
+@Composable
+fun CinemaxFilterChip(
+    selected: Boolean,
+    onClick: () -> Unit,
+    label: @Composable () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(if (selected) CinemaxPalette.text else CinemaxPalette.frosted)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        CompositionLocalProvider(
+            LocalContentColor provides if (selected) Color.Black else Color.White
+        ) {
+            label()
+        }
+    }
+}
+
+/** Section header: bold 20sp white title with Swiftfin's quiet "›" affordance. */
 @Composable
 fun CinemaxSectionTitle(title: String, accent: Color, trailing: (@Composable () -> Unit)? = null) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(Modifier.width(3.dp).height(16.dp).background(accent, RoundedCornerShape(2.dp)))
-        Spacer(Modifier.width(8.dp))
-        Text(title, color = CinemaxPalette.text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        Text(title, color = CinemaxPalette.text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.width(6.dp))
+        Text("›", color = CinemaxPalette.textMuted, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.weight(1f))
         trailing?.invoke()
     }
 }
 
 /**
- * Full-bleed artwork with the page background fading in underneath: the
- * Stremio-style featured title at the top of the home screen.
+ * Full-bleed artwork with the page background fading in underneath: the featured
+ * title at the top of the home screen, with Swiftfin's black-on-accent play pill.
  */
 @Composable
 fun CinemaxHero(
@@ -116,7 +153,7 @@ fun CinemaxHero(
     onWatch: () -> Unit,
     onDetails: () -> Unit
 ) {
-    Box(Modifier.fillMaxWidth().height(400.dp)) {
+    Box(Modifier.fillMaxWidth().height(430.dp)) {
         AsyncImage(
             model = imageUrl,
             contentDescription = title,
@@ -126,7 +163,7 @@ fun CinemaxHero(
         Box(Modifier.fillMaxSize().background(CinemaxPalette.artworkScrim(background)))
         Column(
             modifier = Modifier.align(Alignment.BottomStart).padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             if (badges.isNotEmpty()) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -136,25 +173,36 @@ fun CinemaxHero(
             Text(
                 title,
                 color = CinemaxPalette.text,
-                fontSize = 28.sp,
+                fontSize = 30.sp,
                 fontWeight = FontWeight.Black,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 rating?.let {
-                    Text("★ $it", color = CinemaxPalette.rating, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        "★ $it",
+                        color = CinemaxPalette.text,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .background(CinemaxPalette.frosted, RoundedCornerShape(50))
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
                 }
                 metaLine?.takeIf { it.isNotBlank() }?.let {
-                    Text(it, color = CinemaxPalette.textMuted, fontSize = 12.sp, maxLines = 1)
+                    Text(it, color = CinemaxPalette.textMuted, fontSize = 13.sp, maxLines = 1)
                 }
             }
             overview?.takeIf { it.isNotBlank() }?.let {
                 Text(
                     it,
                     color = CinemaxPalette.textMuted,
-                    fontSize = 12.sp,
-                    lineHeight = 18.sp,
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -162,25 +210,29 @@ fun CinemaxHero(
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(
                     onClick = onWatch,
-                    shape = RoundedCornerShape(14.dp),
+                    shape = CircleShape,
                     colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Color.Black),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1.4f).height(52.dp)
                 ) {
-                    Text("▶  مشاهدة", fontWeight = FontWeight.Bold)
+                    Text("▶  مشاهدة", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
-                OutlinedButton(
+                Button(
                     onClick = onDetails,
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.weight(1f)
+                    shape = CircleShape,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = CinemaxPalette.frosted,
+                        contentColor = Color.White
+                    ),
+                    modifier = Modifier.weight(1f).height(52.dp)
                 ) {
-                    Text("التفاصيل", fontWeight = FontWeight.SemiBold)
+                    Text("التفاصيل", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                 }
             }
         }
     }
 }
 
-/** Poster with a 2:3 artwork ratio, a corner badge and the title underneath. */
+/** Poster with a 2:3 artwork ratio, Swiftfin's small radius and heart/bar marks. */
 @Composable
 fun CinemaxPosterCard(
     name: String,
@@ -196,7 +248,7 @@ fun CinemaxPosterCard(
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    val scale by animateFloatAsState(targetValue = if (pressed) 0.95f else 1f)
+    val scale by animateFloatAsState(targetValue = if (pressed) 0.96f else 1f)
     Column(
         modifier
             .graphicsLayer {
@@ -214,7 +266,7 @@ fun CinemaxPosterCard(
             Modifier
                 .fillMaxWidth()
                 .aspectRatio(2f / 3f)
-                .clip(RoundedCornerShape(14.dp))
+                .clip(RoundedCornerShape(8.dp))
                 .background(CinemaxPalette.surfaceHigh)
         ) {
             AsyncImage(
@@ -232,18 +284,18 @@ fun CinemaxPosterCard(
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .padding(7.dp)
-                        .background(accent, RoundedCornerShape(5.dp))
-                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                        .background(accent, RoundedCornerShape(50))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
                 )
             }
             PosterStatusMarks(status = status, accent = accent)
         }
-        Spacer(Modifier.height(7.dp))
+        Spacer(Modifier.height(8.dp))
         Text(
             name,
             color = CinemaxPalette.text,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Normal,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis
         )
@@ -251,9 +303,8 @@ fun CinemaxPosterCard(
 }
 
 /**
- * The two marks a poster carries from the user's own history: a bar across the
- * bottom of the artwork for what was started, and a star for what is saved.
- * Called inside the artwork box, which is what it aligns against.
+ * The marks a poster carries from the user's own history, drawn the way Swiftfin
+ * does it: a pink heart for a saved title and a thin accent bar for progress.
  */
 @Composable
 fun BoxScope.PosterStatusMarks(status: PosterStatus?, accent: Color) {
@@ -263,7 +314,7 @@ fun BoxScope.PosterStatusMarks(status: PosterStatus?, accent: Color) {
             Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .height(3.dp)
+                .height(4.dp)
                 .background(Color(0x66000000))
         ) {
             Box(
@@ -277,14 +328,14 @@ fun BoxScope.PosterStatusMarks(status: PosterStatus?, accent: Color) {
     if (status?.saved == true) {
         Box(
             modifier = Modifier
-                .align(Alignment.TopEnd)
+                .align(Alignment.BottomEnd)
                 .padding(7.dp)
-                .size(18.dp)
+                .size(24.dp)
                 .clip(CircleShape)
-                .background(Color(0xB3000000)),
+                .background(CinemaxPalette.favorite),
             contentAlignment = Alignment.Center
         ) {
-            Text("★", color = accent, fontSize = 10.sp)
+            Text("♥", color = Color.White, fontSize = 11.sp)
         }
     }
 }
@@ -301,14 +352,14 @@ fun CinemaxRow(
     )
 }
 
-/** Round translucent control used over artwork (back, favourite, close). */
+/** Round frosted control used over artwork, the shape of Swiftfin's back button. */
 @Composable
 fun CinemaxCircleButton(label: String, onClick: () -> Unit) {
     Box(
         modifier = Modifier
-            .size(38.dp)
+            .size(40.dp)
             .clip(CircleShape)
-            .background(Color(0x8C000000))
+            .background(CinemaxPalette.frostedStrong)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
@@ -358,8 +409,8 @@ fun CinemaxCard(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(CinemaxPalette.surface)
+            .clip(RoundedCornerShape(20.dp))
+            .background(CinemaxPalette.surfaceHigh)
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
         content = content

@@ -137,13 +137,13 @@ fun CinemaxCatalogScreen(
                     .padding(start = 16.dp, end = 16.dp, bottom = 10.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                FilterChip(
+                CinemaxFilterChip(
                     selected = selectedGenre == null,
                     onClick = { onGenre(null) },
                     label = { Text("الكل", fontSize = 11.sp) }
                 )
                 genres.forEach { genre ->
-                    FilterChip(
+                    CinemaxFilterChip(
                         selected = selectedGenre == genre,
                         onClick = { onGenre(genre) },
                         label = { Text(genre, fontSize = 11.sp) }
@@ -160,7 +160,7 @@ fun CinemaxCatalogScreen(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 sorts.forEach { option ->
-                    FilterChip(
+                    CinemaxFilterChip(
                         selected = (selectedSort ?: sorts.first()) == option,
                         onClick = { onSort(option) },
                         label = { Text(option, fontSize = 11.sp) }
