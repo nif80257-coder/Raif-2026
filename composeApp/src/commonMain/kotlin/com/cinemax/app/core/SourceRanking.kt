@@ -54,3 +54,24 @@ fun nextUntriedSource(
             url != null && url !in attemptedUrls
         }
 }
+
+/**
+ * The source list as the detail screen shows it: the static ranking plus the
+ * remembered track record of each link, so a link that recently failed drops
+ * below the rest (without disappearing) and one that played before rises. The
+ * last-played link stays pinned on top.
+ */
+fun rankSources(
+    options: List<StreamOption>,
+    stats: Map<String, SourceStats> = emptyMap(),
+    onlyDirect: Boolean = false,
+    lastPlayedUrl: String? = null,
+    nowEpochMillis: Long = 0L
+): List<StreamOption> {
+    val filtered = if (onlyDirect) options.filter { it.stream.url != null } else options
+    val scored = filtered.sortedByDescending { option ->
+        sourceScore(option) + (stats[streamFingerprint(option)]?.penalty(nowEpochMillis) ?: 0)
+    }
+    if (lastPlayedUrl == null) return scored
+    return scored.sortedByDescending { it.stream.url == lastPlayedUrl }
+}

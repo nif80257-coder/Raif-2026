@@ -94,6 +94,9 @@ import com.cinemax.app.core.nextUntriedSource
 import com.cinemax.app.core.rankSearchResults
 import com.cinemax.app.core.rankedSources
 import com.cinemax.app.core.dedupeSources
+import com.cinemax.app.core.SourceStats
+import com.cinemax.app.core.mergeSources
+import com.cinemax.app.core.streamFingerprint
 import com.cinemax.app.core.sortLibrary
 import com.cinemax.app.core.unsupportedVideoContainer
 import com.cinemax.app.nuvio.InstalledNuvioRepository
@@ -269,6 +272,16 @@ fun App() {
     var showSubtitlePicker by remember { mutableStateOf(false) }
     var playerPositionMs by remember { mutableStateOf(0L) }
     var playerMessage by remember { mutableStateOf<String?>(null) }
+    // Each link's track record, so a source that just failed drops below the
+    // rest, and the addons that offer each file, so a duplicate is listed once.
+    val statsStore = remember { SourceStatsStore() }
+    var sourceStats by remember {
+        mutableStateOf(runCatching { statsStore.loadAll() }.getOrDefault(emptyMap()))
+    }
+    var sourceProviders by remember { mutableStateOf<Map<String, List<String>>>(emptyMap()) }
+    var playbackFingerprint by remember { mutableStateOf<String?>(null) }
+    var playbackStartedAtMs by remember { mutableStateOf(0L) }
+    var successRecorded by remember { mutableStateOf(false) }
     // The source picker inside the player and the links already tried for the
     // title being watched, so a failing source moves on instead of looping.
     var showPlayerSources by remember { mutableStateOf(false) }
@@ -405,6 +418,7 @@ fun App() {
         val item = selectedItem
         if (item == null || !metaResolved) {
             streamOptions.clear()
+            sourceProviders = emptyMap()
             loadingStreams = false
             return@LaunchedEffect
         }
@@ -447,8 +461,12 @@ fun App() {
                 }
             }
             providerIssues = failures
+            // One row per file: the addons that offer the same link are merged,
+            // so a duplicate appears once with every provider named.
             val found = stremioSources + nuvioSources
-            streamOptions.addAll(found)
+            val merged = mergeSources(found)
+            streamOptions.addAll(merged.map { it.option })
+            sourceProviders = merged.associate { it.fingerprint to it.providers }
             if (autoplayQueued) {
                 autoplayQueued = false
                 val auto = streamOptions.firstOrNull { option ->
@@ -476,7 +494,7 @@ fun App() {
                 val nuvioType = NuvioMediaIds.mediaType(item.type)
                 val queriedProviders = nuvioProviders.count { it.supportsType(nuvioType) }
                 "لا نتائج: $queriedAddons إضافة و$queriedProviders مصدر Nuvio لم تُرجع روابط"
-            } else "المصادر: ${found.size}"
+            } else "المصادر: ${merged.size}"
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
@@ -1023,6 +1041,9 @@ fun App() {
         attemptedSourceUrls = setOf(mediaUrl)
         showPlayerSources = false
         sourceNotice = null
+        playbackFingerprint = streamFingerprint(option)
+        playbackStartedAtMs = Clock.System.now().toEpochMilliseconds()
+        successRecorded = false
     }
 
     /**
@@ -1038,6 +1059,9 @@ fun App() {
         showPlayerSources = false
         sourceNotice = null
         playbackUrl = url
+        playbackFingerprint = streamFingerprint(option)
+        playbackStartedAtMs = Clock.System.now().toEpochMilliseconds()
+        successRecorded = false
     }
 
     /**
@@ -1474,6 +1498,8 @@ fun App() {
                         background = appBackground,
                         lastPlayedUrl = lastPlayedUrl,
                         providerIssues = providerIssues,
+                        sourceStats = sourceStats,
+                        sourceProviders = sourceProviders,
                         packBadges = badgeFilters,
                         resumeLabel = resumeProgress?.let { "من ${formatClock(it.positionMillis)}" },
                         episodeProgress = watchProgressItems.associate { it.key to it.progressFraction },
@@ -1643,6 +1669,15 @@ fun App() {
                                 if (position > 0L) {
                                     playerStarted = true
                                     sourceNotice = null
+                                    val fingerprint = playbackFingerprint
+                                    if (!successRecorded && fingerprint != null) {
+                                        successRecorded = true
+                                        val elapsed = (Clock.System.now().toEpochMilliseconds() -
+                                            playbackStartedAtMs).coerceAtLeast(0L)
+                                        statsStore.recordSuccess(fingerprint, elapsed)
+                                        sourceStats = sourceStats +
+                                            (fingerprint to (statsStore.load(fingerprint) ?: SourceStats()))
+                                    }
                                 }
                             },
                             onEnded = {
@@ -1671,6 +1706,12 @@ fun App() {
                             },
                             onError = { message ->
                                 playerMessage = message
+                                val failed = playbackFingerprint
+                                if (failed != null) {
+                                    statsStore.recordFailure(failed)
+                                    sourceStats = sourceStats +
+                                        (failed to (statsStore.load(failed) ?: SourceStats()))
+                                }
                                 // A source that never started playing is dead:
                                 // move to the next ranked link on its own.
                                 if (!playerStarted) {

@@ -90,8 +90,10 @@ import com.cinemax.app.core.episodeLabel
 import com.cinemax.app.core.episodeReleaseLabel
 import com.cinemax.app.core.librarySortLabel
 import com.cinemax.app.core.matchesLibraryQuery
-import com.cinemax.app.core.rankedSources
+import com.cinemax.app.core.SourceStats
+import com.cinemax.app.core.rankSources
 import com.cinemax.app.core.streamBadges
+import com.cinemax.app.core.streamFingerprint
 import com.cinemax.app.formatClock
 import com.cinemax.app.hapticTap
 import kotlinx.coroutines.delay
@@ -1047,6 +1049,10 @@ fun CinemaxDetailScreen(
     background: Color,
     lastPlayedUrl: String?,
     providerIssues: List<String>,
+    /** Track record of each link, used to demote a source that just failed. */
+    sourceStats: Map<String, SourceStats> = emptyMap(),
+    /** Every addon that offers each file, keyed by its fingerprint. */
+    sourceProviders: Map<String, List<String>> = emptyMap(),
     packBadges: List<BadgeFilter> = emptyList(),
     resumeLabel: String?,
     episodeProgress: Map<String, Float>,
@@ -1061,7 +1067,13 @@ fun CinemaxDetailScreen(
     val overview = meta?.description ?: item.description
     val directCount = sources.count { it.stream.url != null }
     var onlyDirect by remember { mutableStateOf(false) }
-    val ranked = rankedSources(sources, onlyDirect, lastPlayedUrl)
+    val ranked = rankSources(
+        sources,
+        stats = sourceStats,
+        onlyDirect = onlyDirect,
+        lastPlayedUrl = lastPlayedUrl,
+        nowEpochMillis = Clock.System.now().toEpochMilliseconds()
+    )
     val firstPlayable = ranked.firstOrNull { it.stream.url != null }
     Column(Modifier.fillMaxSize().background(background)) {
         Box(Modifier.fillMaxWidth().height(300.dp)) {
@@ -1258,6 +1270,7 @@ fun CinemaxDetailScreen(
                         option = option,
                         accent = accent,
                         isLastPlayed = lastPlayedUrl != null && option.stream.url == lastPlayedUrl,
+                        providers = sourceProviders[streamFingerprint(option)] ?: listOf(option.addonName),
                         packBadges = packBadges,
                         onPlay = onPlay
                     )
@@ -1340,6 +1353,7 @@ private fun SourceCard(
     option: StreamOption,
     accent: Color,
     isLastPlayed: Boolean,
+    providers: List<String> = emptyList(),
     packBadges: List<BadgeFilter> = emptyList(),
     onPlay: (StreamOption) -> Unit
 ) {
@@ -1394,6 +1408,14 @@ private fun SourceCard(
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 badges.forEach { badge -> CinemaxPill(badge, accent) }
             }
+        }
+        if (providers.size > 1) {
+            Text(
+                "متوفر في: ${providers.joinToString(" · ")}",
+                color = CinemaxPalette.textMuted,
+                fontSize = 10.sp,
+                maxLines = 2
+            )
         }
         if (!playable) {
             Text(
