@@ -96,6 +96,7 @@ import com.cinemax.app.core.rankedSources
 import com.cinemax.app.core.dedupeSources
 import com.cinemax.app.core.SourceStats
 import com.cinemax.app.core.mergeSources
+import com.cinemax.app.core.isFailedRecently
 import com.cinemax.app.core.streamFingerprint
 import com.cinemax.app.core.sortLibrary
 import com.cinemax.app.core.unsupportedVideoContainer
@@ -119,6 +120,7 @@ import com.cinemax.app.ui.CinemaxSettingsScreen
 import com.cinemax.app.ui.CinemaxShelf
 import com.cinemax.app.ui.CinemaxTabBar
 import io.ktor.client.request.get
+import io.ktor.client.request.head
 import io.ktor.client.statement.bodyAsText
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -279,6 +281,8 @@ fun App() {
         mutableStateOf(runCatching { statsStore.loadAll() }.getOrDefault(emptyMap()))
     }
     var sourceProviders by remember { mutableStateOf<Map<String, List<String>>>(emptyMap()) }
+    val preferredSourceStore = remember { PreferredSourceStore() }
+    var pinnedSourceUrl by remember { mutableStateOf<String?>(null) }
     var playbackFingerprint by remember { mutableStateOf<String?>(null) }
     var playbackStartedAtMs by remember { mutableStateOf(0L) }
     var successRecorded by remember { mutableStateOf(false) }
@@ -389,6 +393,7 @@ fun App() {
         }
         selectedMeta = meta
         lastPlayedUrl = lastSourceStore.load(item.id)
+        pinnedSourceUrl = preferredSourceStore.load(item.id)
         val videos = meta?.videos.orEmpty()
         val nextVideo = videos.firstOrNull { it.id == pendingVideoId }
             ?: videos.firstOrNull { it.id == selectedVideo?.id }
@@ -840,6 +845,69 @@ fun App() {
         addonHealth = addonHealth - deadIds
         if (activeAddon?.id in deadIds) activeAddon = addons.lastOrNull()
         status = "أُزيلت ${dead.size} إضافة متوقفة"
+    }
+
+    /** Pins one source for the open title, or unpins it when it already is. */
+    fun togglePinnedSource(option: StreamOption) {
+        val item = selectedItem ?: return
+        val url = option.stream.url ?: return
+        if (pinnedSourceUrl == url) {
+            preferredSourceStore.clear(item.id)
+            pinnedSourceUrl = null
+            status = "أُزيل تثبيت المصدر"
+        } else {
+            preferredSourceStore.save(item.id, url)
+            pinnedSourceUrl = url
+            status = "المصدر المفضل: ${option.stream.name ?: option.addonName}"
+        }
+    }
+
+    /**
+     * Re-checks the links that failed recently with a lightweight request and
+     * clears their record when one answers, so a source that came back is offered
+     * again without interrupting the video that is playing.
+     */
+    fun retryFailedLinks() {
+        val now = Clock.System.now().toEpochMilliseconds()
+        val pending = streamOptions
+            .mapNotNull { option ->
+                val url = option.stream.url ?: return@mapNotNull null
+                val fingerprint = streamFingerprint(option)
+                if (sourceStats[fingerprint]?.isFailedRecently(now) == true) fingerprint to url else null
+            }
+            .distinctBy { it.first }
+            .take(5)
+        if (pending.isEmpty()) return
+        scope.launch {
+            val recovered = mutableListOf<String>()
+            for ((fingerprint, url) in pending) {
+                val alive = try {
+                    http.head(url).status.value in 200..399
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Throwable) {
+                    false
+                }
+                if (alive) {
+                    statsStore.recordSuccess(fingerprint, null)
+                    recovered += fingerprint
+                }
+            }
+            if (recovered.isNotEmpty()) {
+                sourceStats = sourceStats +
+                    recovered.associateWith { statsStore.load(it) ?: SourceStats() }
+                status = "عاد ${recovered.size} مصدر للعمل"
+            }
+        }
+    }
+
+    // While a video plays, the failed links are retried in the background.
+    LaunchedEffect(playbackUrl) {
+        if (playbackUrl == null) return@LaunchedEffect
+        while (true) {
+            delay(60_000)
+            retryFailedLinks()
+        }
     }
 
     /** Forgets what the app learned about link health. */
@@ -1509,6 +1577,8 @@ fun App() {
                         sourceStats = sourceStats,
                         sourceProviders = sourceProviders,
                         hideDeadSources = preferences.hideDeadSources,
+                        pinnedUrl = pinnedSourceUrl,
+                        onPinSource = { option -> togglePinnedSource(option) },
                         packBadges = badgeFilters,
                         resumeLabel = resumeProgress?.let { "من ${formatClock(it.positionMillis)}" },
                         episodeProgress = watchProgressItems.associate { it.key to it.progressFraction },
@@ -1823,6 +1893,10 @@ fun App() {
                                             fontSize = 10.sp,
                                             maxLines = 1
                                         )
+                                    }
+                                    if (url == pinnedSourceUrl) {
+                                        Text("مفضل", color = appAccent, fontSize = 10.sp)
+                                        Spacer(Modifier.width(4.dp))
                                     }
                                     if (current) {
                                         Text("يعمل الآن", color = appAccent, fontSize = 11.sp)

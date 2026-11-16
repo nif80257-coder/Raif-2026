@@ -1056,6 +1056,9 @@ fun CinemaxDetailScreen(
     sourceProviders: Map<String, List<String>> = emptyMap(),
     /** Hide links that failed in the last day instead of only demoting them. */
     hideDeadSources: Boolean = false,
+    /** The link the user pinned for this title, tried first every time. */
+    pinnedUrl: String? = null,
+    onPinSource: (StreamOption) -> Unit = {},
     packBadges: List<BadgeFilter> = emptyList(),
     resumeLabel: String?,
     episodeProgress: Map<String, Float>,
@@ -1086,6 +1089,7 @@ fun CinemaxDetailScreen(
         stats = sourceStats,
         onlyDirect = onlyDirect,
         lastPlayedUrl = lastPlayedUrl,
+        pinnedUrl = pinnedUrl,
         nowEpochMillis = nowEpochMillis
     )
     val firstPlayable = ranked.firstOrNull { it.stream.url != null }
@@ -1310,6 +1314,8 @@ fun CinemaxDetailScreen(
                         option = option,
                         accent = accent,
                         isLastPlayed = lastPlayedUrl != null && option.stream.url == lastPlayedUrl,
+                        isPinned = pinnedUrl != null && option.stream.url == pinnedUrl,
+                        onPin = { onPinSource(option) },
                         providers = sourceProviders[streamFingerprint(option)] ?: listOf(option.addonName),
                         packBadges = packBadges,
                         onPlay = onPlay
@@ -1393,6 +1399,8 @@ private fun SourceCard(
     option: StreamOption,
     accent: Color,
     isLastPlayed: Boolean,
+    isPinned: Boolean = false,
+    onPin: (() -> Unit)? = null,
     providers: List<String> = emptyList(),
     packBadges: List<BadgeFilter> = emptyList(),
     onPlay: (StreamOption) -> Unit
@@ -1417,6 +1425,10 @@ private fun SourceCard(
                 maxLines = 1,
                 modifier = Modifier.weight(1f)
             )
+            if (isPinned) {
+                Spacer(Modifier.width(6.dp))
+                CinemaxPill("مفضل", accent)
+            }
             if (isLastPlayed) {
                 Spacer(Modifier.width(6.dp))
                 CinemaxPill("آخر رابط", accent)
@@ -1463,6 +1475,15 @@ private fun SourceCard(
                 color = CinemaxPalette.textMuted,
                 fontSize = 11.sp
             )
+        }
+        if (onPin != null) {
+            TextButton(onClick = onPin) {
+                Text(
+                    if (isPinned) "★ مصدر مفضل" else "☆ اجعله المصدر المفضل",
+                    color = accent,
+                    fontSize = 11.sp
+                )
+            }
         }
     }
 }

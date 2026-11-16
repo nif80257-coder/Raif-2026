@@ -55,6 +55,18 @@ class SourceStatsTest {
     }
 
     @Test
+    fun thePinnedLinkComesFirstEvenWhenAnotherRanksHigher() {
+        val pinned = option("https://cdn.example.com/pinned.mp4", name = "720p")
+        val better = option("https://cdn.example.com/better.mp4", name = "2160p 4K")
+        val ranked = rankSources(
+            listOf(better, pinned),
+            pinnedUrl = pinned.stream.url,
+            nowEpochMillis = now
+        )
+        assertEquals(pinned.stream.url, ranked.first().stream.url)
+    }
+
+    @Test
     fun theLastPlayedLinkStaysOnTopEvenAfterAFailure() {
         val played = option("https://cdn.example.com/played.mp4", name = "1080p")
         val other = option("https://cdn.example.com/other.mp4")

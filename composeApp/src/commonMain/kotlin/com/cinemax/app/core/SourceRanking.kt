@@ -66,12 +66,18 @@ fun rankSources(
     stats: Map<String, SourceStats> = emptyMap(),
     onlyDirect: Boolean = false,
     lastPlayedUrl: String? = null,
+    pinnedUrl: String? = null,
     nowEpochMillis: Long = 0L
 ): List<StreamOption> {
     val filtered = if (onlyDirect) options.filter { it.stream.url != null } else options
     val scored = filtered.sortedByDescending { option ->
         sourceScore(option) + (stats[streamFingerprint(option)]?.penalty(nowEpochMillis) ?: 0)
     }
-    if (lastPlayedUrl == null) return scored
-    return scored.sortedByDescending { it.stream.url == lastPlayedUrl }
+    val withLastPlayed = if (lastPlayedUrl == null) {
+        scored
+    } else {
+        scored.sortedByDescending { it.stream.url == lastPlayedUrl }
+    }
+    if (pinnedUrl == null) return withLastPlayed
+    return withLastPlayed.sortedByDescending { it.stream.url == pinnedUrl }
 }
