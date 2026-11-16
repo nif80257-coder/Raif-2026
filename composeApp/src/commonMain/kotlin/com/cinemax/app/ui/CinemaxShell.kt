@@ -1070,6 +1070,8 @@ fun CinemaxDetailScreen(
     onSelectVideo: (StremioVideo) -> Unit,
     onSeason: (Int) -> Unit,
     onPlay: (StreamOption) -> Unit,
+    onRetrySources: (() -> Unit)? = null,
+    onToggleEpisodeWatched: (StremioVideo) -> Unit = {},
     onBack: () -> Unit
 ) {
     val title = meta?.name ?: item.name
@@ -1247,7 +1249,8 @@ fun CinemaxDetailScreen(
                         selected = selectedVideo?.id == episode.id,
                         progress = episodeProgress[episode.id] ?: 0f,
                         accent = accent,
-                        onClick = { onSelectVideo(episode) }
+                        onClick = { onSelectVideo(episode) },
+                        onLongClick = { onToggleEpisodeWatched(episode) }
                     )
                 }
             }
@@ -1325,12 +1328,19 @@ fun CinemaxDetailScreen(
                 item { LinearProgressIndicator(Modifier.fillMaxWidth(), color = accent) }
             } else if (sources.isEmpty()) {
                 item {
-                    Text(
-                        sourcesMessage.ifBlank { "لم تُرجع إضافاتك مصادر لهذا العنوان." },
-                        color = CinemaxPalette.textMuted,
-                        fontSize = 13.sp,
-                        lineHeight = 19.sp
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            sourcesMessage.ifBlank { "لم تُرجع إضافاتك مصادر لهذا العنوان." },
+                            color = CinemaxPalette.textMuted,
+                            fontSize = 13.sp,
+                            lineHeight = 19.sp
+                        )
+                        onRetrySources?.let { retry ->
+                            OutlinedButton(onClick = retry, shape = RoundedCornerShape(12.dp)) {
+                                Text("أعد المحاولة", fontSize = 12.sp)
+                            }
+                        }
+                    }
                 }
             } else if (shown.isEmpty()) {
                 item {
@@ -1368,14 +1378,15 @@ private fun EpisodeCard(
     selected: Boolean,
     progress: Float,
     accent: Color,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .background(if (selected) accent.copy(alpha = 0.16f) else CinemaxPalette.surface)
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1704,6 +1715,19 @@ fun CinemaxPlayerScreen(
                         )
                     )
                     Text(formatClock(durationMs), color = Color.White, fontSize = 11.sp)
+                }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = { onSeek((positionMs - 10_000L).coerceAtLeast(0L)) }) {
+                        Text("−10 ث", color = accent, fontSize = 11.sp)
+                    }
+                    TextButton(onClick = { onSeek(positionMs + 10_000L) }) {
+                        Text("+10 ث", color = accent, fontSize = 11.sp)
+                    }
+                    Spacer(Modifier.weight(1f))
+                    Text("السرعة", color = CinemaxPalette.textMuted, fontSize = 10.sp)
                 }
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),

@@ -213,6 +213,10 @@ fun App() {
     }
     var libraryQuery by remember { mutableStateOf("") }
     val watchProgressItems = remember { mutableStateListOf<WatchProgress>().apply { addAll(watchProgressStore.load()) } }
+    val watchedStore = remember { WatchedEpisodesStore() }
+    var watchedEpisodes by remember {
+        mutableStateOf(runCatching { watchedStore.load() }.getOrDefault(emptySet()))
+    }
     // The progress bar and the saved star every poster draws, keyed by title id.
     val posterStatuses = posterStatusById(watchProgressItems.toList(), favoriteIds)
     var preferences by remember {
@@ -234,6 +238,8 @@ fun App() {
     val searchResults = remember { mutableStateListOf<CatalogEntry>() }
     val availableCatalogs = remember { mutableStateListOf<com.cinemax.app.addons.StremioCatalog>() }
     val streamOptions = remember { mutableStateListOf<StreamOption>() }
+    /** Bumped by "أعد المحاولة" in the source sheet, to fetch the streams again. */
+    var streamRefresh by remember { mutableStateOf(0) }
     var activeAddon by remember { mutableStateOf(addons.lastOrNull()) }
     var selectedItem by remember { mutableStateOf<StremioMetaPreview?>(null) }
     var selectedMeta by remember { mutableStateOf<StremioMeta?>(null) }
@@ -420,7 +426,7 @@ fun App() {
 
     // Sources are aggregated from every installed addon that serves streams for
     // the item's type, so a catalog addon and a stream addon work together.
-    LaunchedEffect(selectedItem?.id, selectedVideo?.id, metaResolved, addonSignature, nuvioSignature) {
+    LaunchedEffect(selectedItem?.id, selectedVideo?.id, metaResolved, addonSignature, nuvioSignature, streamRefresh) {
         val item = selectedItem
         if (item == null || !metaResolved) {
             streamOptions.clear()
@@ -914,6 +920,22 @@ fun App() {
         while (true) {
             delay(60_000)
             retryFailedLinks()
+        }
+    }
+
+    /** Marks an episode watched by hand, or clears the mark when it already has one. */
+    fun toggleEpisodeWatched(video: StremioVideo) {
+        val key = video.id
+        watchedEpisodes = if (key in watchedEpisodes) {
+            val next = watchedEpisodes - key
+            watchedStore.save(next)
+            status = "أُزيلت علامة المشاهدة: ${episodeLabel(video)}"
+            next
+        } else {
+            val next = watchedEpisodes + key
+            watchedStore.save(next)
+            status = "تمت المشاهدة: ${episodeLabel(video)}"
+            next
         }
     }
 
@@ -1592,7 +1614,8 @@ fun App() {
                         preferredQuality = preferences.preferredQuality,
                         packBadges = badgeFilters,
                         resumeLabel = resumeProgress?.let { "من ${formatClock(it.positionMillis)}" },
-                        episodeProgress = watchProgressItems.associate { it.key to it.progressFraction },
+                        episodeProgress = watchProgressItems.associate { it.key to it.progressFraction } +
+                            watchedEpisodes.associateWith { 1f },
                         onToggleFavorite = {
                             hapticTap()
                             if (item.id in favoriteIds) {
@@ -1624,6 +1647,8 @@ fun App() {
                         onPlay = { option ->
                             option.stream.url?.let { url -> startPlayback(option, url) }
                         },
+                        onRetrySources = { streamRefresh += 1 },
+                        onToggleEpisodeWatched = { video -> toggleEpisodeWatched(video) },
                         onBack = { selectedItem = null }
                     )
                 }
