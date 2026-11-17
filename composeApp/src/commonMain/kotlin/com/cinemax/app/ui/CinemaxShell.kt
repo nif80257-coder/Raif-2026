@@ -1124,6 +1124,10 @@ fun CinemaxDetailScreen(
     onPlay: (StreamOption) -> Unit,
     onRetrySources: (() -> Unit)? = null,
     onToggleEpisodeWatched: (StremioVideo) -> Unit = {},
+    /** Playable source count per episode, filled on demand. */
+    episodeSourceCounts: Map<String, Int> = emptyMap(),
+    checkingEpisodeId: String? = null,
+    onCheckEpisode: (StremioVideo) -> Unit = {},
     onBack: () -> Unit
 ) {
     val title = meta?.name ?: item.name
@@ -1297,10 +1301,14 @@ fun CinemaxDetailScreen(
             if (videos.isNotEmpty()) {
                 item {
                     val watched = videos.count { (episodeProgress[it.id] ?: 0f) >= 0.95f }
-                    CinemaxSectionTitle(
-                        title = if (watched > 0) "الحلقات • $watched/${videos.size} مشاهدة" else "الحلقات",
-                        accent = accent
-                    )
+                    val lastAvailable = videos
+                        .filter { (episodeSourceCounts[it.id] ?: 0) > 0 }
+                        .maxByOrNull { (it.season ?: 0) * 1000 + (it.episode ?: 0) }
+                    val heading = buildString {
+                        append(if (watched > 0) "الحلقات • $watched/${videos.size} مشاهدة" else "الحلقات")
+                        lastAvailable?.episode?.let { append(" • متوفرة حتى الحلقة $it") }
+                    }
+                    CinemaxSectionTitle(title = heading, accent = accent)
                 }
                 val seasons = videos.mapNotNull { it.season }.distinct().sorted()
                 if (seasons.size > 1) {
@@ -1341,7 +1349,10 @@ fun CinemaxDetailScreen(
                         progress = episodeProgress[episode.id] ?: 0f,
                         accent = accent,
                         onClick = { onSelectVideo(episode) },
-                        onLongClick = { onToggleEpisodeWatched(episode) }
+                        onLongClick = { onToggleEpisodeWatched(episode) },
+                        sourceCount = episodeSourceCounts[episode.id],
+                        checking = checkingEpisodeId == episode.id,
+                        onCheckSources = { onCheckEpisode(episode) }
                     )
                 }
             }
@@ -1472,7 +1483,10 @@ private fun EpisodeCard(
     progress: Float,
     accent: Color,
     onClick: () -> Unit,
-    onLongClick: (() -> Unit)? = null
+    onLongClick: (() -> Unit)? = null,
+    sourceCount: Int? = null,
+    checking: Boolean = false,
+    onCheckSources: (() -> Unit)? = null
 ) {
     Row(
         modifier = Modifier
@@ -1526,6 +1540,26 @@ private fun EpisodeCard(
                     modifier = Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp)),
                     color = accent,
                     trackColor = CinemaxPalette.surfaceHigh
+                )
+            }
+            when {
+                checking -> Text(
+                    "جارٍ فحص المصادر…",
+                    color = CinemaxPalette.textMuted,
+                    fontSize = 10.sp,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+                sourceCount != null -> Text(
+                    if (sourceCount == 0) "لا مصادر الآن" else "متوفر في $sourceCount مصدر",
+                    color = if (sourceCount == 0) CinemaxPalette.textMuted else accent,
+                    fontSize = 10.sp,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+                onCheckSources != null -> Text(
+                    "كم مصدرًا؟",
+                    color = CinemaxPalette.textMuted,
+                    fontSize = 10.sp,
+                    modifier = Modifier.padding(top = 2.dp).clickable(onClick = onCheckSources)
                 )
             }
         }

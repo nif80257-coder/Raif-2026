@@ -300,6 +300,10 @@ fun App() {
     // The source picker inside the player and the links already tried for the
     // title being watched, so a failing source moves on instead of looping.
     var showPlayerSources by remember { mutableStateOf(false) }
+    // How many playable sources each episode has, filled on demand ("كم مصدرًا؟")
+    // so the app never fires one request per episode just to fill the list.
+    var episodeSourceCounts by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
+    var checkingEpisodeId by remember { mutableStateOf<String?>(null) }
     var attemptedSourceUrls by remember { mutableStateOf<Set<String>>(emptySet()) }
     // A failed link or a source switch gets a line of its own: the reset that runs
     // whenever the player reloads clears the player's own message, not this one.
@@ -974,6 +978,30 @@ fun App() {
             watchProgressItems.removeAll { it.key == key }
             status = "تمت المشاهدة: ${episodeLabel(video)}"
             next
+        }
+    }
+
+    /** Counts the playable links one episode has, reusing the streams cache. */
+    fun checkEpisodeSources(video: StremioVideo) {
+        val item = selectedItem ?: return
+        if (checkingEpisodeId != null) return
+        checkingEpisodeId = video.id
+        scope.launch {
+            try {
+                val found = if (isArchiveItemId(item.id)) {
+                    emptyList()
+                } else {
+                    streamsFrom(repository, addons.toList(), item.type, video.id)
+                }
+                val playable = mergeSources(found).count { it.option.stream.url != null }
+                episodeSourceCounts = episodeSourceCounts + (video.id to playable)
+                status = if (playable == 0) "لا مصادر لهذه الحلقة الآن" else "$playable مصدرًا لهذه الحلقة"
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                status = "تعذر فحص الحلقة: ${error.message ?: "خطأ غير معروف"}"
+            } finally {
+                checkingEpisodeId = null
+            }
         }
     }
 
@@ -1702,6 +1730,9 @@ fun App() {
                         },
                         onRetrySources = { streamRefresh += 1 },
                         onToggleEpisodeWatched = { video -> toggleEpisodeWatched(video) },
+                        episodeSourceCounts = episodeSourceCounts,
+                        checkingEpisodeId = checkingEpisodeId,
+                        onCheckEpisode = { video -> checkEpisodeSources(video) },
                         onBack = { selectedItem = null }
                     )
                 }

@@ -13,6 +13,7 @@ what would prove it worked.
 | Pinned source and last-played link per episode | done |
 | Timeouts per addon, parallel metadata, TTL caches | done |
 | Embedded audio and subtitle track pickers, fail-over with position kept | done |
+| Per-episode source count on demand and "last available episode" | done |
 | Swiftfin-style visual system | done |
 
 ## Tier 1 — next, all buildable on what exists
@@ -23,7 +24,7 @@ what would prove it worked.
 | Addon configuration (`config` in the manifest) | "options that never show" is a missing feature, not a bug | a web view and re-install with the configured URL | 1–2 sessions | medium | a configurable addon returns its configured catalogs |
 | Per-source preferences (quality/audio/subtitle per addon) | quality preference exists globally; per addon makes "best source" personal | `SourcePreferenceStore` | 1 session | low | the chosen tier sticks for that addon |
 | Absolute episode numbering via TMDB episode lists | anime/long series numbered differently | user TMDB key | 1 session | medium | S02E05 and absolute 13 open the same episode |
-| Per-episode availability counts | "how many sources ?" before pressing play | streams cache warm-up | 1 session | low | count matches the sheet |
+| Per-episode availability counts | delivered as an on-demand check per episode | — | — | — | count matches the sheet |
 
 ## Tier 2 — later, each needs a new subsystem
 
