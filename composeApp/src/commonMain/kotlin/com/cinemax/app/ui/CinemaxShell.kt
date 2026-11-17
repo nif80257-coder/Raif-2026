@@ -300,7 +300,7 @@ fun CinemaxHomeScreen(
                         contentPadding = PaddingValues(horizontal = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        items(continueWatching) { progress ->
+                        items(continueWatching, key = { it.key }) { progress ->
                             ContinueWatchingCard(
                                 progress = progress,
                                 accent = accent,
@@ -326,7 +326,7 @@ fun CinemaxHomeScreen(
                     }
                     item {
                         CinemaxRowAll {
-                            items(shelf.items) { item ->
+                            items(shelf.items, key = { it.id }) { item ->
                                 CinemaxPosterCard(
                                     name = item.name,
                                     poster = item.poster,
@@ -827,7 +827,7 @@ fun CinemaxSearchScreen(
                 contentPadding = PaddingValues(bottom = 110.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(results.chunked(3)) { row ->
+                items(results.chunked(3), key = { row -> row.joinToString("|") { it.item.id } }) { row ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         row.forEach { entry ->
                             GridPoster(
@@ -925,7 +925,7 @@ fun CinemaxLibraryScreen(
                 Spacer(Modifier.height(6.dp))
                 CinemaxSectionTitle(title = "قيد المشاهدة", accent = accent)
             }
-            items(visibleProgress) { progress ->
+            items(visibleProgress, key = { it.key }) { progress ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -987,7 +987,7 @@ fun CinemaxLibraryScreen(
                 )
             }
         } else {
-            items(visibleFavorites.chunked(3)) { row ->
+            items(visibleFavorites.chunked(3), key = { row -> row.joinToString("|") { it.id } }) { row ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     row.forEach { item ->
                         GridPoster(
@@ -1306,7 +1306,7 @@ fun CinemaxDetailScreen(
                 val shown = videos
                     .filter { activeSeason == null || it.season == activeSeason }
                     .sortedBy { it.episode ?: 0 }
-                items(shown) { episode ->
+                items(shown, key = { it.id }) { episode ->
                     EpisodeCard(
                         episode = episode,
                         selected = selectedVideo?.id == episode.id,
@@ -1420,7 +1420,7 @@ fun CinemaxDetailScreen(
                     )
                 }
             } else {
-                items(shown) { option ->
+                items(shown, key = { streamFingerprint(it) }) { option ->
                     SourceCard(
                         option = option,
                         accent = accent,

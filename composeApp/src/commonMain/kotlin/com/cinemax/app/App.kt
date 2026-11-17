@@ -483,6 +483,16 @@ fun App() {
             val merged = mergeSources(found)
             streamOptions.addAll(merged.map { it.option })
             sourceProviders = merged.associate { it.fingerprint to it.providers }
+            // Warm the next episode's sources in the background so the next-episode
+            // shortcut opens instantly; the repository cache holds the answer.
+            val nextVideo = if (isArchiveItemId(item.id)) null else nextEpisode(episode, videos)
+            if (nextVideo != null) {
+                scope.launch {
+                    runCatching {
+                        streamsFrom(repository, addons.toList(), item.type, nextVideo.id)
+                    }
+                }
+            }
             if (autoplayQueued) {
                 autoplayQueued = false
                 val auto = bestSource(
@@ -628,22 +638,37 @@ fun App() {
         hints.videoSize?.let { extra["videoSize"] = it.toString() }
         subtitleBusy = true
         try {
-            addons
-                .filter { AddonCapabilities.supports(it, "subtitles", item.type) }
-                .forEach { addon ->
-                    val found = try {
-                        repository.loadSubtitles(addon.manifestUrl, item.type, mediaId, extra)
-                    } catch (error: CancellationException) {
-                        throw error
-                    } catch (_: Throwable) {
-                        emptyList()
+            // Every subtitle addon is asked at once, with a cap, so one slow
+            // provider cannot delay the picker.
+            val found = coroutineScope {
+                addons
+                    .filter { AddonCapabilities.supports(it, "subtitles", item.type) }
+                    .map { addon ->
+                        async {
+                            try {
+                                withTimeout(SUBTITLE_TIMEOUT_MS) {
+                                    repository.loadSubtitles(addon.manifestUrl, item.type, mediaId, extra)
+                                }.map { subtitle ->
+                                    SubtitleChoice(
+                                        subtitle.lang,
+                                        subtitle.label ?: subtitle.lang,
+                                        addon.name,
+                                        subtitle.url
+                                    )
+                                }
+                            } catch (_: TimeoutCancellationException) {
+                                emptyList<SubtitleChoice>()
+                            } catch (error: CancellationException) {
+                                throw error
+                            } catch (_: Throwable) {
+                                emptyList<SubtitleChoice>()
+                            }
+                        }
                     }
-                    found.forEach { subtitle ->
-                        collected.add(
-                            SubtitleChoice(subtitle.lang, subtitle.label ?: subtitle.lang, addon.name, subtitle.url)
-                        )
-                    }
-                }
+                    .awaitAll()
+                    .flatten()
+            }
+            collected.addAll(found)
         } finally {
             subtitleBusy = false
         }
@@ -2389,3 +2414,4 @@ private suspend fun streamsFrom(
 
 private const val META_TIMEOUT_MS = 10_000L
 private const val STREAM_TIMEOUT_MS = 15_000L
+private const val SUBTITLE_TIMEOUT_MS = 10_000L
