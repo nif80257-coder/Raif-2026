@@ -14,6 +14,7 @@ what would prove it worked.
 | Timeouts per addon, parallel metadata, TTL caches | done |
 | Embedded audio and subtitle track pickers, fail-over with position kept | done |
 | Per-episode source count on demand and "last available episode" | done |
+| Player engine failover (MPV → AVPlayer on the same link, then the next source) | done |
 | Swiftfin-style visual system | done |
 
 ## Tier 1 — next, all buildable on what exists
@@ -34,7 +35,7 @@ what would prove it worked.
 | Offline downloads | the one thing streaming clients still lack | torrent or direct-download manager, storage UI, DRM-free only | large | medium |
 | Intro/outro skip (TheIntroDB / AniSkip) | the most requested player feature in Nuvio/Stremio clients | per-title timestamps API, player seek hook | medium | low |
 | Trakt/Simkl scrobbling | history lives outside the phone | OAuth, background sync, conflict rules with local progress | large | medium |
-| Player engine failover mpv ↔ AVPlayer | a bad file should not end the evening | engine probe, shared position handoff (the bridge already reports both) | medium | medium |
+| Player engine failover mpv ↔ AVPlayer | delivered for MPV → AVPlayer; the reverse is not needed because AVPlayer is the fallback | — | — | — | a link MPV rejects plays with the system player |
 | Picture-in-picture on the mpv path | PiP today only on AVPlayer | a second AVPlayer layer or a custom PiP controller | large | high |
 | Multi-user profiles | one phone, several viewers | per-profile stores, a profile picker like Swiftfin's | large | medium |
 | Cast/AirPlay | big-screen viewing | AVRoutePickerView for AirPlay, Chromecast SDK for the rest | large | medium |

@@ -320,6 +320,8 @@ fun App() {
     var playbackFingerprint by remember { mutableStateOf<String?>(null) }
     var playbackStartedAtMs by remember { mutableStateOf(0L) }
     var successRecorded by remember { mutableStateOf(false) }
+    /** True once MPV failed for this link and the system player is being tried. */
+    var usingSystemFallback by remember { mutableStateOf(false) }
     // The source picker inside the player and the links already tried for the
     // title being watched, so a failing source moves on instead of looping.
     var showPlayerSources by remember { mutableStateOf(false) }
@@ -1267,6 +1269,7 @@ fun App() {
             sourcePreferences = sourcePreferenceStore.loadAll()
         }
         lastPlayedUrl = mediaUrl
+        usingSystemFallback = false
         val meta = selectedMeta
         playingItem = item.copy(
             name = meta?.name ?: item.name,
@@ -1310,6 +1313,7 @@ fun App() {
         playbackFingerprint = streamFingerprint(option)
         playbackStartedAtMs = Clock.System.now().toEpochMilliseconds()
         successRecorded = false
+        usingSystemFallback = false
     }
 
     /**
@@ -1914,7 +1918,11 @@ fun App() {
                         }
                     } else null,
                     sourceLabel = playingStream?.let { option ->
-                        listOfNotNull(option.addonName, option.stream.name).joinToString(" • ")
+                        listOfNotNull(
+                            option.addonName,
+                            option.stream.name,
+                            if (preferences.preferredPlayer == "system" || usingSystemFallback) "AVPlayer" else "MPV"
+                        ).joinToString(" • ")
                     },
                     onNextShortcut = upcomingEpisode?.let { next ->
                         {
@@ -1968,7 +1976,7 @@ fun App() {
                                     embeddedAudioTracks.addAll(tracks)
                                 }
                             },
-                            useSystemPlayer = preferences.preferredPlayer == "system",
+                            useSystemPlayer = preferences.preferredPlayer == "system" || usingSystemFallback,
                             onEmbeddedSubtitleTracks = { tracks ->
                                 if (tracks != embeddedSubtitleTracks.toList()) {
                                     embeddedSubtitleTracks.clear()
@@ -2050,9 +2058,15 @@ fun App() {
                                     sourceStats = sourceStats +
                                         (failed to (statsStore.load(failed) ?: SourceStats()))
                                 }
-                                // A source that never started playing is dead:
-                                // move to the next ranked link on its own.
-                                if (!playerStarted) {
+                                // Engine failover first: the same link may play with the
+                                // system player, which costs no source attempt.
+                                if (!usingSystemFallback && !playerStarted &&
+                                    preferences.preferredPlayer != "system" &&
+                                    isNativeFullFormatPlayerAvailable()
+                                ) {
+                                    usingSystemFallback = true
+                                    sourceNotice = "تعذّر مع MPV — نجرّب مشغل النظام"
+                                } else if (!playerStarted) {
                                     val next = nextPlayableSource()
                                     if (next != null) {
                                         val label = next.first.stream.name ?: next.first.addonName
