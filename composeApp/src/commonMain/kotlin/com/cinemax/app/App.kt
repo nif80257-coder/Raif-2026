@@ -1078,6 +1078,41 @@ fun App() {
         }
     }
 
+    /** Snapshot of the viewer's data, as text for the clipboard. */
+    fun exportBackup(): String = encodeBackup(
+        CinemaxBackup(
+            favorites = favoriteItems.toList(),
+            progress = watchProgressItems.toList(),
+            watched = watchedEpisodes.toList(),
+            addons = addons.toList()
+        )
+    )
+
+    /** Restores a snapshot; a text that is not one is reported, not applied. */
+    fun importBackup(raw: String) {
+        val backup = decodeBackup(raw)
+        if (backup == null) {
+            status = "النص المنسوخ ليس نسخة احتياطية صالحة"
+            return
+        }
+        favoriteItems.clear()
+        favoriteItems.addAll(distinctTitles(backup.favorites))
+        favoritesStore.save(favoriteItems.toList())
+        watchProgressStore.restore(backup.progress)
+        watchProgressItems.clear()
+        watchProgressItems.addAll(backup.progress)
+        watchedEpisodes = backup.watched.toSet()
+        watchedStore.save(watchedEpisodes)
+        if (backup.addons.isNotEmpty()) {
+            addons.clear()
+            addons.addAll(backup.addons)
+            addonStore.save(addons.toList())
+            repository.clearCaches()
+            activeAddon = addons.lastOrNull()
+        }
+        status = "تمت استعادة ${backup.summary()}"
+    }
+
     /** Forgets what the app learned about link health. */
     fun clearSourceStats() {
         statsStore.clear()
@@ -1660,6 +1695,8 @@ fun App() {
                     onRemoveDeadAddons = { removeDeadAddons() },
                     onClearSourceStats = { clearSourceStats() },
                     sourceStatCount = sourceStats.size,
+                    onExportBackup = { exportBackup() },
+                    onImportBackup = { raw -> importBackup(raw) },
                     activeAddonId = activeAddon?.id,
                     onSelectAddon = { addon -> selectAddon(addon) },
                     onConfigureAddon = { addon ->

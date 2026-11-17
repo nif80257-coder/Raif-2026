@@ -70,6 +70,14 @@ class WatchProgressStore(
         settings.putString(KEY, json.encodeToString(ListSerializer(WatchProgress.serializer()), items.take(MAX_ITEMS)))
     }
 
+    /** Replaces the history with a restored snapshot. */
+    fun restore(items: List<WatchProgress>) {
+        saveAll(
+            items.filter { it.durationMillis > 0L && it.positionMillis > 0L && it.positionMillis < it.durationMillis }
+                .sortedByDescending { it.updatedAtEpochMillis }
+        )
+    }
+
     private companion object {
         const val KEY = "cinemax.watch.progress.v1"
         const val MAX_ITEMS = 30

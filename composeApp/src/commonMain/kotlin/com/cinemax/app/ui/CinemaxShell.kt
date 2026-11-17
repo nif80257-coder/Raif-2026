@@ -69,6 +69,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -1924,6 +1926,8 @@ fun CinemaxSettingsScreen(
     onClearSourceStats: () -> Unit = {},
     /** How many source links the app has a track record for. */
     sourceStatCount: Int = 0,
+    onExportBackup: () -> String = { "" },
+    onImportBackup: (String) -> Unit = {},
     activeAddonId: String?,
     onSelectAddon: (InstalledAddon) -> Unit,
     onRemoveAddon: (InstalledAddon) -> Unit,
@@ -2211,6 +2215,23 @@ fun CinemaxSettingsScreen(
                 shape = RoundedCornerShape(12.dp)
             ) { Text("مسح المفضلة", fontSize = 12.sp) }
         }
+        val clipboard = LocalClipboardManager.current
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = { clipboard.setText(AnnotatedString(onExportBackup())) },
+                shape = RoundedCornerShape(12.dp)
+            ) { Text("نسخ نسخة احتياطية", fontSize = 12.sp) }
+            OutlinedButton(
+                onClick = { onImportBackup(clipboard.getText()?.text.orEmpty()) },
+                shape = RoundedCornerShape(12.dp)
+            ) { Text("استعادة", fontSize = 12.sp) }
+        }
+        Text(
+            "النسخة تحمل المفضلة ومتابعة المشاهدة والحلقات المعلّمة والإضافات، وتُنسخ إلى الحافظة لتنقلها إلى جهاز آخر.",
+            color = CinemaxPalette.textMuted,
+            fontSize = 11.sp,
+            lineHeight = 16.sp
+        )
 
         Spacer(Modifier.height(10.dp))
         CinemaxSectionTitle(title = "حول التطبيق", accent = accent)
