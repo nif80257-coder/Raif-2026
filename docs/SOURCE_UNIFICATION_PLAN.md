@@ -52,8 +52,11 @@ Small, testable pieces, following the existing `core/` + store pattern (the Kotl
 - **Phase 2 — core done, page merging open.** `core/MediaIdentity.kt` resolves an
   identity (IMDb, then TMDB, then folded title + year, with a ±1 year and same-type
   rule) and is used for favourite toggling, the resume lookup and search-result
-  de-duplication. Merging two catalog entries into a single navigable page, with
-  the one-time key migration, is still open because it changes navigation.
+  de-duplication. `TitleAliasStore` remembers every catalog id a title has been
+  opened under, and the source sheet of a film gathers the sources of all of them,
+  which is the practical half of "one page per title". Merging two catalog entries
+  into a single navigable page (and the one-time key migration) remains open
+  because it changes navigation.
 - **Phase 3 — mostly done.** Episode positions come from fields or an "S02E05"
   tag, `absoluteEpisodeIndex` is tested, and per-episode availability is an
   on-demand count with "متوفرة حتى الحلقة N". Turning an absolute number into a

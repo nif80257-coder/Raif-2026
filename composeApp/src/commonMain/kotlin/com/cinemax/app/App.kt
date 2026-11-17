@@ -301,6 +301,9 @@ fun App() {
     var sourcePreferences by remember {
         mutableStateOf(runCatching { sourcePreferenceStore.loadAll() }.getOrDefault(emptyMap()))
     }
+    val titleAliasStore = remember { TitleAliasStore() }
+    /** Every id this title has been seen under, so sources gather from all of them. */
+    var aliasIds by remember { mutableStateOf<List<String>>(emptyList()) }
     var playbackFingerprint by remember { mutableStateOf<String?>(null) }
     var playbackStartedAtMs by remember { mutableStateOf(0L) }
     var successRecorded by remember { mutableStateOf(false) }
@@ -391,6 +394,7 @@ fun App() {
             metaResolved = false
             selectedVideo = null
             activeSeason = null
+            aliasIds = emptyList()
             loadingMeta = false
             return@LaunchedEffect
         }
@@ -415,6 +419,9 @@ fun App() {
             null
         }
         selectedMeta = meta
+        // Remember this id for the title, so a second catalog's id can be asked too.
+        aliasIds = runCatching { titleAliasStore.add(canonicalMediaKey(item), item.id) }
+            .getOrDefault(listOf(item.id))
         val videos = meta?.videos.orEmpty()
         val nextVideo = videos.firstOrNull { it.id == pendingVideoId }
             ?: videos.firstOrNull { it.id == selectedVideo?.id }
@@ -465,11 +472,16 @@ fun App() {
         loadingStreams = true
         streamOptions.clear()
         try {
-            val stremioSources = if (isArchiveItemId(item.id)) {
-                archive.streams(archiveIdentifier(item.id))
+            val stremioSources = when {
+                isArchiveItemId(item.id) -> archive.streams(archiveIdentifier(item.id))
                     .map { StreamOption(item.id, ARCHIVE_PROVIDER_NAME, it) }
-            } else {
-                streamsFrom(repository, addons.toList(), item.type, mediaId)
+                // A film seen under more than one catalog id gathers the sources
+                // of every id, which is the practical half of "one page per title".
+                item.type == "movie" && aliasIds.size > 1 -> aliasIds
+                    .distinct()
+                    .take(3)
+                    .flatMap { id -> streamsFrom(repository, addons.toList(), item.type, id) }
+                else -> streamsFrom(repository, addons.toList(), item.type, mediaId)
             }
             var failures: List<String> = emptyList()
             val nuvioSources = if (nuvioProviders.isEmpty()) {
