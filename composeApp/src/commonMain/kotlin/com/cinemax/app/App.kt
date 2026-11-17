@@ -41,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -97,8 +98,11 @@ import com.cinemax.app.core.dedupeSources
 import com.cinemax.app.core.SourceStats
 import com.cinemax.app.core.bestSource
 import com.cinemax.app.core.mergeSources
+import com.cinemax.app.core.absoluteToSeasonEpisode
 import com.cinemax.app.core.canonicalMediaKey
+import com.cinemax.app.core.episodeNumber
 import com.cinemax.app.core.isFailedRecently
+import com.cinemax.app.core.seasonLengthsOf
 import com.cinemax.app.core.sameMedia
 import com.cinemax.app.core.streamBadges
 import com.cinemax.app.core.streamFingerprint
@@ -110,6 +114,7 @@ import com.cinemax.app.nuvio.NuvioProviderClient
 import com.cinemax.app.nuvio.NuvioProviderEntry
 import com.cinemax.app.nuvio.NuvioProviderStore
 import com.cinemax.app.nuvio.TmdbIdResolver
+import com.cinemax.app.nuvio.TmdbSeasons
 import com.cinemax.app.nuvio.createNuvioHttpClient
 import com.cinemax.app.nuvio.createNuvioScriptRuntime
 import com.cinemax.app.nuvio.nuvioSourcesFrom
@@ -304,6 +309,9 @@ fun App() {
     val titleAliasStore = remember { TitleAliasStore() }
     /** Every id this title has been seen under, so sources gather from all of them. */
     var aliasIds by remember { mutableStateOf<List<String>>(emptyList()) }
+    val tmdbSeasons = remember { TmdbSeasons(nuvioHttp) }
+    /** S02E05-style labels derived from TMDB season lists (needs a TMDB key). */
+    var episodeLabels by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var playbackFingerprint by remember { mutableStateOf<String?>(null) }
     var playbackStartedAtMs by remember { mutableStateOf(0L) }
     var successRecorded by remember { mutableStateOf(false) }
@@ -423,6 +431,31 @@ fun App() {
         aliasIds = runCatching { titleAliasStore.add(canonicalMediaKey(item), item.id) }
             .getOrDefault(listOf(item.id))
         val videos = meta?.videos.orEmpty()
+        // Absolute episode numbers become S02E05 when a TMDB key says how long each
+        // season is; otherwise the tag/title fallback stays in charge.
+        episodeLabels = emptyMap()
+        val key = tmdbKey
+        if (item.type == "series" && key.isNotBlank() && videos.isNotEmpty() &&
+            videos.all { it.season == null }
+        ) {
+            try {
+                val tmdbId = tmdbResolver.request(item.id, item.type, null, null).tmdbId
+                val counts = tmdbSeasons.seasonLengths(tmdbId, key)
+                if (counts != null) {
+                    val lengths = seasonLengthsOf(counts)
+                    val labels = videos.mapNotNull { video ->
+                        val absolute = episodeNumber(video) ?: return@mapNotNull null
+                        val pair = absoluteToSeasonEpisode(lengths, absolute) ?: return@mapNotNull null
+                        video.id to "الموسم ${pair.season} • الحلقة ${pair.episode}"
+                    }.toMap()
+                    if (labels.isNotEmpty()) episodeLabels = labels
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Throwable) {
+                episodeLabels = emptyMap()
+            }
+        }
         val nextVideo = videos.firstOrNull { it.id == pendingVideoId }
             ?: videos.firstOrNull { it.id == selectedVideo?.id }
             ?: videos.firstOrNull()
@@ -477,7 +510,7 @@ fun App() {
                     .map { StreamOption(item.id, ARCHIVE_PROVIDER_NAME, it) }
                 // A film seen under more than one catalog id gathers the sources
                 // of every id, which is the practical half of "one page per title".
-                item.type == "movie" && aliasIds.size > 1 -> aliasIds
+                item.type == "movie" && preferences.mergeCatalogSources && aliasIds.size > 1 -> aliasIds
                     .distinct()
                     .take(3)
                     .flatMap { id -> streamsFrom(repository, addons.toList(), item.type, id) }
@@ -1780,6 +1813,7 @@ fun App() {
                         episodeSourceCounts = episodeSourceCounts,
                         checkingEpisodeId = checkingEpisodeId,
                         onCheckEpisode = { video -> checkEpisodeSources(video) },
+                        episodeLabels = episodeLabels,
                         onBack = { selectedItem = null }
                     )
                 }
@@ -2102,12 +2136,18 @@ fun App() {
                     ) {
                         Text("الصق رابط الإضافة أو رابط manifest.json", fontSize = 13.sp)
                         Spacer(Modifier.height(10.dp))
+                        val clipboard = LocalClipboardManager.current
                         OutlinedTextField(
                             value = addonUrl,
                             onValueChange = { addonUrl = it },
                             singleLine = true,
                             placeholder = { Text("https://example.com/manifest.json") }
                         )
+                        TextButton(onClick = {
+                            clipboard.getText()?.text?.trim()
+                                ?.takeIf { it.startsWith("http") }
+                                ?.let { addonUrl = it }
+                        }) { Text("لصق من الحافظة", fontSize = 11.sp) }
                         if (suggestedSources.isNotEmpty()) {
                             val typed = suggestedQuery.trim()
                             val visible = if (typed.isEmpty()) suggestedSources

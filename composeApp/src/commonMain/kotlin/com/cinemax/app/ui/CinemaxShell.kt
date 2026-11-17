@@ -1130,6 +1130,8 @@ fun CinemaxDetailScreen(
     episodeSourceCounts: Map<String, Int> = emptyMap(),
     checkingEpisodeId: String? = null,
     onCheckEpisode: (StremioVideo) -> Unit = {},
+    /** S02E05-style labels derived from TMDB season lists, when a key is set. */
+    episodeLabels: Map<String, String> = emptyMap(),
     onBack: () -> Unit
 ) {
     val title = meta?.name ?: item.name
@@ -1355,7 +1357,8 @@ fun CinemaxDetailScreen(
                         onLongClick = { onToggleEpisodeWatched(episode) },
                         sourceCount = episodeSourceCounts[episode.id],
                         checking = checkingEpisodeId == episode.id,
-                        onCheckSources = { onCheckEpisode(episode) }
+                        onCheckSources = { onCheckEpisode(episode) },
+                        labelOverride = episodeLabels[episode.id]
                     )
                 }
             }
@@ -1489,7 +1492,8 @@ private fun EpisodeCard(
     onLongClick: (() -> Unit)? = null,
     sourceCount: Int? = null,
     checking: Boolean = false,
-    onCheckSources: (() -> Unit)? = null
+    onCheckSources: (() -> Unit)? = null,
+    labelOverride: String? = null
 ) {
     Row(
         modifier = Modifier
@@ -1514,7 +1518,7 @@ private fun EpisodeCard(
         }
         Column(Modifier.weight(1f)) {
             Text(
-                episodeLabel(episode),
+                labelOverride ?: episodeLabel(episode),
                 color = CinemaxPalette.text,
                 fontSize = 13.sp,
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
@@ -2098,6 +2102,9 @@ fun CinemaxSettingsScreen(
         }
         PreferenceSwitch("إخفاء المصادر المعطلة", preferences.hideDeadSources) {
             onPreferences(preferences.copy(hideDeadSources = it))
+        }
+        PreferenceSwitch("دمج مصادر العنوان من كل الكتالوجات", preferences.mergeCatalogSources) {
+            onPreferences(preferences.copy(mergeCatalogSources = it))
         }
         Text(
             "سجل جودة المصادر: $sourceStatCount رابطًا محفوظًا.",

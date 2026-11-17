@@ -20,7 +20,9 @@ data class CinemaxPreferences(
     /** Hide links that failed in the last day instead of only demoting them. */
     val hideDeadSources: Boolean = false,
     /** "auto", "4K", "1080p" or "720p": the quality "play the best source" prefers. */
-    val preferredQuality: String = "auto"
+    val preferredQuality: String = "auto",
+    /** Gather the sources of a film from every catalog id it was opened under. */
+    val mergeCatalogSources: Boolean = true
 )
 
 class CinemaxPreferencesStore(
@@ -38,7 +40,8 @@ class CinemaxPreferencesStore(
         preferredSpeed = settings.getFloat(SPEED, 1f),
         preferredPlayer = settings.getString(PLAYER, "mpv"),
         hideDeadSources = settings.getBoolean(HIDE_DEAD, false),
-        preferredQuality = settings.getString(QUALITY, "auto")
+        preferredQuality = settings.getString(QUALITY, "auto"),
+        mergeCatalogSources = settings.getBoolean(MERGE_CATALOGS, true)
     )
 
     fun save(value: CinemaxPreferences) {
@@ -54,6 +57,7 @@ class CinemaxPreferencesStore(
         settings.putString(PLAYER, value.preferredPlayer)
         settings.putBoolean(HIDE_DEAD, value.hideDeadSources)
         settings.putString(QUALITY, value.preferredQuality)
+        settings.putBoolean(MERGE_CATALOGS, value.mergeCatalogSources)
     }
 
     private companion object {
@@ -69,5 +73,6 @@ class CinemaxPreferencesStore(
         const val PLAYER = "cinemax.playback.player"
         const val HIDE_DEAD = "cinemax.sources.hidedead"
         const val QUALITY = "cinemax.sources.quality"
+        const val MERGE_CATALOGS = "cinemax.sources.mergecatalogs"
     }
 }
