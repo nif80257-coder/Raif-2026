@@ -1,6 +1,7 @@
 package com.cinemax.app
 
 import com.cinemax.app.addons.StremioMetaPreview
+import com.cinemax.app.core.canonicalMediaKey
 import com.russhwolf.settings.Settings
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
@@ -37,6 +38,14 @@ class WatchProgressStore(
         json.decodeFromString(ListSerializer(WatchProgress.serializer()), settings.getString(KEY, "[]"))
             .filter { it.positionMillis > 0L && it.durationMillis > 0L && it.positionMillis < it.durationMillis }
             .sortedByDescending { it.updatedAtEpochMillis }
+            .let { stored ->
+                // One movie resume point per title, even under two catalog ids.
+                val unique = stored.distinctBy { entry ->
+                    canonicalMediaKey(entry.item) + "|" + (entry.videoId ?: "")
+                }
+                if (unique.size != stored.size) saveAll(unique)
+                unique
+            }
     }.getOrDefault(emptyList())
 
     fun save(progress: WatchProgress) {
@@ -54,6 +63,11 @@ class WatchProgressStore(
     /** Forgets every resume point, for the "clear playback history" action. */
     fun clear() {
         settings.remove(KEY)
+    }
+
+    /** Rewrites the whole list, used by the one-time de-duplication on load. */
+    private fun saveAll(items: List<WatchProgress>) {
+        settings.putString(KEY, json.encodeToString(ListSerializer(WatchProgress.serializer()), items.take(MAX_ITEMS)))
     }
 
     private companion object {

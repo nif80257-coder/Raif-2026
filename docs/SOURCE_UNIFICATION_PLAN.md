@@ -49,15 +49,17 @@ Small, testable pieces, following the existing `core/` + store pattern (the Kotl
   "إخفاء المصادر المعطلة" preference, and the last-good link now stored as a
   fingerprint (`PlaybackSourceStore.loadFingerprint`) so a changed URL token still
   points at the source that worked.
-- **Phase 2 — core done, page merging open.** `core/MediaIdentity.kt` resolves an
-  identity (IMDb, then TMDB, then folded title + year, with a ±1 year and same-type
-  rule) and is used for favourite toggling, the resume lookup and search-result
-  de-duplication. `TitleAliasStore` remembers every catalog id a title has been
-  opened under, and the source sheet of a film gathers the sources of all of them,
-  which is the practical half of "one page per title"; the viewer chooses whether
-  that merging happens ("دمج مصادر العنوان من كل الكتالوجات" in Settings, on by
-  default). Merging two catalog entries into a single navigable page (and the
-  one-time key migration) remains open because it changes navigation.
+- **Phase 2 — done in practice.** `core/MediaIdentity.kt` resolves an identity
+  (IMDb, then TMDB, then folded title + year, with a ±1 year and same-type rule).
+  It de-duplicates search results, shelves, the saved list and the resume list
+  (`distinctTitles` on load, which also migrates the stored lists once), keeps one
+  favourite per title across catalogs, and finds the resume point by identity.
+  `TitleAliasStore` remembers every catalog id a title has been opened under, and
+  the source sheet of a film gathers the sources of all of them; the viewer chooses
+  whether that merging happens ("دمج مصادر العنوان من كل الكتالوجات", on by
+  default). What is deliberately *not* done is rewriting navigation so that two
+  already-rendered catalog cards navigate to the same page — de-duplication means a
+  title is only listed once, and its page already covers every id.
 - **Phase 3 — mostly done.** Episode positions come from fields or an "S02E05"
   tag, `absoluteEpisodeIndex` is tested, and per-episode availability is an
   on-demand count with "متوفرة حتى الحلقة N". With a TMDB key, `TmdbSeasons`

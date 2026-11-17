@@ -100,6 +100,7 @@ import com.cinemax.app.core.bestSource
 import com.cinemax.app.core.mergeSources
 import com.cinemax.app.core.absoluteToSeasonEpisode
 import com.cinemax.app.core.canonicalMediaKey
+import com.cinemax.app.core.distinctTitles
 import com.cinemax.app.core.episodeNumber
 import com.cinemax.app.core.isFailedRecently
 import com.cinemax.app.core.seasonLengthsOf
@@ -654,7 +655,7 @@ fun App() {
                         }
                         if (items.isEmpty()) null else CinemaxShelf(
                             title = catalog.name ?: catalog.id,
-                            items = items,
+                            items = distinctTitles(items),
                             manifestUrl = addon.manifestUrl,
                             catalogType = catalog.type,
                             catalogId = catalog.id,
@@ -1507,7 +1508,7 @@ fun App() {
             add(
                 CinemaxShelf(
                     title = title,
-                    items = catalogItems.toList(),
+                    items = distinctTitles(catalogItems.toList()),
                     manifestUrl = activeAddon?.manifestUrl,
                     catalogType = activeCatalogType,
                     catalogId = activeCatalogId,
