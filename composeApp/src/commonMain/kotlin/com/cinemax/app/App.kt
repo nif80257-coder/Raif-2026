@@ -340,6 +340,8 @@ fun App() {
     // addon's manifest answered.
     var addonHealth by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
     var addonCheckRunning by remember { mutableStateOf(false) }
+    /** Addons whose manifest advertises a newer version than the stored one. */
+    var addonUpdates by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     val embeddedSubtitleTracks = remember { mutableStateListOf<EmbeddedSubtitleTrack>() }
     var selectedEmbeddedTrackId by remember { mutableStateOf<Long?>(null) }
     // Set once a subtitle choice was made, so a late track list cannot override it.
@@ -933,22 +935,33 @@ fun App() {
                 val results = coroutineScope {
                     targets.map { addon ->
                         async {
-                            val ok = try {
+                            val manifest = try {
                                 repository.loadManifest(addon.manifestUrl)
-                                true
                             } catch (error: CancellationException) {
                                 throw error
                             } catch (_: Throwable) {
-                                false
+                                null
                             }
-                            addon.id to ok
+                            Triple(addon.id, manifest != null, manifest?.version)
                         }
                     }.awaitAll()
                 }
-                addonHealth = results.toMap()
+                addonHealth = results.associate { it.first to it.second }
+                addonUpdates = results.mapNotNull { entry ->
+                    val version = entry.third ?: return@mapNotNull null
+                    val installed = targets.firstOrNull { it.id == entry.first }?.version
+                    if (installed != null && version != installed) entry.first to version else null
+                }.toMap()
                 val dead = results.count { !it.second }
-                status = if (dead == 0) "كل الإضافات (${results.size}) تستجيب"
-                else "فحص المصادر: ${results.size - dead} يعمل و$dead متوقف"
+                val updates = addonUpdates.size
+                status = if (dead == 0 && updates == 0) "كل الإضافات (${results.size}) تستجيب"
+                else buildString {
+                    if (dead > 0) append("$dead متوقف")
+                    if (updates > 0) {
+                        if (isNotEmpty()) append(" • ")
+                        append("$updates تحديث متاح")
+                    }
+                }
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
                 status = "تعذر فحص المصادر: ${error.message ?: "خطأ غير معروف"}"
@@ -956,6 +969,40 @@ fun App() {
                 addonCheckRunning = false
             }
         }
+    }
+
+    /** Re-reads one addon's manifest and stores the refreshed descriptor. */
+    fun updateAddon(addon: InstalledAddon) {
+        scope.launch {
+            try {
+                val manifest = repository.loadManifest(addon.manifestUrl)
+                val refreshed = addon.copy(
+                    name = manifest.name,
+                    version = manifest.version,
+                    description = manifest.description,
+                    resources = manifest.resourceNames().toList(),
+                    types = manifest.types,
+                    idPrefixes = manifest.idPrefixes,
+                    catalogs = manifest.catalogs,
+                    configurable = manifest.behaviorHints.configurable
+                )
+                val index = addons.indexOfFirst { it.id == addon.id }
+                if (index >= 0) addons[index] = refreshed
+                addonStore.save(addons.toList())
+                repository.clearCaches()
+                addonUpdates = addonUpdates - addon.id
+                if (activeAddon?.id == addon.id) activeAddon = refreshed
+                status = "حُدّثت ${refreshed.name} إلى ${refreshed.version}"
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                status = "تعذر تحديث ${addon.name}: ${error.message ?: "خطأ غير معروف"}"
+            }
+        }
+    }
+
+    /** Updates every addon the last check found a newer version for. */
+    fun updateAllAddons() {
+        addons.filter { it.id in addonUpdates }.forEach { updateAddon(it) }
     }
 
     /** Drops every addon the last check found dead. */
@@ -1690,8 +1737,11 @@ fun App() {
                     addons = addons.toList(),
                     suggestedSourceCount = suggestedSources.size,
                     addonHealth = addonHealth,
+                    addonUpdates = addonUpdates,
                     checkingAddons = addonCheckRunning,
                     onCheckAddons = { checkAddons() },
+                    onUpdateAddon = { addon -> updateAddon(addon) },
+                    onUpdateAllAddons = { updateAllAddons() },
                     onRemoveDeadAddons = { removeDeadAddons() },
                     onClearSourceStats = { clearSourceStats() },
                     sourceStatCount = sourceStats.size,

@@ -16,6 +16,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -832,25 +833,28 @@ fun CinemaxSearchScreen(
                 lineHeight = 19.sp
             )
         } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 110.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(results.chunked(3), key = { row -> row.joinToString("|") { it.item.id } }) { row ->
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        row.forEach { entry ->
-                            GridPoster(
-                                item = entry.item,
-                                accent = accent,
-                                onClick = { onOpenItem(entry.item) },
-                                onLongClick = { onToggleFavorite(entry.item) },
-                                modifier = Modifier.weight(1f),
-                                sourceLabel = entry.addonName,
-                                status = statuses[entry.item.id]
-                            )
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                val columns = (maxWidth / 118.dp).toInt().coerceIn(2, 6)
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 110.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(results.chunked(columns), key = { row -> row.joinToString("|") { it.item.id } }) { row ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            row.forEach { entry ->
+                                GridPoster(
+                                    item = entry.item,
+                                    accent = accent,
+                                    onClick = { onOpenItem(entry.item) },
+                                    onLongClick = { onToggleFavorite(entry.item) },
+                                    modifier = Modifier.weight(1f),
+                                    sourceLabel = entry.addonName,
+                                    status = statuses[entry.item.id]
+                                )
+                            }
+                            repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
                         }
-                        repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
                     }
                 }
             }
@@ -1929,8 +1933,12 @@ fun CinemaxSettingsScreen(
     suggestedSourceCount: Int = 0,
     /** Result of the manual manifest check, keyed by addon id. */
     addonHealth: Map<String, Boolean> = emptyMap(),
+    /** Addons whose manifest advertises a newer version, id to that version. */
+    addonUpdates: Map<String, String> = emptyMap(),
     checkingAddons: Boolean = false,
     onCheckAddons: () -> Unit = {},
+    onUpdateAddon: (InstalledAddon) -> Unit = {},
+    onUpdateAllAddons: () -> Unit = {},
     onRemoveDeadAddons: () -> Unit = {},
     onClearSourceStats: () -> Unit = {},
     /** How many source links the app has a track record for. */
@@ -2113,6 +2121,11 @@ fun CinemaxSettingsScreen(
                     Text("أزل $dead متوقفة", fontSize = 12.sp)
                 }
             }
+            if (addonUpdates.isNotEmpty()) {
+                TextButton(onClick = onUpdateAllAddons) {
+                    Text("حدّث الكل (${addonUpdates.size})", fontSize = 12.sp)
+                }
+            }
         }
         PreferenceSwitch("إخفاء المصادر المعطلة", preferences.hideDeadSources) {
             onPreferences(preferences.copy(hideDeadSources = it))
@@ -2166,6 +2179,15 @@ fun CinemaxSettingsScreen(
                     )
                 }
                 TextButton(onClick = { onSelectAddon(addon) }) { Text("اختيار", fontSize = 12.sp) }
+                addonUpdates[addon.id]?.let { newer ->
+                    Text(
+                        "تحديث $newer",
+                        color = Color(0xFFFFC857),
+                        fontSize = 10.sp,
+                        maxLines = 1
+                    )
+                    TextButton(onClick = { onUpdateAddon(addon) }) { Text("حدّث", fontSize = 12.sp) }
+                }
                 val addonClipboard = LocalClipboardManager.current
                 TextButton(onClick = {
                     addonClipboard.setText(AnnotatedString(addon.manifestUrl))
