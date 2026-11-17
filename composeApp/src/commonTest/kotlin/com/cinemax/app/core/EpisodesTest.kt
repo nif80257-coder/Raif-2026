@@ -34,4 +34,21 @@ class EpisodesTest {
         assertNull(nextEpisode(null, videos))
         assertNull(nextEpisode(episode(1, 1), emptyList()))
     }
+
+    @Test
+    fun absoluteIndexCountsThroughTheWholeSeries() {
+        val videos = listOf(episode(1, 1), episode(1, 2), episode(2, 1))
+
+        assertEquals(3, absoluteEpisodeIndex(episode(2, 1), videos))
+        assertNull(absoluteEpisodeIndex(StremioVideo(id = "unknown"), videos))
+    }
+
+    @Test
+    fun anSxxExxTitleFillsMissingSeasonAndEpisodeFields() {
+        val tagged = StremioVideo(id = "tt1:2:5", name = "Show S02E05")
+
+        assertEquals(2, episodeSeason(tagged))
+        assertEquals(5, episodeNumber(tagged))
+        assertEquals("الموسم 2 • الحلقة 5 — Show S02E05", episodeLabel(tagged))
+    }
 }
