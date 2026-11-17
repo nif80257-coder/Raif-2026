@@ -10,6 +10,9 @@ import com.nuvio.app.features.home.HomeCatalogSettingsRepository
 import com.nuvio.app.features.profiles.ProfileRepository
 import io.github.jan.supabase.postgrest.postgrest
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -22,7 +25,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
@@ -67,11 +69,14 @@ object AddonRepository {
     private val pushJobsByProfile = mutableMapOf<Int, Job>()
 
     /**
-     * A cold start resolves every installed add-on, and this build ships sixty of them.
-     * Four at a time keeps the launch from opening sixty connections at once; the rest
-     * queue behind and fill in as they answer.
+     * A cold start resolves every installed add-on, and the shipped list has forty-two.
+     * Four at a time keeps the launch from opening every connection at once; the rest queue
+     * behind and fill in as they answer, and a paused source skips the queue entirely.
      */
     private val manifestRefreshSemaphore = Semaphore(4)
+
+    /** Marks that the retired bundled sources were already removed from this profile. */
+    private const val RETIRED_DEFAULTS_CACHE = "retired-default-addons-v2"
 
     fun initialize() {
         val effectiveProfileId = resolveEffectiveProfileId(ProfileRepository.activeProfileId)
@@ -79,6 +84,8 @@ object AddonRepository {
         initialized = true
         currentProfileId = effectiveProfileId
         log.d { "initialize() — loading local addons for profile $currentProfileId" }
+
+        pruneRetiredDefaultAddons(currentProfileId)
 
         val storedUrls = dedupeManifestUrls(AddonStorage.loadInstalledAddonUrls(currentProfileId))
         val enabledByUrl = loadLocalEnabledStates()
@@ -105,9 +112,14 @@ object AddonRepository {
             },
         )
 
+        val addonsByUrl = _uiState.value.addons.associateBy(ManagedAddon::manifestUrl)
+        // A paused source is not asked again at startup: its cached manifest still draws its
+        // shelves, and the pause exists precisely so a slow host stops costing launch time.
+        val pausedManifestUrls = AddonFailureMemory.pausedManifestUrls()
         storedUrls.forEachIndexed { index, manifestUrl ->
-            val addon = _uiState.value.addons.firstOrNull { it.manifestUrl == manifestUrl }
+            val addon = addonsByUrl[manifestUrl]
             if (addon?.enabled != true) return@forEachIndexed
+            if (manifestUrl in pausedManifestUrls) return@forEachIndexed
             if (cachedByUrl[manifestUrl]?.isFresh == true) return@forEachIndexed
             refreshAddon(
                 manifestUrl = manifestUrl,
@@ -116,6 +128,24 @@ object AddonRepository {
             )
         }
         CachedManifestStore.retainOnly(currentProfileId, storedUrls.toSet())
+    }
+
+    /**
+     * Removes the bundled sources that were dropped from the shipped list from a profile that
+     * still has them, once. A profile seeded before the list was checked keeps its own added
+     * sources; only the exact retired hosts go.
+     */
+    private fun pruneRetiredDefaultAddons(profileId: Int) {
+        if (AddonStorage.loadStartupCache(profileId, RETIRED_DEFAULTS_CACHE) != null) return
+        val storedUrls = AddonStorage.loadInstalledAddonUrls(profileId)
+        if (storedUrls.isNotEmpty()) {
+            val kept = storedUrls.filterNot(::isRetiredDefaultAddon)
+            if (kept.size != storedUrls.size) {
+                log.i { "Pruning ${storedUrls.size - kept.size} retired bundled add-ons" }
+                AddonStorage.saveInstalledAddonUrls(profileId, kept)
+            }
+        }
+        AddonStorage.saveStartupCache(profileId, RETIRED_DEFAULTS_CACHE, "1")
     }
 
     fun onProfileChanged(profileId: Int) {
@@ -194,6 +224,16 @@ object AddonRepository {
                     }.thenBy { it.index },
                 )
                 .map { it.value }
+                // The server row list can still carry sources that were dropped from the shipped
+                // list, because it was synced before the list was checked. Pruning on launch is
+                // not enough: the next pull would restore them.
+                .filterNot { row -> isRetiredDefaultAddon(row.manifestUrl) }
+            if (mergedRows.isEmpty() && storedUrls.isNotEmpty()) {
+                // A server copy that held nothing but retired sources must not leave the profile
+                // with no sources at all: the device list already installed stays in place.
+                log.w { "pullFromServer() — server list held only retired sources; keeping the local list" }
+                return
+            }
             val urls = mergedRows.map { row -> ensureManifestSuffix(row.manifestUrl) }
             log.i { "pullFromServer() — server returned ${rows.size} addons; merged ${urls.size}" }
             val cachedByUrl = CachedManifestStore.load(syncProfileId)
@@ -380,22 +420,21 @@ object AddonRepository {
                     delay(staggerIndex.coerceAtMost(MAX_MANIFEST_STAGGER_SLOTS) * MANIFEST_REFRESH_STAGGER_MS)
                 }
                 val result = runCatching {
-                    manifestRefreshSemaphore.withPermit {
-                        val payload = fetchAddonResponseText(
-                            url = manifestUrl,
-                            forceRefresh = forceRefresh,
-                        )
-                        val manifest = AddonManifestParser.parse(
-                            manifestUrl = manifestUrl,
-                            payload = payload,
-                        )
-                        CachedManifestStore.save(
-                            profileId = profileId,
-                            manifestUrl = manifestUrl,
-                            payload = payload,
-                        )
-                        manifest
-                    }
+                    val payload = fetchAddonResponseText(
+                        url = manifestUrl,
+                        forceRefresh = forceRefresh,
+                        gate = manifestRefreshSemaphore,
+                    )
+                    val manifest = AddonManifestParser.parse(
+                        manifestUrl = manifestUrl,
+                        payload = payload,
+                    )
+                    CachedManifestStore.save(
+                        profileId = profileId,
+                        manifestUrl = manifestUrl,
+                        payload = payload,
+                    )
+                    manifest
                 }
 
                 _uiState.update { current ->
@@ -558,35 +597,51 @@ object AddonRepository {
 
         var seedJob: Job? = null
         seedJob = scope.launch {
-            DefaultAddonSources.forEach { source ->
-                if (currentProfileId != profileId) return@launch
-                if (_uiState.value.addons.any { it.manifestUrl == source.manifestUrl }) return@forEach
+            val alreadyInstalled = _uiState.value.addons.mapTo(mutableSetOf()) { it.manifestUrl }
+            val results = coroutineScope {
+                DefaultAddonSources.map { source ->
+                    async {
+                        if (currentProfileId != profileId || source.manifestUrl in alreadyInstalled) {
+                            return@async false
+                        }
+                        val manifest = runCatching {
+                            val payload = fetchAddonResponseText(
+                                url = source.manifestUrl,
+                                gate = manifestRefreshSemaphore,
+                            )
+                            val parsed = AddonManifestParser.parse(
+                                manifestUrl = source.manifestUrl,
+                                payload = payload,
+                            )
+                            CachedManifestStore.save(
+                                profileId = profileId,
+                                manifestUrl = source.manifestUrl,
+                                payload = payload,
+                            )
+                            parsed
+                        }.getOrNull() ?: return@async false
+                        if (currentProfileId != profileId) return@async false
 
-                val manifest = runCatching {
-                    val payload = fetchAddonResponseText(source.manifestUrl)
-                    val parsed = AddonManifestParser.parse(
-                        manifestUrl = source.manifestUrl,
-                        payload = payload,
-                    )
-                    CachedManifestStore.save(
-                        profileId = profileId,
-                        manifestUrl = source.manifestUrl,
-                        payload = payload,
-                    )
-                    parsed
-                }.getOrNull() ?: return@forEach
-
-                _uiState.update { current ->
-                    current.copy(
-                        addons = current.addons + ManagedAddon(
-                            manifestUrl = source.manifestUrl,
-                            manifest = manifest,
-                            isRefreshing = false,
-                            errorMessage = null,
-                        ),
-                    )
-                }
+                        _uiState.update { current ->
+                            if (current.addons.any { it.manifestUrl == source.manifestUrl }) {
+                                current
+                            } else {
+                                current.copy(
+                                    addons = current.addons + ManagedAddon(
+                                        manifestUrl = source.manifestUrl,
+                                        manifest = manifest,
+                                        isRefreshing = false,
+                                        errorMessage = null,
+                                    ),
+                                )
+                            }
+                        }
+                        true
+                    }
+                }.awaitAll()
             }
+            if (currentProfileId != profileId) return@launch
+            log.d { "seedDefaultAddonsIfNeeded() — fetched ${results.count { it }} bundled manifests concurrently" }
 
             val seededUrls = _uiState.value.addons.map { it.manifestUrl }
             if (seededUrls.isEmpty()) {

@@ -15,6 +15,7 @@ internal actual object PlayerTrackPreferenceStorage {
     private const val audioNameKey = "audio_name"
     private const val audioTrackIdKey = "audio_track_id"
     private const val subtitleIsForcedKey = "subtitle_is_forced"
+    private const val preferredQualityRankKey = "preferred_quality_rank"
     private const val subtitleDelayMsKey = "subtitle_delay_ms"
     private const val audioDelayMsKey = "audio_delay_ms"
 
@@ -32,6 +33,7 @@ internal actual object PlayerTrackPreferenceStorage {
             audioName = loadString(audioNameKey, id),
             audioTrackId = loadString(audioTrackIdKey, id),
             subtitleIsForced = loadBoolean(subtitleIsForcedKey, id),
+            preferredQualityRank = loadInt(preferredQualityRankKey, id),
         )
         return preference.takeIf {
             listOf(
@@ -45,7 +47,7 @@ internal actual object PlayerTrackPreferenceStorage {
                 it.audioLanguage,
                 it.audioName,
                 it.audioTrackId,
-            ).any { value -> !value.isNullOrBlank() } || it.subtitleIsForced != null
+            ).any { value -> !value.isNullOrBlank() } || it.subtitleIsForced != null || it.preferredQualityRank != null
         }
     }
 
@@ -62,6 +64,7 @@ internal actual object PlayerTrackPreferenceStorage {
         saveOptionalString(audioNameKey, id, preference.audioName)
         saveOptionalString(audioTrackIdKey, id, preference.audioTrackId)
         saveOptionalBoolean(subtitleIsForcedKey, id, preference.subtitleIsForced)
+        saveOptionalInt(preferredQualityRankKey, id, preference.preferredQualityRank)
     }
 
     actual fun loadSubtitleDelayMs(videoId: String): Int? {
@@ -115,6 +118,22 @@ internal actual object PlayerTrackPreferenceStorage {
         val key = scopedKey(field, contentId)
         if (defaults.objectForKey(key) == null) return null
         return defaults.boolForKey(key)
+    }
+
+    private fun loadInt(field: String, contentId: String): Int? {
+        val defaults = NSUserDefaults.standardUserDefaults
+        val key = scopedKey(field, contentId)
+        return if (defaults.objectForKey(key) != null) defaults.integerForKey(key).toInt() else null
+    }
+
+    private fun saveOptionalInt(field: String, contentId: String, value: Int?) {
+        val defaults = NSUserDefaults.standardUserDefaults
+        val key = scopedKey(field, contentId)
+        if (value == null) {
+            defaults.removeObjectForKey(key)
+        } else {
+            defaults.setInteger(value.toLong(), forKey = key)
+        }
     }
 
     private fun saveOptionalBoolean(field: String, contentId: String, value: Boolean?) {

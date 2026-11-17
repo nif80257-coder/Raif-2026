@@ -10,6 +10,7 @@ import com.nuvio.app.core.poster.CustomPosterUrlRepository
 import com.nuvio.app.core.sync.ProfileSettingsSync
 import com.nuvio.app.core.sync.putSyncOriginClientId
 import com.nuvio.app.core.tracking.ensureTrackingProvidersRegistered
+import com.nuvio.app.features.addons.AddonPauseExceptions
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.collection.CollectionMobileSettingsRepository
 import com.nuvio.app.features.collection.CollectionRepository
@@ -295,6 +296,9 @@ object ProfileRepository {
     }
 
     suspend fun deleteProfile(profileIndex: Int) {
+        // The exceptions belong to the profile's own add-on list; a profile that comes back with
+        // the same index must not inherit pauses it never asked for.
+        AddonPauseExceptions.clear(profileIndex)
         if (AuthRepository.state.value.isAnonymous || !ServerConfigurationRepository.active.value.isCustom) {
             val remaining = _state.value.profiles.filter { it.profileIndex != profileIndex }
             ProfilePinCacheStorage.removePayload(profileIndex)

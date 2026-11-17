@@ -79,6 +79,7 @@ import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.build.TrailerPlaybackMode
 import com.nuvio.app.core.deeplink.buildMetaDeepLinkUrl
 import com.nuvio.app.core.share.PlatformShare
+import com.nuvio.app.features.party.PartyMedia
 import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.core.i18n.localizedSeasonEpisodeCode
@@ -183,6 +184,7 @@ fun MetaDetailsScreen(
     onBack: () -> Unit,
     onPlay: ((type: String, videoId: String, parentMetaId: String, parentMetaType: String, title: String, logo: String?, poster: String?, background: String?, seasonNumber: Int?, episodeNumber: Int?, episodeTitle: String?, episodeThumbnail: String?, pauseDescription: String?, resumePositionMs: Long?) -> Unit)? = null,
     onPlayManually: ((type: String, videoId: String, parentMetaId: String, parentMetaType: String, title: String, logo: String?, poster: String?, background: String?, seasonNumber: Int?, episodeNumber: Int?, episodeTitle: String?, episodeThumbnail: String?, pauseDescription: String?, resumePositionMs: Long?) -> Unit)? = null,
+    onWatchPartyClick: ((PartyMedia) -> Unit)? = null,
     onOpenMeta: ((MetaPreview) -> Unit)? = null,
     onCastClick: ((MetaPerson, String?) -> Unit)? = null,
     onCompanyClick: ((MetaCompany, String) -> Unit)? = null,
@@ -1319,6 +1321,27 @@ fun MetaDetailsScreen(
                                     onOpenMeta = onOpenMeta,
                                     onCastClick = onCastClick,
                                     onCompanyClick = onCompanyClick,
+                                    onWatchPartyClick = onWatchPartyClick?.let { openParty ->
+                                        {
+                                            val episode = seriesAction
+                                            openParty(
+                                                PartyMedia(
+                                                    type = meta.type,
+                                                    metaId = meta.id,
+                                                    metaType = meta.type,
+                                                    videoId = if (episode == null) meta.id else seriesStreamVideoId ?: episode.videoId,
+                                                    season = episode?.seasonNumber,
+                                                    episode = episode?.episodeNumber,
+                                                    title = meta.name,
+                                                    episodeTitle = episode?.episodeTitle,
+                                                    description = seriesActionVideo?.overview ?: meta.description,
+                                                    poster = meta.poster,
+                                                    background = meta.background,
+                                                    logo = meta.logo,
+                                                ),
+                                            )
+                                        }
+                                    },
                                     sharedTransitionScope = sharedTransitionScope,
                                     animatedVisibilityScope = animatedVisibilityScope,
                                     partyResume = offeredPartyResume?.let { suggestion ->
@@ -2008,6 +2031,7 @@ private fun LazyListScope.configuredMetaSectionItems(
     onOpenMeta: ((MetaPreview) -> Unit)?,
     onCastClick: ((MetaPerson, String?) -> Unit)?,
     onCompanyClick: ((MetaCompany, String) -> Unit)?,
+    onWatchPartyClick: ((PartyMedia) -> Unit)?,
     sharedTransitionScope: SharedTransitionScope?,
     animatedVisibilityScope: AnimatedVisibilityScope?,
     partyResume: PartyResumeCardData? = null,
@@ -2090,6 +2114,7 @@ private fun LazyListScope.configuredMetaSectionItems(
                     onOpenMeta = onOpenMeta,
                     onCastClick = onCastClick,
                     onCompanyClick = onCompanyClick,
+                    onWatchPartyClick = onWatchPartyClick,
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = animatedVisibilityScope,
                     partyResume = partyResume,
@@ -2320,6 +2345,7 @@ private fun ConfiguredMetaSections(
     onOpenMeta: ((MetaPreview) -> Unit)?,
     onCastClick: ((MetaPerson, String?) -> Unit)?,
     onCompanyClick: ((MetaCompany, String) -> Unit)?,
+    onWatchPartyClick: ((PartyMedia) -> Unit)?,
     sharedTransitionScope: SharedTransitionScope?,
     animatedVisibilityScope: AnimatedVisibilityScope?,
     partyResume: PartyResumeCardData? = null,
@@ -2365,6 +2391,23 @@ private fun ConfiguredMetaSections(
                                 buildMetaDeepLinkUrl(meta.type, meta.id),
                                 subject = meta.name,
                             )
+                        },
+                        onWatchPartyClick = onWatchPartyClick?.let { openParty ->
+                            {
+                                openParty(
+                                    PartyMedia(
+                                        type = meta.type,
+                                        metaId = meta.id,
+                                        metaType = meta.type,
+                                        videoId = meta.id,
+                                        title = meta.name,
+                                        description = meta.description,
+                                        poster = meta.poster,
+                                        background = meta.background,
+                                        logo = meta.logo,
+                                    ),
+                                )
+                            }
                         },
                     )
                     partyResume?.let { data ->

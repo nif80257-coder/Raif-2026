@@ -452,7 +452,7 @@ actual object PluginRepository {
                             supportedTypes = info.supportedTypes,
                             enabled = enabled,
                             manifestEnabled = info.enabled,
-                            hasSettings = info.hasSettings,
+                            hasSettings = info.hasSettings || code.contains("onSettings"),
                             logo = info.logo,
                             contentLanguage = info.contentLanguage ?: emptyList(),
                             formats = info.formats ?: info.supportedFormats,

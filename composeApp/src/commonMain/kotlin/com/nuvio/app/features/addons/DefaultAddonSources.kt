@@ -11,6 +11,70 @@ internal data class DefaultAddonSource(
     val manifestUrl: String,
 )
 
+/**
+ * Bundled sources that were dropped after checking every host live.
+ *
+ * Five were down (404, 503 or 526), Comet was shipped with neither a debrid service nor torrents
+ * so it could never return a stream, and AutoStream and Jackettio carried a Real-Debrid key
+ * inside their manifest URLs — a key that is not the user's and cannot work for them.
+ *
+ * Matched by host so the exact long config URLs do not have to be repeated here.
+ */
+internal val RetiredDefaultAddonHosts: List<String> = listOf(
+    // Down when checked.
+    "autostream-addon.onrender.com",
+    "comet.elfhosted.com",
+    "froststream.cloutteam.com",
+    "jackettio.elfhosted.com",
+    "sup-nyp1.onrender.com",
+    "dexter.q-1208.fun",
+    "rophim.q-1208.fun",
+    "filmwhisper.dev",
+    // Anime only.
+    "onepace.e6ip.com",
+    "fedew04.github.io",
+    // Catalogs, metadata or live channels beyond the three kept catalogs.
+    "aiometadata.elfhosted.com",
+    "7a82163c306e-stremio-netflix-catalog-addon",
+    "dc-timeline-stremio.onrender.com",
+    "marvel-timeline-stremio.onrender.com",
+    "stremio-torrentfreak.krazykayaker.com",
+    "top-streaming.stream",
+    // The exact USA TV Next manifest, not every add-on hosted on raw.githubusercontent.com: that
+    // host is where many hand-added add-ons live, and matching it by host retired all of them.
+    "raw.githubusercontent.com/yowmamasita/usa-tv-next",
+)
+
+/**
+ * The three catalog sources that stay installed: one global, one Arabic, one Arabic collections.
+ */
+internal val KeptCatalogAddonHosts: List<String> = listOf(
+    "v3-cinemeta.strem.io",
+    "arabcinemeta.osamayousry.com",
+    "collections.stremiolabar.com",
+)
+
+/** Subtitle providers, which are neither catalogs nor stream sources. */
+internal val KeptSubtitleAddonHosts: List<String> = listOf(
+    "subtito.com",
+    "subdl.strem.top",
+    "subsource.strem.top",
+    "submaker.elfhosted.com",
+    "opensubtitles-v3.strem.io",
+)
+
+internal fun isRetiredDefaultAddon(manifestUrl: String): Boolean =
+    RetiredDefaultAddonHosts.any { host -> manifestUrl.contains(host, ignoreCase = true) }
+
+/**
+ * Only the three catalogs, the subtitle providers, and every source that returns streams for
+ * movies and series. Catalogs other than the kept three are dropped so the install stays small.
+ */
+private fun isKeptDefaultAddon(manifestUrl: String): Boolean =
+    KeptCatalogAddonHosts.any { manifestUrl.contains(it, ignoreCase = true) } ||
+        KeptSubtitleAddonHosts.any { manifestUrl.contains(it, ignoreCase = true) } ||
+        !isRetiredDefaultAddon(manifestUrl)
+
 internal val DefaultAddonSources: List<DefaultAddonSource> = listOf(
     DefaultAddonSource("https://aiometadata.elfhosted.com/stremio/defc0604-c821-4d84-827f-02239172cde0/manifest.json"),
     DefaultAddonSource("https://torrentio.strem.fun/language=arabic|qualityfilter=480p,cam,other/manifest.json"),
@@ -72,4 +136,11 @@ internal val DefaultAddonSources: List<DefaultAddonSource> = listOf(
     DefaultAddonSource("http://manifest.desitvhub.eu.org/manifest.json"),
     DefaultAddonSource("https://muvibox.znzcloud.my.id/manifest.json"),
     DefaultAddonSource("https://stremio-movierulz-taupe.vercel.app/manifest.json"),
-)
+).filterNot { source -> isRetiredDefaultAddon(source.manifestUrl) }
+    .filter { source -> isKeptDefaultAddon(source.manifestUrl) }
+    // One entry per kept catalog host, so ArabCinemeta's two variants count once.
+    .distinctBy { source ->
+        KeptCatalogAddonHosts.firstOrNull { host ->
+            source.manifestUrl.contains(host, ignoreCase = true)
+        } ?: source.manifestUrl
+    }

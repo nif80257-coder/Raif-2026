@@ -52,6 +52,9 @@ internal object JsBindings {
                     var onSettings = (typeof module !== 'undefined' && module.exports && module.exports.onSettings) || globalThis.onSettings;
                     if (typeof onSettings === 'function') {
                         var layout = await onSettings();
+                        if (typeof layout === 'string') {
+                            try { layout = JSON.parse(layout); } catch (e) {}
+                        }
                         __capture_result(JSON.stringify(layout || []));
                     } else {
                         __capture_result("[]");

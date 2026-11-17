@@ -42,6 +42,22 @@ fun buildAddonCatalogRefreshSignature(addons: List<ManagedAddon>): List<String> 
         signature.value()
     }.sorted()
 
+/**
+ * Drops the catalogs whose source is paused after repeated stream failures, so one dead host
+ * cannot hold up the home shelves on every launch.
+ *
+ * The whole list comes back when the filter would remove every catalog, so a bad streak across
+ * the install never leaves the home screen with nothing to fetch. Sections that were already
+ * cached stay in place, so a resumed source comes back without a reload.
+ */
+fun List<HomeCatalogDefinition>.excludingPausedSources(
+    pausedManifestUrls: Set<String>,
+): List<HomeCatalogDefinition> {
+    if (pausedManifestUrls.isEmpty()) return this
+    return filterNot { definition -> definition.manifestUrl in pausedManifestUrls }
+        .ifEmpty { this }
+}
+
 fun buildHomeCatalogDefinitions(addons: List<ManagedAddon>): List<HomeCatalogDefinition> =
     addons.enabledAddons().mapNotNull { addon ->
         val manifest = addon.manifest ?: return@mapNotNull null

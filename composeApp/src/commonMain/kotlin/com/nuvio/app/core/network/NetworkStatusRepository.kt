@@ -6,6 +6,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -136,11 +138,13 @@ object NetworkStatusRepository {
             return NetworkCondition.NoInternet
         }
 
-        val supabaseReachable = SupabaseEndpointConfig.restEndpointUrls().any { url ->
-            probeReachable(
-                url = url,
-                headers = mapOf("apikey" to ServerConfigurationRepository.active.value.publishableKey),
-            )
+        val apikey = ServerConfigurationRepository.active.value.publishableKey
+        val supabaseReachable = coroutineScope {
+            // One reachable mirror is enough, and they are asked in parallel so a single slow
+            // endpoint costs one timeout instead of one timeout per endpoint.
+            SupabaseEndpointConfig.restEndpointUrls()
+                .map { url -> async { probeReachable(url = url, headers = mapOf("apikey" to apikey)) } }
+                .any { probe -> probe.await() }
         }
         if (!supabaseReachable) {
             return NetworkCondition.ServersUnreachable
@@ -150,7 +154,13 @@ object NetworkStatusRepository {
     }
 
     private suspend fun probePublicInternet(): Boolean =
-        probeReachable(PUBLIC_PROBE_PRIMARY) || probeReachable(PUBLIC_PROBE_FALLBACK)
+        coroutineScope {
+            // Both probes run together: the fallback is only needed when the primary fails, and
+            // waiting for them one after the other doubled the delay before the offline card.
+            val primary = async { probeReachable(PUBLIC_PROBE_PRIMARY) }
+            val fallback = async { probeReachable(PUBLIC_PROBE_FALLBACK) }
+            primary.await() || fallback.await()
+        }
 
     private suspend fun probeReachable(
         url: String,

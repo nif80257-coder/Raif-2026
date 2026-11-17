@@ -182,6 +182,29 @@ internal fun shouldReplaceProgressSnapshotEntry(
     return normalizedCandidate.lastUpdatedEpochMs > normalizedExisting.lastUpdatedEpochMs
 }
 
+/**
+ * Multi-device rule for in-progress playback: an older snapshot that sits further back than the
+ * row already stored must not pull the position backwards. A small rewind inside
+ * [FurthestProgressToleranceMs] still follows last-write-wins, so an intentional rewind on the
+ * device that made it is kept. Completion changes are left to [shouldReplaceProgressSnapshotEntry].
+ */
+internal fun shouldAcceptExternalProgress(
+    existing: WatchProgressEntry,
+    candidate: WatchProgressEntry,
+): Boolean {
+    val normalizedExisting = existing.normalizedCompletion()
+    val normalizedCandidate = candidate.normalizedCompletion()
+    if (normalizedExisting.isEffectivelyCompleted || normalizedCandidate.isEffectivelyCompleted) {
+        return shouldReplaceProgressSnapshotEntry(existing = normalizedExisting, candidate = normalizedCandidate)
+    }
+    val candidateIsOlder = normalizedCandidate.lastUpdatedEpochMs < normalizedExisting.lastUpdatedEpochMs
+    val candidateIsFurtherBack =
+        normalizedCandidate.lastPositionMs + FurthestProgressToleranceMs < normalizedExisting.lastPositionMs
+    return !(candidateIsOlder && candidateIsFurtherBack)
+}
+
+internal const val FurthestProgressToleranceMs = 30_000L
+
 internal fun shouldCascadeCompletedProgressToWatchedHistory(
     entry: WatchProgressEntry,
     providerOwnsCompletedHistory: Boolean,

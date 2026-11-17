@@ -255,7 +255,11 @@ private suspend fun executeTextRequest(
     AddonHttpClientProvider.get().newCall(request).execute().use { response ->
         val payload = readResponseBody(response.body)
         if (!response.isSuccessful) {
-            error(runBlocking { getString(Res.string.network_request_failed_http, response.code) })
+            throw AddonHttpStatusException(
+                statusCode = response.code,
+                retryAfterHeader = response.header("Retry-After"),
+                message = runBlocking { getString(Res.string.network_request_failed_http, response.code) },
+            )
         }
         if (payload.isBlank()) {
             throw IllegalStateException(runBlocking { getString(Res.string.network_empty_response_body) })

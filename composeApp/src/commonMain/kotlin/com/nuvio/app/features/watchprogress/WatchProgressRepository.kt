@@ -1207,6 +1207,9 @@ object WatchProgressRepository {
             val entry = localEntriesSnapshot().resolveIdentityForUpsert(candidate)
             val existing = localEntry(entry.resolvedProgressKey())
             if (existing != null && existing.lastUpdatedEpochMs >= entry.lastUpdatedEpochMs) return@forEach
+            if (existing != null && !shouldAcceptExternalProgress(existing = existing, candidate = entry)) {
+                return@forEach
+            }
             upsertLocalEntry(entry)
             changed = true
         }

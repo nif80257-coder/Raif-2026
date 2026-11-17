@@ -108,6 +108,30 @@ internal fun List<ManagedAddon>.firstEnabledManifestError(): String? =
         .mapNotNull { addon -> addon.errorMessage?.takeIf(String::isNotBlank) }
         .firstOrNull()
 
+/**
+ * The name to match on without resolving a localized fallback: filtering runs for every add-on
+ * on every keystroke, and [displayTitle]'s `runBlocking` lookup would block the frame each time.
+ */
+internal fun ManagedAddon.searchableTitle(): String =
+    userSetName?.takeIf { it.isNotBlank() && it != manifest?.name }
+        ?: manifest?.name
+        ?: manifestUrl.substringBefore("?").substringAfterLast("/")
+
+/**
+ * The installed add-ons whose name or manifest URL contains [query], ignoring case.
+ *
+ * A blank query returns the list unchanged, so the search field starts out showing every
+ * installed add-on.
+ */
+internal fun List<ManagedAddon>.matchingQuery(query: String): List<ManagedAddon> {
+    val needle = query.trim().lowercase()
+    if (needle.isEmpty()) return this
+    return filter { addon ->
+        addon.searchableTitle().lowercase().contains(needle) ||
+            addon.manifestUrl.lowercase().contains(needle)
+    }
+}
+
 sealed interface AddAddonResult {
     data class Success(val manifest: AddonManifest) : AddAddonResult
     data class Error(val message: String) : AddAddonResult

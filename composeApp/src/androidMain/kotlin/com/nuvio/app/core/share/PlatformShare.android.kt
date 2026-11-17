@@ -23,6 +23,18 @@ actual object PlatformShare {
         context.startActivity(chooser)
     }
 
+    actual fun sharePlainText(text: String) {
+        val context = appContext ?: return
+        val sendIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+        }
+        val chooser = Intent.createChooser(sendIntent, null).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(chooser)
+    }
+
     actual fun shareUrl(url: String, subject: String) {
         val context = appContext ?: return
         val sendIntent = Intent(Intent.ACTION_SEND).apply {

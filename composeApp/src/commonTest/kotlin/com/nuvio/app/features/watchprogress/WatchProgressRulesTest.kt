@@ -556,4 +556,66 @@ class WatchProgressRulesTest {
             source = source,
             progressKey = progressKey,
         )
+
+    @Test
+    fun `older snapshot further back than the stored position is rejected`() {
+        val stored = entry(
+            videoId = "movie-furthest",
+            lastUpdatedEpochMs = 5_000L,
+            lastPositionMs = 600_000L,
+        )
+        val staleDevice = stored.copy(
+            lastUpdatedEpochMs = 4_000L,
+            lastPositionMs = 120_000L,
+        )
+
+        assertFalse(shouldAcceptExternalProgress(existing = stored, candidate = staleDevice))
+    }
+
+    @Test
+    fun `newer snapshot behind the stored position is accepted as an intentional rewind`() {
+        val stored = entry(
+            videoId = "movie-rewind",
+            lastUpdatedEpochMs = 4_000L,
+            lastPositionMs = 600_000L,
+        )
+        val rewind = stored.copy(
+            lastUpdatedEpochMs = 5_000L,
+            lastPositionMs = 120_000L,
+        )
+
+        assertTrue(shouldAcceptExternalProgress(existing = stored, candidate = rewind))
+    }
+
+    @Test
+    fun `older snapshot within the tolerance still follows last write wins`() {
+        val stored = entry(
+            videoId = "movie-tolerance",
+            lastUpdatedEpochMs = 5_000L,
+            lastPositionMs = 600_000L,
+        )
+        val slightlyBehind = stored.copy(
+            lastUpdatedEpochMs = 4_000L,
+            lastPositionMs = 590_000L,
+        )
+
+        assertTrue(shouldAcceptExternalProgress(existing = stored, candidate = slightlyBehind))
+    }
+
+    @Test
+    fun `completion changes defer to the snapshot replacement rule`() {
+        val stored = entry(
+            videoId = "movie-complete",
+            lastUpdatedEpochMs = 5_000L,
+            lastPositionMs = 600_000L,
+        )
+        val completedElsewhere = stored.copy(
+            lastUpdatedEpochMs = 4_000L,
+            lastPositionMs = 0L,
+            isCompleted = true,
+            progressPercent = 100f,
+        )
+
+        assertTrue(shouldAcceptExternalProgress(existing = stored, candidate = completedElsewhere))
+    }
 }

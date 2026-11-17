@@ -1,6 +1,7 @@
 package com.nuvio.app.features.addons
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,13 +21,17 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -56,7 +61,9 @@ import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioSectionLabel
 import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.NuvioSurfaceCard
+import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.settings.SourcesTransferDialog
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
@@ -102,12 +109,53 @@ internal fun AddonsSettingsPageContent(
 
     val overview = remember(uiState.addons) { uiState.addons.toOverview() }
 
+    // Sources that failed three stream requests in a row and are waiting out their pause. The
+    // set is recomputed when the installed list changes or the user resumes them.
+    var health by remember { mutableStateOf(AddonsHealthUiState()) }
+    var pausedSourcesRefreshToken by remember { mutableStateOf(0) }
+    LaunchedEffect(pausedSourcesRefreshToken, uiState.addons.size) {
+        // One storage read for both the paused set and the per-source streaks.
+        val failures = AddonFailureMemory.snapshot()
+        health = AddonsHealthUiState(
+            pausedManifestUrls = failures.pausedManifestUrls,
+            neverPausedManifestUrls =
+                AddonPauseExceptions.neverPausedManifestUrls(ProfileRepository.activeProfileId),
+            failureStreaks = failures.failureStreaks,
+            failureReasons = failures.failureReasons,
+        )
+    }
+
+    // Typing stays responsive: the text field updates at once and the list filters after a
+    // short pause, instead of scanning every installed add-on on each keystroke.
+    var addonQueryInput by rememberSaveable { mutableStateOf("") }
+    var addonQuery by rememberSaveable { mutableStateOf("") }
+    LaunchedEffect(addonQueryInput) {
+        if (addonQueryInput == addonQuery) return@LaunchedEffect
+        delay(ADDON_SEARCH_DEBOUNCE_MS)
+        addonQuery = addonQueryInput
+    }
+    val visibleAddons = remember(uiState.addons, addonQuery) {
+        uiState.addons.matchingQuery(addonQuery)
+    }
+
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         SectionHeader(stringResource(Res.string.addons_section_overview))
         OverviewCard(overview = overview)
+
+        if (health.pausedManifestUrls.isNotEmpty()) {
+            PausedSourcesCard(
+                pausedCount = health.pausedManifestUrls.size,
+                onResume = {
+                    coroutineScope.launch {
+                        AddonFailureMemory.clearAll()
+                        pausedSourcesRefreshToken++
+                    }
+                },
+            )
+        }
 
         SectionHeader(stringResource(Res.string.sources_transfer_title))
         Button(
@@ -159,20 +207,78 @@ internal fun AddonsSettingsPageContent(
         if (uiState.addons.isEmpty()) {
             EmptyStateCard(usePersonalMediaCopy = usePersonalMediaCopy)
         } else {
-            val lastIndex = uiState.addons.lastIndex
-            uiState.addons.forEachIndexed { index, addon ->
+            NuvioInputField(
+                value = addonQueryInput,
+                onValueChange = { addonQueryInput = it },
+                placeholder = stringResource(Res.string.addons_search_placeholder),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            if (visibleAddons.isEmpty()) {
+                Text(
+                    text = stringResource(Res.string.addons_search_empty),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            // One index map for the whole list: searching the full list per row was O(n²).
+            val indexByManifestUrl = remember(uiState.addons) {
+                uiState.addons.withIndex().associate { (position, addon) ->
+                    addon.manifestUrl to position
+                }
+            }
+            // Grouped by how a source delivers its results: torrent (played by the built-in p2p
+            // engine), direct HTTP links, and the catalogs/subtitles that stream nothing.
+            val orderedAddons = remember(visibleAddons) {
+                visibleAddons.sortedBy { addon -> addon.transport().ordinal }
+            }
+            var renderedTransport: AddonTransport? = null
+            orderedAddons.forEach { addon ->
+                val transport = addon.transport()
+                if (transport != renderedTransport) {
+                    SectionHeader(
+                        when (transport) {
+                            AddonTransport.Torrent -> stringResource(Res.string.addons_group_torrent)
+                            AddonTransport.Direct -> stringResource(Res.string.addons_group_direct)
+                            AddonTransport.Catalog -> stringResource(Res.string.addons_group_catalog)
+                        },
+                    )
+                    renderedTransport = transport
+                }
+                val index = indexByManifestUrl[addon.manifestUrl] ?: -1
                 val manifest = addon.manifest
                 val behaviorHints = manifest?.behaviorHints
                 val showConfigureAction = behaviorHints?.configurable == true || behaviorHints?.configurationRequired == true
                 val configureUrl = addon.manifestUrl.toConfigureUrl()
                 InstalledAddonCard(
                     addon = addon,
+                    isPaused = addon.manifestUrl in health.pausedManifestUrls,
+                    failureStreak = health.failureStreaks[addon.manifestUrl] ?: 0,
+                    failureReason = health.failureReasons[addon.manifestUrl],
+                    isNeverPaused = addon.manifestUrl in health.neverPausedManifestUrls,
+                    onToggleNeverPaused = {
+                        AddonPauseExceptions.setNeverPaused(
+                            profileId = ProfileRepository.activeProfileId,
+                            manifestUrl = addon.manifestUrl,
+                            neverPaused = addon.manifestUrl !in health.neverPausedManifestUrls,
+                        )
+                        pausedSourcesRefreshToken++
+                    },
+                    onResumeClick = if (addon.manifestUrl in health.pausedManifestUrls) {
+                        {
+                            coroutineScope.launch {
+                                AddonFailureMemory.recordSuccess(addon.manifestUrl)
+                                pausedSourcesRefreshToken++
+                            }
+                        }
+                    } else {
+                        null
+                    },
                     onMoveUpClick = if (index > 0) {
                         { AddonRepository.moveAddon(index, index - 1) }
                     } else {
                         null
                     },
-                    onMoveDownClick = if (index < lastIndex) {
+                    onMoveDownClick = if (index >= 0 && index < uiState.addons.lastIndex) {
                         { AddonRepository.moveAddon(index, index + 1) }
                     } else {
                         null
@@ -394,6 +500,29 @@ private sealed interface AddonInstallModalState {
     }
 }
 
+private const val ADDON_SEARCH_DEBOUNCE_MS = 150L
+
+/** The per-source health the add-ons screen draws, filled from a single storage read. */
+private data class AddonsHealthUiState(
+    val pausedManifestUrls: Set<String> = emptySet(),
+    val neverPausedManifestUrls: Set<String> = emptySet(),
+    val failureStreaks: Map<String, Int> = emptyMap(),
+    val failureReasons: Map<String, AddonFailureReason> = emptyMap(),
+)
+
+/**
+ * The reason a source failed last time, in the user's language. Null when nothing is known, so the
+ * card falls back to the plain streak line.
+ */
+@Composable
+private fun addonFailureReasonLabel(reason: AddonFailureReason?): String? = when (reason) {
+    null -> null
+    AddonFailureReason.Timeout -> stringResource(Res.string.addons_failure_reason_timeout)
+    AddonFailureReason.NotFound -> stringResource(Res.string.addons_failure_reason_not_found)
+    AddonFailureReason.ServerError -> stringResource(Res.string.addons_failure_reason_server)
+    AddonFailureReason.Other -> stringResource(Res.string.addons_failure_reason_other)
+}
+
 @Composable
 private fun EmptyStateCard(
     usePersonalMediaCopy: Boolean,
@@ -428,6 +557,12 @@ private fun EmptyStateCard(
 @Composable
 private fun InstalledAddonCard(
     addon: ManagedAddon,
+    isPaused: Boolean,
+    failureStreak: Int,
+    failureReason: AddonFailureReason?,
+    isNeverPaused: Boolean,
+    onToggleNeverPaused: () -> Unit,
+    onResumeClick: (() -> Unit)?,
     onMoveUpClick: (() -> Unit)?,
     onMoveDownClick: (() -> Unit)?,
     onRefreshClick: () -> Unit,
@@ -436,6 +571,18 @@ private fun InstalledAddonCard(
     onDeleteClick: () -> Unit,
 ) {
     val manifest = addon.manifest
+    var extraEditing by remember { mutableStateOf<ExtraEditingTarget?>(null) }
+    val extraValues by AddonCatalogExtraValues
+        .values(ProfileRepository.activeProfileId)
+        .collectAsStateWithLifecycle()
+
+    extraEditing?.let { target ->
+        AddonExtraValueDialog(
+            target = target,
+            currentValue = extraValues[target.storageKey()],
+            onDismiss = { extraEditing = null },
+        )
+    }
 
     NuvioSurfaceCard {
         Row(
@@ -547,6 +694,41 @@ private fun InstalledAddonCard(
                     NuvioInfoBadge(text = stringResource(Res.string.addons_badge_configurable))
                 }
             }
+            if (isPaused) {
+                NuvioInfoBadge(text = stringResource(Res.string.addons_badge_paused))
+            }
+        }
+
+        if (failureStreak > 0) {
+            Spacer(modifier = Modifier.height(8.dp))
+            val reasonLabel = addonFailureReasonLabel(failureReason)
+            Text(
+                text = if (reasonLabel != null) {
+                    stringResource(Res.string.addons_failure_streak_with_reason, failureStreak, reasonLabel)
+                } else {
+                    stringResource(Res.string.addons_failure_streak, failureStreak)
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = if (isPaused) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        if (onResumeClick != null) {
+            Spacer(modifier = Modifier.height(8.dp))
+            TextButton(onClick = onResumeClick) {
+                Text(text = stringResource(Res.string.addons_resume))
+            }
+        }
+
+        if (failureStreak > 0) {
+            Spacer(modifier = Modifier.height(4.dp))
+            TextButton(onClick = onToggleNeverPaused) {
+                Text(
+                    text = stringResource(
+                        if (isNeverPaused) Res.string.addons_allow_pause else Res.string.addons_never_pause,
+                    ),
+                )
+            }
         }
 
         when {
@@ -585,6 +767,64 @@ private fun InstalledAddonCard(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                manifest.resources.forEach { resource ->
+                    val supportedTypes = resource.types.joinToString(" / ")
+                    val idRules = resource.idPrefixes.joinToString(prefix = " · ")
+                    Text(
+                        text = "${resource.name} · $supportedTypes$idRules",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                // A saved value's key is manifest#catalog#type#extra, so one pass over the keys
+                // yields every catalog that has values, instead of one pass per catalog.
+                val savedCatalogScopes = remember(extraValues, addon.manifestUrl) {
+                    extraValues.keys.mapTo(mutableSetOf()) { key -> key.substringBeforeLast('#') }
+                }
+                manifest.catalogs.forEach { catalog ->
+                    val hasSavedExtraValues =
+                        "${addon.manifestUrl.trim()}#${catalog.id.trim()}#${catalog.type.trim()}" in savedCatalogScopes
+                    Text(
+                        text = "${catalog.name} (${catalog.type})",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    if (hasSavedExtraValues) {
+                        TextButton(
+                            onClick = {
+                                AddonCatalogExtraValues.clearCatalogValues(
+                                    profileId = ProfileRepository.activeProfileId,
+                                    manifestUrl = addon.manifestUrl,
+                                    catalogId = catalog.id,
+                                    type = catalog.type,
+                                )
+                            },
+                        ) {
+                            Text(text = stringResource(Res.string.addons_extra_reset_catalog))
+                        }
+                    }
+                    catalog.extra.forEach { option ->
+                        AddonCatalogExtraRow(
+                            option = option,
+                            savedValue = extraValues[
+                                AddonCatalogExtraValues.storageKey(
+                                    manifestUrl = addon.manifestUrl,
+                                    catalogId = catalog.id,
+                                    type = catalog.type,
+                                    extraName = option.name,
+                                )
+                            ],
+                            onClick = {
+                                extraEditing = ExtraEditingTarget(
+                                    manifestUrl = addon.manifestUrl,
+                                    catalogId = catalog.id,
+                                    type = catalog.type,
+                                    option = option,
+                                )
+                            },
+                        )
+                    }
+                }
 
                 addon.errorMessage?.let { staleError ->
                     Spacer(modifier = Modifier.height(14.dp))
@@ -595,6 +835,30 @@ private fun InstalledAddonCard(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun PausedSourcesCard(
+    pausedCount: Int,
+    onResume: () -> Unit,
+) {
+    NuvioSurfaceCard {
+        Text(
+            text = stringResource(Res.string.addons_paused_title),
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = stringResource(Res.string.addons_paused_message, pausedCount),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        TextButton(onClick = onResume) {
+            Text(text = stringResource(Res.string.addons_paused_resume))
         }
     }
 }
@@ -648,11 +912,167 @@ private fun manifestSummary(manifest: AddonManifest): String {
     }
 }
 
-private fun String.toConfigureUrl(): String {
-    val base = substringBefore("?").trimEnd('/')
-    return if (base.endsWith("/manifest.json")) {
-        base.removeSuffix("/manifest.json") + "/configure"
-    } else {
-        "$base/configure"
+private fun String.toConfigureUrl(): String? {
+    val base = substringBefore("?").trimEnd('/').removeSuffix("/manifest.json")
+    val schemeEnd = base.indexOf("://")
+    if (schemeEnd < 0) return null
+    val authority = base.substring(schemeEnd + 3).substringBefore('/')
+    if (authority.isBlank()) return null
+    return "${base.substring(0, schemeEnd + 3)}$authority/configure"
+}
+
+
+private data class ExtraEditingTarget(
+    val manifestUrl: String,
+    val catalogId: String,
+    val type: String,
+    val option: AddonExtraProperty,
+) {
+    fun storageKey(): String =
+        AddonCatalogExtraValues.storageKey(
+            manifestUrl = manifestUrl,
+            catalogId = catalogId,
+            type = type,
+            extraName = option.name,
+        )
+}
+
+/**
+ * One catalog extra of an installed add-on. Shows the saved value and opens the
+ * picker; nothing is sent to the add-on until [CatalogRepository] builds its next
+ * catalog request with the saved values.
+ */
+@Composable
+private fun AddonCatalogExtraRow(
+    option: AddonExtraProperty,
+    savedValue: String?,
+    onClick: () -> Unit,
+) {
+    val choices = option.options.takeIf { it.isNotEmpty() }
+        ?.joinToString(prefix = ": ")
+        .orEmpty()
+    val required = if (option.isRequired) " *" else ""
+    val limit = option.optionsLimit?.let { " · ≤$it" }.orEmpty()
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp, horizontal = 4.dp),
+    ) {
+        Text(
+            text = "${option.name}$choices$required$limit",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = savedValue?.takeIf { it.isNotBlank() }
+                ?.let { stringResource(Res.string.addons_extra_selected, it) }
+                ?: stringResource(Res.string.addons_extra_tap_to_choose),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
+    }
+}
+
+@Composable
+private fun AddonExtraValueDialog(
+    target: ExtraEditingTarget,
+    currentValue: String?,
+    onDismiss: () -> Unit,
+) {
+    val option = target.option
+    var selected by remember(target) { mutableStateOf(currentValue) }
+    var customValue by remember(target) { mutableStateOf(currentValue.orEmpty()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = option.name,
+                style = MaterialTheme.typography.titleLarge,
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (option.options.isEmpty()) {
+                    OutlinedTextField(
+                        value = customValue,
+                        onValueChange = { customValue = it },
+                        label = { Text(stringResource(Res.string.addons_extra_custom_value)) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                } else {
+                    SelectableExtraChoice(
+                        label = stringResource(Res.string.addons_extra_default),
+                        checked = selected == null,
+                        onSelect = { selected = null },
+                    )
+                    option.options.forEach { choice ->
+                        SelectableExtraChoice(
+                            label = choice,
+                            checked = selected == choice,
+                            onSelect = { selected = choice },
+                        )
+                    }
+                }
+                Text(
+                    text = stringResource(Res.string.addons_extra_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val value = if (option.options.isEmpty()) {
+                        customValue.trim().takeIf { it.isNotBlank() }
+                    } else {
+                        selected?.takeIf { it.isNotBlank() }
+                    }
+                    AddonCatalogExtraValues.setValue(
+                        profileId = ProfileRepository.activeProfileId,
+                        manifestUrl = target.manifestUrl,
+                        catalogId = target.catalogId,
+                        type = target.type,
+                        extraName = option.name,
+                        value = value,
+                    )
+                    onDismiss()
+                },
+            ) {
+                Text(text = stringResource(Res.string.addons_extra_save))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(text = stringResource(Res.string.addons_extra_cancel))
+            }
+        },
+    )
+}
+
+@Composable
+private fun SelectableExtraChoice(
+    label: String,
+    checked: Boolean,
+    onSelect: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onSelect)
+            .padding(vertical = 2.dp, horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected = checked, onClick = null)
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
     }
 }

@@ -14,6 +14,7 @@ import com.nuvio.app.features.debrid.DebridStreamPresentation
 import com.nuvio.app.features.debrid.LocalDebridAvailabilityService
 import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.player.PlayerSettingsRepository
+import com.nuvio.app.features.player.loadPreferredSourceQualityRank
 import com.nuvio.app.features.plugins.PluginRepository
 import com.nuvio.app.features.plugins.pluginContentId
 import com.nuvio.app.features.plugins.PluginsUiState
@@ -29,6 +30,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.withPermit
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
 import kotlinx.coroutines.launch
@@ -212,6 +214,25 @@ object StreamsRepository {
                 )
             }
 
+        /**
+         * The quality the user settled on for this source last time. When a source
+         * list carries 4K next to 720p, the saved rank pulls the familiar tier first
+         * instead of always starting from the strongest advertised quality.
+         *
+         * Remembered per source for this load: a sixty-source install would otherwise read
+         * storage sixty times before the panel opens.
+         */
+        val preferredRanksByAddonId = mutableMapOf<String, Int?>()
+        fun preferredRankFor(addonId: String): Int? {
+            if (preferredRanksByAddonId.containsKey(addonId)) {
+                return preferredRanksByAddonId[addonId]
+            }
+            val rank = parentMetaId?.takeIf { it.isNotBlank() }
+                ?.let { loadPreferredSourceQualityRank(it, addonId) }
+            preferredRanksByAddonId[addonId] = rank
+            return rank
+        }
+
         log.d { "Found ${streamAddons.size} addons for stream type=$type id=$videoId" }
 
         if (streamAddons.isEmpty() && pluginProviderGroups.isEmpty() && serverSources.isEmpty()) {
@@ -254,7 +275,7 @@ object StreamsRepository {
                             addonLogo = addon.manifest.logoUrl,
                         )
                     }.getOrNull() ?: return@mapNotNull null
-                    addon.addonId to streams.sortedForGroupedDisplay()
+                    addon.addonId to streams.sortedForGroupedDisplay(preferredRankFor(addon.addonId))
                 }.toMap()
             }
 
@@ -517,28 +538,30 @@ object StreamsRepository {
                     log.d { "Fetching streams from: $url" }
 
                     val displayName = addon.addonName
-                    val outcome = runCatchingUnlessCancelled {
-                        val payload = fetchAddonResponseText(
-                            url = url,
-                            forceRefresh = forceRefresh,
-                        )
-                        StreamResponseCache.save(
-                            profileId = streamCacheProfileId,
-                            contentKey = streamContentKey,
-                            addonId = addon.addonId,
-                            payload = payload,
-                        )
-                        StreamParser.parse(
-                            payload = payload,
-                            addonName = displayName,
-                            addonId = addon.addonId,
-                            addonLogo = addon.manifest.logoUrl,
-                        )
+                    val outcome = streamSourceFetchSemaphore.withPermit {
+                        runCatchingUnlessCancelled {
+                            val payload = fetchAddonResponseText(
+                                url = url,
+                                forceRefresh = forceRefresh,
+                            )
+                            StreamResponseCache.save(
+                                profileId = streamCacheProfileId,
+                                contentKey = streamContentKey,
+                                addonId = addon.addonId,
+                                payload = payload,
+                            )
+                            StreamParser.parse(
+                                payload = payload,
+                                addonName = displayName,
+                                addonId = addon.addonId,
+                                addonLogo = addon.manifest.logoUrl,
+                            )
+                        }
                     }
                     if (outcome.isSuccess) {
                         AddonFailureMemory.recordSuccess(addon.manifestUrl)
                     } else {
-                        AddonFailureMemory.recordFailure(addon.manifestUrl)
+                        AddonFailureMemory.recordFailure(addon.manifestUrl, outcome.exceptionOrNull())
                     }
                     val group = outcome.fold(
                         onSuccess = { streams ->
@@ -546,7 +569,7 @@ object StreamsRepository {
                             AddonStreamGroup(
                                 addonName = displayName,
                                 addonId = addon.addonId,
-                                streams = streams,
+                                streams = streams.sortedForGroupedDisplay(preferredRankFor(addon.addonId)),
                                 isLoading = false,
                             )
                         },
@@ -566,46 +589,52 @@ object StreamsRepository {
             }
 
             serverSources.forEach { source ->
-                launch { publishCompletion(StreamLoadCompletion.Addon(source.load())) }
+                launch {
+                    streamSourceFetchSemaphore.withPermit {
+                        publishCompletion(StreamLoadCompletion.Addon(source.load()))
+                    }
+                }
             }
 
             pluginProviderGroups.forEach { providerGroup ->
                 val includeScraperNameInSubtitle = false
                 providerGroup.scrapers.forEach { scraper ->
                     launch {
-                        val completion = PluginRepository.executeScraper(
-                            scraper = scraper,
-                            tmdbId = pluginContentId(
-                                videoId = videoId,
+                        val completion = streamSourceFetchSemaphore.withPermit {
+                            PluginRepository.executeScraper(
+                                scraper = scraper,
+                                tmdbId = pluginContentId(
+                                    videoId = videoId,
+                                    season = season,
+                                    episode = episode,
+                                ),
+                                mediaType = type,
                                 season = season,
                                 episode = episode,
-                            ),
-                            mediaType = type,
-                            season = season,
-                            episode = episode,
-                        ).fold(
-                            onSuccess = { results ->
-                                StreamLoadCompletion.PluginScraper(
-                                    addonId = providerGroup.addonId,
-                                    streams = results.map { result ->
-                                        result.toStreamItem(
-                                            scraper = scraper,
-                                            addonName = providerGroup.addonName,
-                                            addonId = providerGroup.addonId,
-                                            includeScraperNameInSubtitle = includeScraperNameInSubtitle,
-                                        )
-                                    },
-                                    error = null,
-                                )
-                            },
-                            onFailure = { error ->
-                                StreamLoadCompletion.PluginScraper(
-                                    addonId = providerGroup.addonId,
-                                    streams = emptyList(),
-                                    error = error.message ?: getString(Res.string.streams_failed_to_load_scraper, scraper.name),
-                                )
-                            },
-                        )
+                            ).fold(
+                                onSuccess = { results ->
+                                    StreamLoadCompletion.PluginScraper(
+                                        addonId = providerGroup.addonId,
+                                        streams = results.map { result ->
+                                            result.toStreamItem(
+                                                scraper = scraper,
+                                                addonName = providerGroup.addonName,
+                                                addonId = providerGroup.addonId,
+                                                includeScraperNameInSubtitle = includeScraperNameInSubtitle,
+                                            )
+                                        },
+                                        error = null,
+                                    )
+                                },
+                                onFailure = { error ->
+                                    StreamLoadCompletion.PluginScraper(
+                                        addonId = providerGroup.addonId,
+                                        streams = emptyList(),
+                                        error = error.message ?: getString(Res.string.streams_failed_to_load_scraper, scraper.name),
+                                    )
+                                },
+                            )
+                        }
                         publishCompletion(completion)
                     }
                 }
@@ -634,7 +663,8 @@ object StreamsRepository {
                                         val mergedStreams = if (completion.streams.isEmpty()) {
                                             group.streams
                                         } else {
-                                            (group.streams + completion.streams).sortedForGroupedDisplay()
+                                            (group.streams + completion.streams)
+                                                .sortedForGroupedDisplay(preferredRankFor(group.addonId))
                                         }
                                         val stillLoading = remaining > 0
                                         val finalError = if (mergedStreams.isEmpty() && !stillLoading) {
@@ -663,6 +693,13 @@ object StreamsRepository {
                     }
 
                 }
+            }
+
+            // Every group has answered. The same file is often offered by several
+            // add-ons under different labels; keep one copy per source group so the
+            // list does not read as duplicates, preferring the stronger presentation.
+            _uiState.update { current ->
+                current.copy(groups = current.groups.deduplicatedAcrossSources())
             }
 
             for (availabilityJob in debridAvailabilityJobs) {

@@ -100,7 +100,7 @@ internal object PluginRuntime {
                     jsRuntime.use {
                         HostFunctions(
                             scraperId = scraperId,
-                            scraperSettingsJson = "{}",
+                            scraperSettingsJson = PluginStorage.loadScraperSettings(scraperId) ?: "{}",
                             onResult = { deferred.complete(it) },
                         ).register(this)
                         FetchBridge().register(this)

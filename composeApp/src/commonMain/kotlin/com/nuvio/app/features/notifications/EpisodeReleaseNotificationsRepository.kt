@@ -243,6 +243,15 @@ object EpisodeReleaseNotificationsRepository {
         }
     }
 
+    /**
+     * Background refresh: loads the saved follow list when needed, then reschedules and returns only
+     * once the work has finished, so the caller can report the outcome to the system.
+     */
+    suspend fun refreshForBackground() {
+        if (!hasLoaded) loadFromDisk()
+        syncAuthorizationState(refreshIfEnabled = true)
+    }
+
     private fun loadFromDisk() {
         hasLoaded = true
 

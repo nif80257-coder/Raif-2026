@@ -7,9 +7,14 @@ import com.nuvio.app.features.plugins.PluginRuntimeResult
 import com.nuvio.app.features.plugins.PluginScraper
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Semaphore
+import kotlin.math.abs
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.streams_plugin_repository_fallback
 import org.jetbrains.compose.resources.getString
+
+/** Upper bound on how many stream sources are being fetched at the same time. */
+internal val streamSourceFetchSemaphore = Semaphore(8)
 
 internal data class InstalledStreamAddonTarget(
     val addonName: String,
@@ -137,33 +142,108 @@ internal fun PluginRuntimeResult.toStreamItem(
     )
 }
 
-internal fun List<StreamItem>.sortedForGroupedDisplay(): List<StreamItem> =
-    sortedWith(
-        compareByDescending<StreamItem> { stream -> stream.qualityRank() }
-            .thenByDescending { stream -> stream.playbackReadinessRank() }
-            .thenBy { it.sourceName.orEmpty().lowercase() }
-            .thenBy { it.streamLabel.lowercase() }
-            .thenBy { it.streamSubtitle.orEmpty().lowercase() },
-    ).distinctBy { stream -> stream.dedupeKey() }
+/** One stream with the sort keys it is ranked by, built once instead of inside the comparator. */
+private data class RankedStream(
+    val stream: StreamItem,
+    val quality: Int,
+    val readiness: Int,
+    val sourceKey: String,
+    val labelKey: String,
+    val subtitleKey: String,
+)
+
+internal fun List<StreamItem>.sortedForGroupedDisplay(
+    preferredQualityRank: Int? = null,
+): List<StreamItem> {
+    if (isEmpty()) return this
+    // The comparator used to decode the quality out of each title on every comparison, which is
+    // O(n log n) string scans over a list that can carry hundreds of streams. Rank each stream
+    // once, then sort on plain integers.
+    val ranked = map { stream ->
+        RankedStream(
+            stream = stream,
+            quality = stream.qualityRank(),
+            readiness = stream.playbackReadinessRank(),
+            sourceKey = stream.sourceName.orEmpty().lowercase(),
+            labelKey = stream.streamLabel.lowercase(),
+            subtitleKey = stream.streamSubtitle.orEmpty().lowercase(),
+        )
+    }
+    return ranked.sortedWith(
+        compareBy<RankedStream> { item ->
+            preferredQualityRank?.let { preferred -> abs(item.quality - preferred) }
+                ?: -item.quality
+        }
+            .thenByDescending { item -> item.readiness }
+            .thenBy { item -> item.sourceKey }
+            .thenBy { item -> item.labelKey }
+            .thenBy { item -> item.subtitleKey },
+    ).map { item -> item.stream }
+        .distinctBy { stream -> stream.dedupeKey() }
+}
+
+internal fun List<AddonStreamGroup>.deduplicatedAcrossSources(): List<AddonStreamGroup> {
+    if (size < 2) return this
+    val retained = Array(size) { mutableListOf<StreamItem>() }
+    val candidates = flatMapIndexed { groupIndex, group ->
+        group.streams.mapIndexed { streamIndex, stream ->
+            Triple(groupIndex, streamIndex, stream)
+        }
+    }.sortedWith(
+        compareByDescending<Triple<Int, Int, StreamItem>> { it.third.qualityRank() }
+            .thenByDescending { it.third.playbackReadinessRank() }
+            .thenBy { it.first }
+            .thenBy { it.second },
+    )
+    val seen = mutableSetOf<String>()
+    candidates.forEach { (groupIndex, _, stream) ->
+        if (seen.add(stream.dedupeKey())) retained[groupIndex] += stream
+    }
+    return mapIndexed { index, group ->
+        group.copy(streams = retained[index].sortedForGroupedDisplay())
+    }
+}
 
 /**
  * The same file is often offered by two add-ons under different labels. Because this
  * runs after the quality sort, the copy that survives is the strongest one.
  */
 private fun StreamItem.dedupeKey(): String {
-    playableDirectUrl?.let { url -> return "url:$url" }
-    p2pInfoHash?.let { hash -> return "hash:$hash:${p2pFileIdx ?: 0}" }
-    externalOpenUrl?.let { url -> return "external:$url" }
+    serverTarget?.let { target ->
+        return "server:${target.item.encode()}:${target.mediaSourceId.orEmpty()}"
+    }
+    val requestHeaders = behaviorHints.proxyHeaders?.request.normalizedDedupeHeaders()
+    val responseHeaders = behaviorHints.proxyHeaders?.response.normalizedDedupeHeaders()
+    val resolveIdentity = clientResolve?.let { resolve ->
+        listOf(
+            resolve.service.orEmpty(),
+            resolve.serviceIndex?.toString().orEmpty(),
+            resolve.infoHash.orEmpty(),
+            resolve.fileIdx?.toString().orEmpty(),
+        ).joinToString("|")
+    }.orEmpty()
+    playableDirectUrl?.let { url ->
+        return "url:$url|type:${streamType.orEmpty()}|request:$requestHeaders|response:$responseHeaders|resolve:$resolveIdentity"
+    }
+    p2pInfoHash?.let { hash ->
+        return "hash:${hash.lowercase()}:${p2pFileIdx ?: -1}:${p2pTrackers.sorted().joinToString(",")}|resolve:$resolveIdentity"
+    }
+    externalOpenUrl?.let { url -> return "external:$url|request:$requestHeaders" }
     youTubeIdToResolve?.let { id -> return "youtube:$id" }
     return "label:$addonId:$streamLabel:${streamSubtitle.orEmpty()}"
 }
+
+private fun Map<String, String>?.normalizedDedupeHeaders(): String =
+    orEmpty().entries
+        .sortedBy { it.key.lowercase() }
+        .joinToString("&") { (key, value) -> "${key.lowercase()}=$value" }
 
 /**
  * The quality a source advertises in the text it shows. Sources are not obliged to
  * list themselves best-first, and this is what "a strong source" means to the user:
  * 4K before 1080p, HDR above plain, a remux above a re-encode.
  */
-private fun StreamItem.qualityRank(): Int {
+internal fun StreamItem.qualityRank(): Int {
     val text = listOf(streamLabel, streamSubtitle.orEmpty())
         .joinToString(separator = " ")
         .lowercase()

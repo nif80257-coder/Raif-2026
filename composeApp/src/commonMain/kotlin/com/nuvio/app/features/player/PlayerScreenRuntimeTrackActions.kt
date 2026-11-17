@@ -32,12 +32,41 @@ internal val PlayerScreenRuntime.selectedAddonSubtitle: AddonSubtitle?
             ?: visibleAddonSubtitles.findSelectedAddon(selectedId)
     }
 
+internal val PlayerScreenRuntime.trackPreferenceStorageKey: String
+    get() {
+        val sourceId = activeProviderAddonId?.takeIf(String::isNotBlank)
+            ?: activeSourceIdentityKey?.takeIf(String::isNotBlank)
+            ?: activeProviderName.takeIf(String::isNotBlank)
+        return sourceId?.let { sourceTrackPreferenceStorageKey(parentMetaId, it) } ?: parentMetaId
+    }
+
+internal fun PlayerScreenRuntime.loadTrackPreference(): PersistedPlayerTrackPreference? {
+    val source = PlayerTrackPreferenceStorage.load(trackPreferenceStorageKey)
+    val fallback = if (trackPreferenceStorageKey == parentMetaId) null else PlayerTrackPreferenceStorage.load(parentMetaId)
+    if (source == null) return fallback
+    if (fallback == null) return source
+    return source.copy(
+        subtitleType = source.subtitleType ?: fallback.subtitleType,
+        subtitleLanguage = source.subtitleLanguage ?: fallback.subtitleLanguage,
+        subtitleName = source.subtitleName ?: fallback.subtitleName,
+        subtitleTrackId = source.subtitleTrackId ?: fallback.subtitleTrackId,
+        addonSubtitleId = source.addonSubtitleId ?: fallback.addonSubtitleId,
+        addonSubtitleUrl = source.addonSubtitleUrl ?: fallback.addonSubtitleUrl,
+        addonSubtitleAddonName = source.addonSubtitleAddonName ?: fallback.addonSubtitleAddonName,
+        audioLanguage = source.audioLanguage ?: fallback.audioLanguage,
+        audioName = source.audioName ?: fallback.audioName,
+        audioTrackId = source.audioTrackId ?: fallback.audioTrackId,
+        subtitleIsForced = source.subtitleIsForced ?: fallback.subtitleIsForced,
+        preferredQualityRank = source.preferredQualityRank ?: fallback.preferredQualityRank,
+    )
+}
+
 internal fun PlayerScreenRuntime.updateTrackPreference(
     update: (PersistedPlayerTrackPreference) -> PersistedPlayerTrackPreference,
 ) {
     if (parentMetaId.isBlank()) return
-    val current = PlayerTrackPreferenceStorage.load(parentMetaId) ?: PersistedPlayerTrackPreference()
-    PlayerTrackPreferenceStorage.save(parentMetaId, update(current))
+    val current = loadTrackPreference() ?: PersistedPlayerTrackPreference()
+    PlayerTrackPreferenceStorage.save(trackPreferenceStorageKey, update(current))
 }
 
 internal fun PlayerScreenRuntime.persistAudioPreference(track: AudioTrack?) {
@@ -91,7 +120,7 @@ internal fun PlayerScreenRuntime.restorePersistedTrackPreferenceIfNeeded(): Bool
     // A pending carry-over describes the selection playing right now; it wins over the stored
     // preference (same ordering as NuvioTV).
     if (pendingEngineSwitchTrackPreference?.sourceIdentity == activePlaybackIdentity) return true
-    val preference = PlayerTrackPreferenceStorage.load(parentMetaId)
+    val preference = loadTrackPreference()
     if (preference == null) {
         trackPreferenceRestoreApplied = true
         return true

@@ -57,7 +57,7 @@ internal fun PlayerScreenRuntime.applyPreferredServerAudioTrack() {
     serverAudioPreferenceKey = key
     val index = preferredServerAudioIndex(
         tracks = serverAudioTracks,
-        preference = PlayerTrackPreferenceStorage.load(parentMetaId),
+        preference = loadTrackPreference(),
         targets = preferredAudioLanguageTargets,
     ) ?: return
     switchServerAudioTrack(index)

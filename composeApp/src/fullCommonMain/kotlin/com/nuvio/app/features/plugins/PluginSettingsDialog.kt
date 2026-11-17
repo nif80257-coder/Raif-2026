@@ -29,7 +29,14 @@ fun PluginSettingsDialog(
 ) {
     val json = remember { Json { ignoreUnknownKeys = true } }
     val layout = remember(layoutJson) {
-        runCatching { json.parseToJsonElement(layoutJson).jsonArray }.getOrElse { JsonArray(emptyList()) }
+        runCatching {
+            when (val root = json.parseToJsonElement(layoutJson)) {
+                is JsonArray -> root
+                is JsonObject -> (root["settings"] ?: root["layout"] ?: root["fields"]) as? JsonArray
+                    ?: JsonArray(emptyList())
+                else -> JsonArray(emptyList())
+            }
+        }.getOrElse { JsonArray(emptyList()) }
     }
 
     val savedSettingsJson = remember(scraperId) { PluginStorage.loadScraperSettings(scraperId) ?: "{}" }
@@ -92,7 +99,7 @@ fun PluginSettingsDialog(
                         }
                     }
                     "select" -> {
-                        val options = field["options"]?.jsonArray ?: JsonArray(emptyList())
+                        val options = field["options"] as? JsonArray ?: JsonArray(emptyList())
                         val defaultValue = field["defaultValue"]?.jsonPrimitive?.content ?: ""
                         val currentValue = currentSettings[key]?.jsonPrimitive?.content ?: defaultValue
                         
@@ -112,9 +119,20 @@ fun PluginSettingsDialog(
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        val selectedLabel = options.find { 
-                                            it.jsonObject["value"]?.jsonPrimitive?.content == currentValue 
-                                        }?.jsonObject?.get("label")?.jsonPrimitive?.content ?: currentValue
+                                        val selectedLabel = options.firstNotNullOfOrNull { optionElement ->
+                                            when (optionElement) {
+                                                is JsonObject -> {
+                                                    val value = optionElement["value"]?.jsonPrimitive?.contentOrNull
+                                                    if (value == currentValue) {
+                                                        optionElement["label"]?.jsonPrimitive?.contentOrNull ?: value
+                                                    } else {
+                                                        null
+                                                    }
+                                                }
+                                                is JsonPrimitive -> optionElement.contentOrNull?.takeIf { it == currentValue }
+                                                else -> null
+                                            }
+                                        } ?: currentValue
                                         
                                         Text(text = selectedLabel.ifBlank { "Select option" })
                                         Icon(Icons.Rounded.ArrowDropDown, contentDescription = null)
@@ -126,9 +144,14 @@ fun PluginSettingsDialog(
                                     modifier = Modifier.fillMaxWidth(0.8f)
                                 ) {
                                     options.forEach { optionElement ->
-                                        val option = optionElement.jsonObject
-                                        val optionLabel = option["label"]?.jsonPrimitive?.content ?: ""
-                                        val optionValue = option["value"]?.jsonPrimitive?.content ?: ""
+                                        val (optionLabel, optionValue) = when (optionElement) {
+                                            is JsonObject -> {
+                                                val value = optionElement["value"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                                                (optionElement["label"]?.jsonPrimitive?.contentOrNull ?: value) to value
+                                            }
+                                            is JsonPrimitive -> (optionElement.contentOrNull.orEmpty()) to (optionElement.contentOrNull.orEmpty())
+                                            else -> "" to ""
+                                        }
                                         MenuItem(
                                             text = optionLabel,
                                             selected = optionValue == currentValue,
@@ -149,7 +172,7 @@ fun PluginSettingsDialog(
                             }
                         }
                     }
-                    "toggle" -> {
+                    "toggle", "switch", "checkbox" -> {
                         val value = currentSettings[key]?.jsonPrimitive?.boolean ?: field["defaultValue"]?.jsonPrimitive?.boolean ?: false
                         Row(
                             modifier = Modifier.fillMaxWidth(),

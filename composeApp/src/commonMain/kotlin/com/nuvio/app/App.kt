@@ -19,8 +19,12 @@ import com.nuvio.app.core.ui.configurePlatformImageLoader
 import com.nuvio.app.core.ui.platformProvidesImageLoader
 import com.nuvio.app.features.settings.RaifUpdatesRepository
 import com.nuvio.app.features.settings.ThemeSettingsRepository
+import kotlinx.coroutines.delay
 import com.nuvio.app.navigation.AppRoute
 import com.nuvio.app.navigation.TabsRoute
+
+/** Pause before the automatic add-on update check, so it does not race the first screen. */
+private const val STARTUP_UPDATE_CHECK_DELAY_MS = 2_000L
 
 fun disposeRoute(route: AppRoute) {
     disposeRouteResources(route)
@@ -102,6 +106,9 @@ internal fun AppEnvironment(content: @Composable () -> Unit) {
     val customThemeColors by ThemeSettingsRepository.customThemeColors.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) {
+        // The daily add-on update check opens dozens of requests. Starting it two seconds in
+        // keeps it from competing with the first frame and the home shelves on a cold launch.
+        delay(STARTUP_UPDATE_CHECK_DELAY_MS)
         RaifUpdatesRepository.runAutomaticDailyCheck()
     }
 

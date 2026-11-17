@@ -35,6 +35,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -57,6 +58,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.nuvio.app.core.share.PlatformShare
 import com.nuvio.app.core.ui.DialogButton
 import com.nuvio.app.core.ui.DialogButtonStyle
 import com.nuvio.app.core.ui.DialogButtons
@@ -82,12 +84,14 @@ import nuvio.composeapp.generated.resources.party_host_only_note
 import nuvio.composeapp.generated.resources.party_host_only_title
 import nuvio.composeapp.generated.resources.party_invite_copied
 import nuvio.composeapp.generated.resources.party_invite_message
+import nuvio.composeapp.generated.resources.party_link_copied
 import nuvio.composeapp.generated.resources.party_leave
 import nuvio.composeapp.generated.resources.party_open_seat
 import nuvio.composeapp.generated.resources.party_reconnecting
 import nuvio.composeapp.generated.resources.party_remove_message
 import nuvio.composeapp.generated.resources.party_remove_title
 import nuvio.composeapp.generated.resources.party_seats
+import nuvio.composeapp.generated.resources.party_share_invite
 import nuvio.composeapp.generated.resources.party_share_description
 import nuvio.composeapp.generated.resources.party_share_title
 import nuvio.composeapp.generated.resources.party_you
@@ -104,6 +108,7 @@ internal fun PartyOverview(
     val clipboard = LocalClipboardManager.current
     val invite = stringResource(Res.string.party_invite_message, formatPartyCode(party.code), partyInviteLink(party.code))
     val copiedLabel = stringResource(Res.string.party_invite_copied)
+    val copiedLinkLabel = stringResource(Res.string.party_link_copied)
     var copied by remember { mutableStateOf(false) }
     var memberToRemove by remember { mutableStateOf<PartyMember?>(null) }
     LaunchedEffect(copied) {
@@ -122,7 +127,11 @@ internal fun PartyOverview(
     val copyLink = {
         clipboard.setText(AnnotatedString(link))
         haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-        NuvioToastController.show(copiedLabel)
+        NuvioToastController.show(copiedLinkLabel)
+    }
+    val shareInvite = {
+        haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+        PlatformShare.sharePlainText(invite)
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(24.dp)) {
@@ -133,6 +142,7 @@ internal fun PartyOverview(
             onCopy = copyInvite,
             link = link,
             onCopyLink = copyLink,
+            onShareInvite = shareInvite,
         )
         MembersSection(
             party = party,
@@ -165,6 +175,7 @@ private fun CodeSection(
     onCopy: () -> Unit,
     link: String,
     onCopyLink: () -> Unit,
+    onShareInvite: () -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -210,18 +221,46 @@ private fun CodeSection(
             }
         }
         CodeSlots(code = code)
-        Text(
-            text = link,
-            style = MaterialTheme.typography.labelSmall,
-            color = tokens.colors.textMuted,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
-                .clickable(onClick = onCopyLink)
-                .padding(vertical = 6.dp),
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = link,
+                style = MaterialTheme.typography.labelSmall,
+                color = tokens.colors.textMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(onClick = onCopyLink)
+                    .padding(vertical = 8.dp),
+            )
+            Row(
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(tokens.colors.surfaceCard)
+                    .clickable(onClick = onShareInvite)
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Share,
+                    contentDescription = null,
+                    tint = tokens.colors.accent,
+                    modifier = Modifier.size(16.dp),
+                )
+                Text(
+                    text = stringResource(Res.string.party_share_invite),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = tokens.colors.accent,
+                    maxLines = 1,
+                )
+            }
+        }
     }
 }
 

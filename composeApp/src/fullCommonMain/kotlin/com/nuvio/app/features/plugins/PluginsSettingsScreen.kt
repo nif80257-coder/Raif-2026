@@ -76,6 +76,8 @@ import nuvio.composeapp.generated.resources.plugins_section_providers
 import nuvio.composeapp.generated.resources.plugins_test_error_title
 import nuvio.composeapp.generated.resources.plugins_test_failed
 import nuvio.composeapp.generated.resources.plugins_test_results_count
+import nuvio.composeapp.generated.resources.plugins_settings_loading
+import nuvio.composeapp.generated.resources.plugins_settings_load_failed
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
@@ -98,6 +100,8 @@ fun PluginsSettingsPageContent(
 
     var configuringScraper by remember { mutableStateOf<PluginScraper?>(null) }
     var configuringLayout by remember { mutableStateOf<String?>(null) }
+    var loadingSettingsScraperId by remember { mutableStateOf<String?>(null) }
+    val settingsLoadErrors = remember { mutableStateMapOf<String, Boolean>() }
 
     val sortedRepos = remember(uiState.repositories) {
         uiState.repositories.sortedBy { it.name.lowercase() }
@@ -391,16 +395,28 @@ fun PluginsSettingsPageContent(
                             }
                         }
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (scraper.hasSettings) {
-                                IconButton(onClick = {
-                                    coroutineScope.launch {
-                                        val layout = PluginRuntime.getPluginSettingsLayout(scraper.code, scraper.id)
-                                        if (layout != null) {
-                                            configuringScraper = scraper
-                                            configuringLayout = layout
+                            if (scraper.hasSettings || scraper.code.contains("onSettings")) {
+                                IconButton(
+                                    enabled = loadingSettingsScraperId != scraper.id,
+                                    onClick = {
+                                        settingsLoadErrors.remove(scraper.id)
+                                        loadingSettingsScraperId = scraper.id
+                                        coroutineScope.launch {
+                                            val layout = runCatching {
+                                                PluginRuntime.getPluginSettingsLayout(scraper.code, scraper.id)
+                                            }.getOrNull()?.takeIf { it.isNotBlank() && it.trim() != "[]" }
+                                            if (layout == null) {
+                                                settingsLoadErrors[scraper.id] = true
+                                            } else {
+                                                configuringScraper = scraper
+                                                configuringLayout = layout
+                                            }
+                                            if (loadingSettingsScraperId == scraper.id) {
+                                                loadingSettingsScraperId = null
+                                            }
                                         }
-                                    }
-                                }) {
+                                    },
+                                ) {
                                     Icon(
                                         imageVector = Icons.Rounded.Settings,
                                         contentDescription = "Provider settings",
@@ -414,6 +430,21 @@ fun PluginsSettingsPageContent(
                                 enabled = scraper.manifestEnabled,
                             )
                         }
+                    }
+
+                    if (loadingSettingsScraperId == scraper.id) {
+                        Text(
+                            text = stringResource(Res.string.plugins_settings_loading),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (settingsLoadErrors[scraper.id] == true) {
+                        Text(
+                            text = stringResource(Res.string.plugins_settings_load_failed),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))

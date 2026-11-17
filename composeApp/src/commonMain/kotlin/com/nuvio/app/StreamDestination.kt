@@ -28,6 +28,7 @@ import com.nuvio.app.features.p2p.P2pSettingsRepository
 import com.nuvio.app.features.player.PlayerLaunch
 import com.nuvio.app.features.player.PlayerLaunchStore
 import com.nuvio.app.features.player.PlayerSettingsRepository
+import com.nuvio.app.features.player.persistStreamQualityPreference
 import com.nuvio.app.features.player.SubtitleRequestExtras
 import com.nuvio.app.features.player.resolveContentLanguage
 import com.nuvio.app.features.player.sanitizePlaybackHeaders
@@ -830,6 +831,7 @@ internal fun StreamDestination(
                 manualSelection = launch.manualSelection,
                 startFromBeginning = launch.startFromBeginning,
                 onStreamSelected = { stream, resolvedResumePositionMs, resolvedResumeProgressFraction ->
+                    persistStreamQualityPreference(launch.parentMetaId ?: effectiveVideoId, stream)
                     openSelectedStream(
                         stream = stream,
                         resolvedResumePositionMs = resolvedResumePositionMs,

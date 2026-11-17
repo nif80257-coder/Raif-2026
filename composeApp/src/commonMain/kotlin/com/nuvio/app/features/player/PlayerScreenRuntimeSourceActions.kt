@@ -245,6 +245,7 @@ internal fun PlayerScreenRuntime.switchToP2pSourceStream(stream: StreamItem) {
     activeSourceIdentityKey = stream.playerSourceIdentityKey()
     activeStreamTitle = stream.streamLabel
     activeStreamSubtitle = stream.streamSubtitle
+    persistStreamQualityPreference(parentMetaId, stream)
     activeProviderName = stream.addonName
     activeProviderAddonId = stream.addonId
     activeStream = stream
@@ -314,6 +315,7 @@ internal fun PlayerScreenRuntime.switchToSource(
                     PlayerStreamsRepository.loadSources(
                         type = contentType ?: parentMetaType,
                         videoId = vid,
+                        parentMetaId = parentMetaId,
                         season = activeSeasonNumber,
                         episode = activeEpisodeNumber,
                         forceRefresh = true,
@@ -328,6 +330,7 @@ internal fun PlayerScreenRuntime.switchToSource(
     }
     if (openExternalSourceUrl(stream)) return
     val url = stream.playableDirectUrl ?: return
+    persistStreamQualityPreference(parentMetaId, stream)
     val sourceIdentityKey = stream.playerSourceIdentityKey()
     if (url == activeSourceUrl) {
         activeSourceIdentityKey = sourceIdentityKey ?: activeSourceIdentityKey
@@ -351,6 +354,7 @@ internal fun PlayerScreenRuntime.switchToSource(
     activeStreamTitle = stream.streamLabel
     activeStreamSubtitle = stream.streamSubtitle
     activeStreamFilename = streamPlaybackFilename(stream, url)
+    persistStreamQualityPreference(parentMetaId, stream)
     activeProviderName = stream.addonName
     activeProviderAddonId = stream.addonId
     activeStream = stream
@@ -387,6 +391,7 @@ internal fun PlayerScreenRuntime.switchToEpisodeStream(
                 PlayerStreamsRepository.loadEpisodeStreams(
                     type = contentType ?: parentMetaType,
                     videoId = episode.id,
+                    parentMetaId = parentMetaId,
                     season = episode.season,
                     episode = episode.episode,
                     forceRefresh = true,
@@ -535,6 +540,7 @@ internal fun PlayerScreenRuntime.openSourcesPanel() {
     PlayerStreamsRepository.loadSources(
         type = contentType ?: parentMetaType,
         videoId = vid,
+        parentMetaId = parentMetaId,
         season = activeSeasonNumber,
         episode = activeEpisodeNumber,
     )
@@ -605,6 +611,7 @@ private fun PlayerScreenRuntime.applyEpisodeStreamMetadata(
     activeStreamTitle = stream.streamLabel
     activeStreamSubtitle = stream.streamSubtitle
     activeStreamFilename = streamPlaybackFilename(stream, stream.playableDirectUrl.orEmpty())
+    persistStreamQualityPreference(parentMetaId, stream)
     activeProviderName = stream.addonName
     activeProviderAddonId = stream.addonId
     activeStream = stream

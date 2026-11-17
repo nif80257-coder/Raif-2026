@@ -17,6 +17,7 @@ internal actual object PlayerTrackPreferenceStorage {
     private const val audioNameKey = "audio_name"
     private const val audioTrackIdKey = "audio_track_id"
     private const val subtitleIsForcedKey = "subtitle_is_forced"
+    private const val preferredQualityRankKey = "preferred_quality_rank"
     private const val subtitleDelayMsKey = "subtitle_delay_ms"
     private const val audioDelayMsKey = "audio_delay_ms"
 
@@ -40,6 +41,7 @@ internal actual object PlayerTrackPreferenceStorage {
             audioName = loadString(audioNameKey, id),
             audioTrackId = loadString(audioTrackIdKey, id),
             subtitleIsForced = loadBoolean(subtitleIsForcedKey, id),
+            preferredQualityRank = loadInt(preferredQualityRankKey, id),
         )
         return preference.takeIf {
             listOf(
@@ -53,7 +55,7 @@ internal actual object PlayerTrackPreferenceStorage {
                 it.audioLanguage,
                 it.audioName,
                 it.audioTrackId,
-            ).any { value -> !value.isNullOrBlank() } || it.subtitleIsForced != null
+            ).any { value -> !value.isNullOrBlank() } || it.subtitleIsForced != null || it.preferredQualityRank != null
         }
     }
 
@@ -71,6 +73,7 @@ internal actual object PlayerTrackPreferenceStorage {
             putOptionalString(audioNameKey, id, preference.audioName)
             putOptionalString(audioTrackIdKey, id, preference.audioTrackId)
             putOptionalBoolean(subtitleIsForcedKey, id, preference.subtitleIsForced)
+            putOptionalInt(preferredQualityRankKey, id, preference.preferredQualityRank)
         }?.apply()
     }
 
@@ -120,6 +123,22 @@ internal actual object PlayerTrackPreferenceStorage {
         val prefs = preferences ?: return null
         if (!prefs.contains(key)) return null
         return prefs.getBoolean(key, false)
+    }
+
+    private fun loadInt(field: String, contentId: String): Int? {
+        val key = scopedKey(field, contentId)
+        val prefs = preferences ?: return null
+        if (!prefs.contains(key)) return null
+        return prefs.getInt(key, 0)
+    }
+
+    private fun SharedPreferences.Editor.putOptionalInt(field: String, contentId: String, value: Int?) {
+        val key = scopedKey(field, contentId)
+        if (value == null) {
+            remove(key)
+        } else {
+            putInt(key, value)
+        }
     }
 
     private fun SharedPreferences.Editor.putOptionalBoolean(field: String, contentId: String, value: Boolean?) {

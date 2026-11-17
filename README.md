@@ -17,7 +17,7 @@ The product name is the ASCII `Raif` because it feeds `CFBundleExecutable`; ever
 
 ## Bundled sources
 
-`composeApp/src/commonMain/kotlin/com/nuvio/app/features/addons/DefaultAddonSources.kt` mirrors `Raif 2/raif-sources.json` (60 manifests). They are installed once per profile on first launch, on top of nothing: a profile that already has sources keeps them, an entry the user removes is not reinstalled, and the seeded marker lives in `AddonStorage.areDefaultAddonsSeeded` / `markDefaultAddonsSeeded`.
+`composeApp/src/commonMain/kotlin/com/nuvio/app/features/addons/DefaultAddonSources.kt` mirrors `Raif 2/raif-sources.json` (42 manifests: 3 catalogs, 5 subtitle providers and 34 stream sources that were checked live and need no debrid key). They are installed once per profile on first launch, on top of nothing: a profile that already has sources keeps them, an entry the user removes is not reinstalled, and the seeded marker lives in `AddonStorage.areDefaultAddonsSeeded` / `markDefaultAddonsSeeded`.
 
 The provider repository `https://raw.githubusercontent.com/tapframe/nuvio-providers/main/manifest.json` is seeded the same way by `fullCommonMain/.../plugins/PluginRepository.kt`.
 

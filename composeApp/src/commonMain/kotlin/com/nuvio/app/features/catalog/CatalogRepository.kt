@@ -2,10 +2,13 @@ package com.nuvio.app.features.catalog
 
 import com.nuvio.app.core.poster.CustomPosterUrlRepository
 import com.nuvio.app.core.poster.withCustomPosterUrls
+import com.nuvio.app.features.addons.AddonCatalogExtraValues
+import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.collection.CollectionRepository
 import com.nuvio.app.features.collection.TmdbCollectionSourceResolver
 import com.nuvio.app.features.collection.catalogRouteKey
 import com.nuvio.app.features.library.LibraryRepository
+import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.servers.ServerCatalog
 import com.nuvio.app.features.servers.serverMessage
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
@@ -142,14 +145,24 @@ object CatalogRepository {
         activeJob = scope.launch {
             runCatching {
                 when (val target = request.target) {
-                    is CatalogTarget.Addon -> fetchCatalogPage(
-                        manifestUrl = target.manifestUrl,
-                        type = target.contentType,
-                        catalogId = target.catalogId,
-                        genre = target.genre,
-                        skip = requestedSkip.takeIf { it > 0 },
-                        forceRefresh = forceRefresh,
-                    )
+                    is CatalogTarget.Addon -> {
+                        val savedExtraValues = AddonCatalogExtraValues.valuesForCatalog(
+                            profileId = ProfileRepository.activeProfileId,
+                            manifestUrl = target.manifestUrl,
+                            catalogId = target.catalogId,
+                            type = target.contentType,
+                            allowedNames = addonCatalogExtraNames(target),
+                        )
+                        fetchCatalogPage(
+                            manifestUrl = target.manifestUrl,
+                            type = target.contentType,
+                            catalogId = target.catalogId,
+                            genre = target.genre,
+                            skip = requestedSkip.takeIf { it > 0 },
+                            forceRefresh = forceRefresh,
+                            extraValues = savedExtraValues,
+                        )
+                    }
 
                     is CatalogTarget.CollectionSource -> fetchCollectionSourcePage(
                         target = target,
@@ -213,6 +226,21 @@ object CatalogRepository {
             hideUnreleasedContent = HomeCatalogSettingsRepository.snapshot().hideUnreleasedContent,
         )
 }
+
+/**
+ * The extra property names the current manifest declares for this catalog. When the
+ * manifest is not loaded yet (or the add-on was removed), no extras are allowed and
+ * no saved values are sent.
+ */
+private fun addonCatalogExtraNames(target: CatalogTarget.Addon): Set<String> =
+    AddonRepository.uiState.value.addons
+        .firstOrNull { addon -> addon.manifestUrl == target.manifestUrl }
+        ?.manifest
+        ?.catalogs
+        ?.firstOrNull { catalog -> catalog.id == target.catalogId && catalog.type == target.contentType }
+        ?.extra
+        ?.mapTo(mutableSetOf()) { extra -> extra.name }
+        ?: emptySet()
 
 private fun CatalogPage.withUnreleasedFilter(hideUnreleasedContent: Boolean): CatalogPage {
     if (!hideUnreleasedContent) return this

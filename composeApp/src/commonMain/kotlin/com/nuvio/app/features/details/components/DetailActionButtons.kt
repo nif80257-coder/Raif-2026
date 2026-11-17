@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.CheckCircleOutline
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -55,6 +56,7 @@ import nuvio.composeapp.generated.resources.hero_mark_unwatched
 import nuvio.composeapp.generated.resources.hero_mark_watched
 import nuvio.composeapp.generated.resources.hero_remove_from_library
 import nuvio.composeapp.generated.resources.playback_unavailable
+import nuvio.composeapp.generated.resources.party_title
 import nuvio.composeapp.generated.resources.random_episode_title
 import nuvio.composeapp.generated.resources.shuffle_stop
 import org.jetbrains.compose.resources.stringResource
@@ -259,6 +261,7 @@ fun DetailActions(
     onSaveClick: () -> Unit,
     onSaveLongClick: (() -> Unit)?,
     onShareClick: (() -> Unit)? = null,
+    onWatchPartyClick: (() -> Unit)? = null,
 ) {
     val shuffleAction = onShuffleClick?.let { onClick ->
         DetailSecondaryAction(
@@ -296,6 +299,15 @@ fun DetailActions(
                     DetailSecondaryAction(
                         label = stringResource(Res.string.details_action_share),
                         icon = Icons.Default.Share,
+                        onClick = onClick,
+                    ),
+                )
+            }
+            onWatchPartyClick?.let { onClick ->
+                add(
+                    DetailSecondaryAction(
+                        label = stringResource(Res.string.party_title),
+                        icon = Icons.Rounded.Groups,
                         onClick = onClick,
                     ),
                 )

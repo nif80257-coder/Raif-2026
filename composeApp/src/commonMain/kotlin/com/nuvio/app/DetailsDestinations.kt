@@ -17,12 +17,8 @@ import com.nuvio.app.navigation.DetailRoute
 import com.nuvio.app.navigation.EntityBrowseRoute
 import com.nuvio.app.navigation.NuvioNavigator
 import com.nuvio.app.navigation.PersonDetailRoute
+import com.nuvio.app.features.party.PartyMedia
 import kotlinx.coroutines.launch
-import nuvio.composeapp.generated.resources.Res
-import nuvio.composeapp.generated.resources.person_role_creator
-import nuvio.composeapp.generated.resources.person_role_director
-import nuvio.composeapp.generated.resources.person_role_writer
-import org.jetbrains.compose.resources.stringResource
 
 internal typealias ContentPlayAction = (
     type: String,
@@ -70,20 +66,24 @@ internal fun DetailsDestination(
     navController: NuvioNavigator,
     onPlay: ContentPlayAction,
     onPlayManually: ContentPlayAction,
+    onWatchParty: (PartyMedia) -> Unit,
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
 ) {
     val onBack = rememberGuardedPopBackStack(navController, route)
     val onOpenMeta = rememberOpenMeta(navController)
-    val directorRole = stringResource(Res.string.person_role_director)
-    val writerRole = stringResource(Res.string.person_role_writer)
-    val creatorRole = stringResource(Res.string.person_role_creator)
+    // Roles come from TMDB in English; comparing them by their literal names is
+    // what preferCrew expects, so these stay untranslated on purpose.
+    val directorRole = "Director"
+    val writerRole = "Writer"
+    val creatorRole = "Creator"
     MetaDetailsScreen(
         type = route.type,
         id = route.id,
         onBack = onBack,
         onPlay = onPlay,
         onPlayManually = onPlayManually,
+        onWatchPartyClick = onWatchParty,
         onOpenMeta = onOpenMeta,
         onCastClick = { person, avatarTransitionKey ->
             val tmdbId = person.tmdbId

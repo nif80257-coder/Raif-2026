@@ -128,11 +128,14 @@ object SubtitleRepository {
 
         _loadingProgress.value = SubtitleLoadingProgress(total = requests.size)
         loadAddonSubtitles(requests) { request, subtitles ->
-            _addonSubtitles.update { it + subtitles }
+            // Keep the Arabic tracks at the top as the answers stream in, instead of showing
+            // whichever add-on replied first.
+            _addonSubtitles.update { current -> orderedAddonSubtitles(current + subtitles) }
             _loadingProgress.update { progress ->
                 progress?.copy(completed = progress.completed + 1, addonName = request.addonName)
             }
         }
+        _addonSubtitles.update { current -> orderedAddonSubtitles(current) }
 
         if (_addonSubtitles.value.isEmpty()) {
             _error.value = getString(Res.string.compose_player_no_subtitles_found)

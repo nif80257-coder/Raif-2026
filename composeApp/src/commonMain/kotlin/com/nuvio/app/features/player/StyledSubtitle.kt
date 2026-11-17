@@ -70,7 +70,7 @@ internal fun StyledSubtitleText(
                 fontSize = (style.fontSizeSp * scale).sp,
                 fontWeight = if (style.bold) FontWeight.Bold else FontWeight.Normal,
                 textAlign = TextAlign.Center,
-                textDirection = TextDirection.ContentOrLtr,
+                textDirection = TextDirection.ContentOrRtl,
             ),
             constraints = Constraints(maxWidth = maxTextWidth),
         )

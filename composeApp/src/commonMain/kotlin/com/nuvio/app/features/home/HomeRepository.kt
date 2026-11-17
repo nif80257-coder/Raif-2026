@@ -1,5 +1,6 @@
 package com.nuvio.app.features.home
 
+import com.nuvio.app.features.addons.AddonFailureMemory
 import com.nuvio.app.features.addons.ManagedAddon
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.enabledAddons
@@ -57,6 +58,12 @@ object HomeRepository {
         val requestKey = requests.joinToString(separator = "|", transform = HomeCatalogDefinition::cacheKey)
         currentRequestKey = requestKey
 
+        // A manual refresh asks every source again; an automatic one skips the sources that are
+        // paused after repeated failures.
+        val fetchRequests = requests.excludingPausedSources(
+            pausedManifestUrls = if (force) emptySet() else AddonFailureMemory.pausedManifestUrls(),
+        )
+
         if (!force && activeRequestKey == requestKey && _uiState.value.isLoading) return
         activeRequestKey = requestKey
 
@@ -83,7 +90,7 @@ object HomeRepository {
         _uiState.update { it.copy(isLoading = true, errorMessage = null) }
         activeJob = scope.launch {
             val prioritizedRequests = prioritizeDefinitions(
-                definitions = requests,
+                definitions = fetchRequests,
                 snapshot = HomeCatalogSettingsRepository.snapshot(),
             )
             val loadedSections = linkedMapOf<String, HomeCatalogSection>().apply {
