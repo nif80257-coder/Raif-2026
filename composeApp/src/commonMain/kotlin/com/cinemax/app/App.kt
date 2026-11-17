@@ -126,6 +126,8 @@ import io.ktor.client.request.head
 import io.ktor.client.statement.bodyAsText
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -2315,29 +2317,46 @@ private fun SubtitleRow(
     }
 }
 
-/** Asks each installed addon that serves metadata until one returns the item. */
+/**
+ * Asks every installed addon that serves metadata at once and takes the first
+ * answer in install order, so a dead addon cannot hold the detail screen for its
+ * full request timeout. Each call is capped by [META_TIMEOUT_MS].
+ */
 private suspend fun metaFrom(
     repository: AddonRepository,
     addons: List<InstalledAddon>,
     type: String,
     mediaId: String
-): StremioMeta? {
-    for (addon in addons.filter { AddonCapabilities.supportsMeta(it, type) }) {
-        val meta = try {
-            repository.loadMeta(addon.manifestUrl, type, mediaId)
-        } catch (error: CancellationException) {
-            throw error
-        } catch (_: Throwable) {
-            null
+): StremioMeta? = coroutineScope {
+    val candidates = addons.filter { AddonCapabilities.supportsMeta(it, type) }
+    if (candidates.isEmpty()) return@coroutineScope null
+    val requests = candidates.map { addon ->
+        async {
+            try {
+                withTimeout(META_TIMEOUT_MS) {
+                    repository.loadMeta(addon.manifestUrl, type, mediaId)
+                }
+            } catch (_: TimeoutCancellationException) {
+                null
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Throwable) {
+                null
+            }
         }
-        if (meta != null) return meta
     }
-    return null
+    var found: StremioMeta? = null
+    for (request in requests) {
+        found = request.await()
+        if (found != null) break
+    }
+    found
 }
 
 /**
  * Collects sources from every installed addon that serves streams for the type,
- * in parallel. A failing addon must not hide the sources of the others.
+ * in parallel. A failing addon must not hide the sources of the others, and one
+ * that hangs is abandoned after [STREAM_TIMEOUT_MS] instead of holding the list.
  */
 private suspend fun streamsFrom(
     repository: AddonRepository,
@@ -2349,18 +2368,24 @@ private suspend fun streamsFrom(
         .filter { AddonCapabilities.supportsStreams(it, type, mediaId) }
         .map { addon ->
             async {
-                val found = try {
-                    repository.loadStreams(addon.manifestUrl, type, mediaId)
-                        .map { StreamOption(addon.id, addon.name, it) }
+                try {
+                    withTimeout(STREAM_TIMEOUT_MS) {
+                        repository.loadStreams(addon.manifestUrl, type, mediaId)
+                            .map { StreamOption(addon.id, addon.name, it) }
+                    }
+                } catch (_: TimeoutCancellationException) {
+                    emptyList<StreamOption>()
                 } catch (error: CancellationException) {
                     throw error
                 } catch (_: Throwable) {
                     emptyList<StreamOption>()
                 }
-                found
             }
         }
     requests.awaitAll().flatten().distinctBy { option ->
         option.stream.url ?: "torrent:${option.stream.infoHash}:${option.stream.fileIdx}"
     }
 }
+
+private const val META_TIMEOUT_MS = 10_000L
+private const val STREAM_TIMEOUT_MS = 15_000L

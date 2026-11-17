@@ -1,11 +1,13 @@
 package com.cinemax.app.addons
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 
 /** A catalog item together with the addon that returned it. */
 data class CatalogEntry(
@@ -95,7 +97,11 @@ private suspend fun searchOneAddon(
     }
     for (catalog in catalogs) {
         val items = try {
-            repository.searchCatalog(addon.manifestUrl, catalog.type, catalog.id, query)
+            withTimeout(SEARCH_TIMEOUT_MS) {
+                repository.searchCatalog(addon.manifestUrl, catalog.type, catalog.id, query)
+            }
+        } catch (_: TimeoutCancellationException) {
+            emptyList()
         } catch (error: CancellationException) {
             throw error
         } catch (_: Throwable) {
@@ -105,3 +111,6 @@ private suspend fun searchOneAddon(
     }
     return results
 }
+
+/** One slow addon drops out of the search instead of holding the whole list. */
+private const val SEARCH_TIMEOUT_MS = 12_000L
