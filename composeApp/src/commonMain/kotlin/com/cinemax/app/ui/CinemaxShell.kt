@@ -1670,12 +1670,21 @@ private fun SourceCard(
             )
         }
         if (onPin != null) {
-            TextButton(onClick = onPin) {
-                Text(
-                    if (isPinned) "★ مصدر مفضل" else "☆ اجعله المصدر المفضل",
-                    color = accent,
-                    fontSize = 11.sp
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = onPin) {
+                    Text(
+                        if (isPinned) "★ مصدر مفضل" else "☆ اجعله المصدر المفضل",
+                        color = accent,
+                        fontSize = 11.sp
+                    )
+                }
+                val clipboard = LocalClipboardManager.current
+                if (playable) {
+                    TextButton(onClick = {
+                        clipboard.setText(AnnotatedString(stream.url.orEmpty()))
+                        hapticTap()
+                    }) { Text("نسخ الرابط", color = CinemaxPalette.textMuted, fontSize = 11.sp) }
+                }
             }
         }
     }
@@ -1951,6 +1960,7 @@ fun CinemaxSettingsScreen(
     onClearFavorites: () -> Unit,
     onOpenRoadmap: () -> Unit
 ) {
+    val clipboard = LocalClipboardManager.current
     Column(
         Modifier
             .fillMaxSize()
@@ -2118,6 +2128,12 @@ fun CinemaxSettingsScreen(
         TextButton(onClick = onClearSourceStats) {
             Text("مسح سجل جودة المصادر", fontSize = 12.sp)
         }
+        if (addons.isNotEmpty()) {
+            TextButton(onClick = {
+                clipboard.setText(AnnotatedString(addons.joinToString("\n") { it.manifestUrl }))
+                hapticTap()
+            }) { Text("نسخ روابط كل الإضافات", fontSize = 12.sp) }
+        }
         if (addons.isEmpty()) {
             Text("لا توجد إضافة مثبتة بعد.", color = CinemaxPalette.textMuted, fontSize = 12.sp)
         }
@@ -2150,6 +2166,11 @@ fun CinemaxSettingsScreen(
                     )
                 }
                 TextButton(onClick = { onSelectAddon(addon) }) { Text("اختيار", fontSize = 12.sp) }
+                val addonClipboard = LocalClipboardManager.current
+                TextButton(onClick = {
+                    addonClipboard.setText(AnnotatedString(addon.manifestUrl))
+                    hapticTap()
+                }) { Text("نسخ", fontSize = 12.sp) }
                 if (addon.configurable) {
                     TextButton(onClick = { onConfigureAddon(addon) }) { Text("إعداد", fontSize = 12.sp) }
                 }
@@ -2215,7 +2236,6 @@ fun CinemaxSettingsScreen(
                 shape = RoundedCornerShape(12.dp)
             ) { Text("مسح المفضلة", fontSize = 12.sp) }
         }
-        val clipboard = LocalClipboardManager.current
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(
                 onClick = { clipboard.setText(AnnotatedString(onExportBackup())) },

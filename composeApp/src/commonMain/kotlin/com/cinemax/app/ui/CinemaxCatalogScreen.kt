@@ -169,7 +169,7 @@ fun CinemaxCatalogScreen(
             }
         }
         LazyVerticalGrid(
-            columns = GridCells.Fixed(3),
+            columns = GridCells.Adaptive(minSize = 112.dp),
             modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.navigationBars),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 24.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
