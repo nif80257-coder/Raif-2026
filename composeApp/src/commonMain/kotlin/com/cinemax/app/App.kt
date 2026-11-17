@@ -14,7 +14,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -120,6 +123,7 @@ import com.cinemax.app.nuvio.createNuvioHttpClient
 import com.cinemax.app.nuvio.createNuvioScriptRuntime
 import com.cinemax.app.nuvio.nuvioSourcesFrom
 import com.cinemax.app.ui.CinemaxCatalogScreen
+import com.cinemax.app.ui.InAppBrowser
 import com.cinemax.app.ui.CinemaxFilterChip
 import com.cinemax.app.ui.CinemaxDetailScreen
 import com.cinemax.app.ui.CinemaxHomeScreen
@@ -319,6 +323,9 @@ fun App() {
     // The source picker inside the player and the links already tried for the
     // title being watched, so a failing source moves on instead of looping.
     var showPlayerSources by remember { mutableStateOf(false) }
+    // The addon configure page opened inside the app, and the address it is on.
+    var configBrowserUrl by remember { mutableStateOf<String?>(null) }
+    var configBrowserCurrent by remember { mutableStateOf<String?>(null) }
     // How many playable sources each episode has, filled on demand ("كم مصدرًا؟")
     // so the app never fires one request per episode just to fill the list.
     var episodeSourceCounts by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
@@ -1653,8 +1660,10 @@ fun App() {
                     onSelectAddon = { addon -> selectAddon(addon) },
                     onConfigureAddon = { addon ->
                         val url = com.cinemax.app.addons.StremioAddonClient.configureUrl(addon.manifestUrl)
-                        if (url != null && openExternalUrl(url)) {
-                            status = "افتح صفحة إعداد ${addon.name} ثم أعد تثبيتها بالرابط الجديد"
+                        if (url != null) {
+                            configBrowserCurrent = url
+                            configBrowserUrl = url
+                            status = "هيّئ ${addon.name} ثم اضغط «تثبيت»"
                         } else {
                             status = "لا توجد صفحة إعداد لهذه الإضافة"
                         }
@@ -1817,6 +1826,54 @@ fun App() {
                         episodeLabels = episodeLabels,
                         onBack = { selectedItem = null }
                     )
+                }
+            }
+
+            configBrowserUrl?.let { configUrl ->
+                Dialog(
+                    onDismissRequest = { configBrowserUrl = null },
+                    properties = DialogProperties(usePlatformDefaultWidth = false)
+                ) {
+                    Column(Modifier.fillMaxSize().background(Color.Black)) {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .windowInsetsPadding(WindowInsets.statusBars)
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "إعداد الإضافة",
+                                color = Color.White,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 15.sp
+                            )
+                            Spacer(Modifier.weight(1f))
+                            TextButton(onClick = { openExternalUrl(configUrl) }) {
+                                Text("Safari", color = Color.LightGray, fontSize = 11.sp)
+                            }
+                            TextButton(onClick = {
+                                val manifest = configBrowserCurrent
+                                    ?.let { com.cinemax.app.addons.StremioAddonClient.manifestUrl(it) }
+                                configBrowserUrl = null
+                                if (manifest != null) {
+                                    installAddon(manifest)
+                                } else {
+                                    status = "لم أجد رابط manifest في الصفحة؛ انسخ رابط الإضافة وألصقه"
+                                }
+                            }) {
+                                Text("تثبيت", color = appAccent, fontSize = 13.sp)
+                            }
+                            TextButton(onClick = { configBrowserUrl = null }) {
+                                Text("إغلاق", color = Color.White, fontSize = 12.sp)
+                            }
+                        }
+                        InAppBrowser(
+                            url = configUrl,
+                            onUrl = { configBrowserCurrent = it },
+                            modifier = Modifier.fillMaxWidth().weight(1f)
+                        )
+                    }
                 }
             }
 

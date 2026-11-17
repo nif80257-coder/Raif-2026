@@ -65,11 +65,12 @@ Small, testable pieces, following the existing `core/` + store pattern (the Kotl
   on-demand count with "متوفرة حتى الحلقة N". With a TMDB key, `TmdbSeasons`
   fetches the season lengths and `absoluteToSeasonEpisode` turns an absolute
   number into a season/episode label; without a key the tag/title fallback stays.
-- **Phase 4 — partial.** Per-source quality preferences are remembered when a link
+- **Phase 4 — done.** Per-source quality preferences are remembered when a link
   plays (`SourcePreferenceStore`) and give that addon's tier a ranking bonus;
-  addons that advertise `behaviorHints.configurable` now show "إعداد", which opens
-  the addon's own configure page (`configureUrl` + `openExternalUrl`). An in-app
-  configure web view and re-install with the returned URL remain open.
+  addons that advertise `behaviorHints.configurable` show "إعداد", which opens the
+  addon's own configure page **inside the app** (`ui/InAppBrowser`: a WKWebView with
+  its finished-navigation URL reported back), and "تثبيت" installs the manifest the
+  page ends on, with Safari kept as a fallback button.
 - **Phase 5 — blocked** as planned (needs a torrent engine).
 
 ## 5. Phases, in the order I would ship them
