@@ -11,12 +11,29 @@ class PlaybackSourceStore(
 ) {
     fun load(itemId: String): String? = settings.getStringOrNull(key(itemId))
 
-    fun save(itemId: String, url: String) {
+    /**
+     * The identity of the file that played last. A link's token can change between
+     * sessions, so the fingerprint — not the URL — is what survives.
+     */
+    fun loadFingerprint(itemId: String): String? =
+        settings.getStringOrNull(key(itemId) + FINGERPRINT_SUFFIX)?.takeIf { it.isNotBlank() }
+
+    fun save(itemId: String, url: String, fingerprint: String? = null) {
         if (url.isBlank()) return
         settings.putString(key(itemId), url)
+        if (!fingerprint.isNullOrBlank()) {
+            settings.putString(key(itemId) + FINGERPRINT_SUFFIX, fingerprint)
+        }
     }
 
-    fun clear(itemId: String) = settings.remove(key(itemId))
+    fun clear(itemId: String) {
+        settings.remove(key(itemId))
+        settings.remove(key(itemId) + FINGERPRINT_SUFFIX)
+    }
 
     private fun key(itemId: String) = "cinemax.last.source.$itemId"
+
+    private companion object {
+        const val FINGERPRINT_SUFFIX = ".fingerprint"
+    }
 }

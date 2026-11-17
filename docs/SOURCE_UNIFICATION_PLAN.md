@@ -41,7 +41,32 @@ Small, testable pieces, following the existing `core/` + store pattern (the Kotl
 - Best-source button — `rankedSources(...)`, filtered by preferences and excluding dead/failed links, first result; the same function backs autoplay so the two cannot disagree.
 - Search source counts — only for titles already probed in this session (cache keyed by `MediaKey`); probing every hit would multiply traffic by the number of addons.
 
+## 4b. Status after the implementation pass
+
+- **Phase 0 — done.** Fingerprints, URL normalisation, merged provider lists and
+  cross-source de-duplication, with tests.
+- **Phase 1 — done.** `SourceStatsStore`, demotion by track record, the
+  "إخفاء المصادر المعطلة" preference, and the last-good link now stored as a
+  fingerprint (`PlaybackSourceStore.loadFingerprint`) so a changed URL token still
+  points at the source that worked.
+- **Phase 2 — core done, page merging open.** `core/MediaIdentity.kt` resolves an
+  identity (IMDb, then TMDB, then folded title + year, with a ±1 year and same-type
+  rule) and is used for favourite toggling, the resume lookup and search-result
+  de-duplication. Merging two catalog entries into a single navigable page, with
+  the one-time key migration, is still open because it changes navigation.
+- **Phase 3 — mostly done.** Episode positions come from fields or an "S02E05"
+  tag, `absoluteEpisodeIndex` is tested, and per-episode availability is an
+  on-demand count with "متوفرة حتى الحلقة N". Turning an absolute number into a
+  season/episode still needs TMDB episode lists.
+- **Phase 4 — partial.** Per-source quality preferences are remembered when a link
+  plays (`SourcePreferenceStore`) and give that addon's tier a ranking bonus;
+  addons that advertise `behaviorHints.configurable` now show "إعداد", which opens
+  the addon's own configure page (`configureUrl` + `openExternalUrl`). An in-app
+  configure web view and re-install with the returned URL remain open.
+- **Phase 5 — blocked** as planned (needs a torrent engine).
+
 ## 5. Phases, in the order I would ship them
+
 
 - **Phase 0 — data cleanliness (one session, low risk).** Fingerprints, URL normalisation, merged provider list, dedupe applied across Stremio + Nuvio + archive. Sheet shows "متوفر في 3 مصادر". No API or navigation change. Fixes the reported overlap directly.
 - **Phase 1 — health and ordering.** Stats store, demote failed links, "إخفاء المصادر المعطلة" setting, last-good link stores the fingerprint (not only the URL) so it survives a URL with a changed token.

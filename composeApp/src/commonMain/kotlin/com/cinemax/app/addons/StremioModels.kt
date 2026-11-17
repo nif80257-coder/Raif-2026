@@ -16,7 +16,9 @@ data class StremioManifest(
     val resources: List<JsonElement> = emptyList(),
     val types: List<String> = emptyList(),
     val catalogs: List<StremioCatalog> = emptyList(),
-    @SerialName("idPrefixes") val idPrefixes: List<String> = emptyList()
+    @SerialName("idPrefixes") val idPrefixes: List<String> = emptyList(),
+    /** Manifest hints, including whether the addon has a configure page. */
+    @SerialName("behaviorHints") val behaviorHints: StremioManifestBehaviorHints = StremioManifestBehaviorHints()
 ) {
     /**
      * Resource names declared by the manifest. The protocol lists them either as
@@ -30,6 +32,16 @@ data class StremioManifest(
         }
     }.toSet()
 }
+
+/** Protocol manifest hints: the configure page flag and the artwork slots. */
+@Serializable
+data class StremioManifestBehaviorHints(
+    val configurable: Boolean = false,
+    val configurationRequired: Boolean = false,
+    val adult: Boolean = false,
+    val logo: String? = null,
+    val background: String? = null
+)
 
 @Serializable
 data class StremioCatalog(

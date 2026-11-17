@@ -27,6 +27,17 @@ object StremioAddonClient {
     }
 
     /**
+     * The configure page of an addon that advertises `behaviorHints.configurable`:
+     * the manifest's own base path plus "/configure".
+     */
+    fun configureUrl(input: String): String? {
+        val manifest = manifestUrl(input) ?: return null
+        val path = manifest.substringBefore('?').substringBefore('#')
+        val base = path.removeSuffix("/manifest.json").removeSuffix("/")
+        return "$base/configure"
+    }
+
+    /**
      * Builds a Stremio resource URL. The protocol takes all extra arguments in a
      * single path segment as `key=value&key=value`, and every key and value is
      * encoded independently to prevent path injection.

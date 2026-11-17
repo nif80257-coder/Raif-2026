@@ -1115,6 +1115,8 @@ fun CinemaxDetailScreen(
     onPinSource: (StreamOption) -> Unit = {},
     /** "auto", "4K", "1080p" or "720p": what "play the best source" prefers. */
     preferredQuality: String = "auto",
+    /** Quality tier the viewer tends to pick from each addon, by addon id. */
+    addonQualities: Map<String, String> = emptyMap(),
     packBadges: List<BadgeFilter> = emptyList(),
     resumeLabel: String?,
     episodeProgress: Map<String, Float>,
@@ -1153,6 +1155,7 @@ fun CinemaxDetailScreen(
         onlyDirect = onlyDirect,
         lastPlayedUrl = lastPlayedUrl,
         pinnedUrl = pinnedUrl,
+        preferredQualityByAddon = addonQualities,
         nowEpochMillis = nowEpochMillis
     )
     val firstPlayable = bestSource(
@@ -1920,6 +1923,8 @@ fun CinemaxSettingsScreen(
     activeAddonId: String?,
     onSelectAddon: (InstalledAddon) -> Unit,
     onRemoveAddon: (InstalledAddon) -> Unit,
+    /** Opens the addon's configure page when its manifest advertises one. */
+    onConfigureAddon: (InstalledAddon) -> Unit = {},
     onAddAddon: () -> Unit,
     onNuvio: () -> Unit,
     tmdbKey: String,
@@ -2134,6 +2139,9 @@ fun CinemaxSettingsScreen(
                     )
                 }
                 TextButton(onClick = { onSelectAddon(addon) }) { Text("اختيار", fontSize = 12.sp) }
+                if (addon.configurable) {
+                    TextButton(onClick = { onConfigureAddon(addon) }) { Text("إعداد", fontSize = 12.sp) }
+                }
                 TextButton(onClick = { onRemoveAddon(addon) }) { Text("إزالة", fontSize = 12.sp) }
             }
         }

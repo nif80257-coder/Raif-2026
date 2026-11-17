@@ -74,11 +74,15 @@ fun rankSources(
     onlyDirect: Boolean = false,
     lastPlayedUrl: String? = null,
     pinnedUrl: String? = null,
+    /** Quality tier the viewer tends to pick from each addon, by addon id. */
+    preferredQualityByAddon: Map<String, String> = emptyMap(),
     nowEpochMillis: Long = 0L
 ): List<StreamOption> {
     val filtered = if (onlyDirect) options.filter { it.stream.url != null } else options
     val scored = filtered.sortedByDescending { option ->
-        sourceScore(option) + (stats[streamFingerprint(option)]?.penalty(nowEpochMillis) ?: 0)
+        val addonTier = preferredQualityByAddon[option.addonId]
+        val addonBonus = if (addonTier != null && matchesQualityPreference(option, addonTier)) 25 else 0
+        sourceScore(option) + addonBonus + (stats[streamFingerprint(option)]?.penalty(nowEpochMillis) ?: 0)
     }
     val withLastPlayed = if (lastPlayedUrl == null) {
         scored

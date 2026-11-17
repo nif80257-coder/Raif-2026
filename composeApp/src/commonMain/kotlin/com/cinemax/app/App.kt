@@ -97,7 +97,10 @@ import com.cinemax.app.core.dedupeSources
 import com.cinemax.app.core.SourceStats
 import com.cinemax.app.core.bestSource
 import com.cinemax.app.core.mergeSources
+import com.cinemax.app.core.canonicalMediaKey
 import com.cinemax.app.core.isFailedRecently
+import com.cinemax.app.core.sameMedia
+import com.cinemax.app.core.streamBadges
 import com.cinemax.app.core.streamFingerprint
 import com.cinemax.app.core.sortLibrary
 import com.cinemax.app.core.unsupportedVideoContainer
@@ -294,6 +297,10 @@ fun App() {
     var sourceProviders by remember { mutableStateOf<Map<String, List<String>>>(emptyMap()) }
     val preferredSourceStore = remember { PreferredSourceStore() }
     var pinnedSourceUrl by remember { mutableStateOf<String?>(null) }
+    val sourcePreferenceStore = remember { SourcePreferenceStore() }
+    var sourcePreferences by remember {
+        mutableStateOf(runCatching { sourcePreferenceStore.loadAll() }.getOrDefault(emptyMap()))
+    }
     var playbackFingerprint by remember { mutableStateOf<String?>(null) }
     var playbackStartedAtMs by remember { mutableStateOf(0L) }
     var successRecorded by remember { mutableStateOf(false) }
@@ -491,6 +498,16 @@ fun App() {
             val merged = mergeSources(found)
             streamOptions.addAll(merged.map { it.option })
             sourceProviders = merged.associate { it.fingerprint to it.providers }
+            // The last link is remembered by file identity, so a link whose token
+            // changed still points at the source that actually played.
+            val storedFingerprint = lastSourceStore.loadFingerprint(mediaId)
+            val storedUrl = lastSourceStore.load(mediaId)
+            lastPlayedUrl = when {
+                storedUrl != null && merged.any { it.option.stream.url == storedUrl } -> storedUrl
+                storedFingerprint != null ->
+                    merged.firstOrNull { it.fingerprint == storedFingerprint }?.option?.stream?.url
+                else -> storedUrl
+            }
             // Warm the next episode's sources in the background so the next-episode
             // shortcut opens instantly; the repository cache holds the answer.
             val nextVideo = if (isArchiveItemId(item.id)) null else nextEpisode(episode, videos)
@@ -771,7 +788,8 @@ fun App() {
                 resources = manifest.resourceNames().toList(),
                 types = manifest.types,
                 idPrefixes = manifest.idPrefixes,
-                catalogs = manifest.catalogs
+                catalogs = manifest.catalogs,
+                configurable = manifest.behaviorHints.configurable
             )
             if (refreshed != addon) {
                 val index = addons.indexOfFirst { it.id == addon.id }
@@ -1189,7 +1207,12 @@ fun App() {
     /** Opens the player for a source the user picked in the detail screen. */
     fun startPlayback(option: StreamOption, mediaUrl: String) {
         val item = selectedItem ?: return
-        lastSourceStore.save(selectedVideo?.id ?: item.id, mediaUrl)
+        lastSourceStore.save(selectedVideo?.id ?: item.id, mediaUrl, streamFingerprint(option))
+        // Remember which quality this addon tends to give this viewer.
+        streamBadges(option.stream.name, option.stream.title).firstOrNull()?.let { quality ->
+            sourcePreferenceStore.recordPlayedQuality(option.addonId, quality)
+            sourcePreferences = sourcePreferenceStore.loadAll()
+        }
         lastPlayedUrl = mediaUrl
         val meta = selectedMeta
         playingItem = item.copy(
@@ -1224,7 +1247,7 @@ fun App() {
      */
     fun switchToSource(option: StreamOption, url: String) {
         val item = playingItem ?: return
-        lastSourceStore.save(playingVideo?.id ?: item.id, url)
+        lastSourceStore.save(playingVideo?.id ?: item.id, url, streamFingerprint(option))
         lastPlayedUrl = url
         playingStream = option
         attemptedSourceUrls = attemptedSourceUrls + url
@@ -1277,7 +1300,8 @@ fun App() {
                     resources = manifest.resourceNames().toList(),
                     types = manifest.types,
                     idPrefixes = manifest.idPrefixes,
-                    catalogs = manifest.catalogs
+                    catalogs = manifest.catalogs,
+                    configurable = manifest.behaviorHints.configurable
                 )
                 addons.removeAll { it.id == installed.id }
                 addons.add(installed)
@@ -1346,7 +1370,9 @@ fun App() {
         val seenIds = mutableSetOf<String>()
         fun publish() {
             val filtered = collected.filter { matchesLibraryQuery(it.item.name, query) }
-            val ranked = rankSearchResults(filtered, query)
+            // One row per title even when two catalogs list it under different ids.
+            val unique = filtered.distinctBy { canonicalMediaKey(it.item) }
+            val ranked = rankSearchResults(unique, query)
             searchResults.clear()
             searchResults.addAll(ranked)
             val responders = collected.map { it.addonName }.distinct().size
@@ -1579,6 +1605,14 @@ fun App() {
                     sourceStatCount = sourceStats.size,
                     activeAddonId = activeAddon?.id,
                     onSelectAddon = { addon -> selectAddon(addon) },
+                    onConfigureAddon = { addon ->
+                        val url = com.cinemax.app.addons.StremioAddonClient.configureUrl(addon.manifestUrl)
+                        if (url != null && openExternalUrl(url)) {
+                            status = "افتح صفحة إعداد ${addon.name} ثم أعد تثبيتها بالرابط الجديد"
+                        } else {
+                            status = "لا توجد صفحة إعداد لهذه الإضافة"
+                        }
+                    },
                     onRemoveAddon = { addon ->
                         addons.remove(addon)
                         addonStore.save(addons.toList())
@@ -1682,7 +1716,7 @@ fun App() {
                         sourcesMessage = status,
                         selectedVideo = selectedVideo,
                         activeSeason = activeSeason,
-                        isFavorite = item.id in favoriteIds,
+                        isFavorite = item.id in favoriteIds || favoriteItems.any { sameMedia(it, item) },
                         accent = appAccent,
                         background = appBackground,
                         lastPlayedUrl = lastPlayedUrl,
@@ -1693,14 +1727,15 @@ fun App() {
                         pinnedUrl = pinnedSourceUrl,
                         onPinSource = { option -> togglePinnedSource(option) },
                         preferredQuality = preferences.preferredQuality,
+                        addonQualities = sourcePreferences.mapValues { it.value.quality },
                         packBadges = badgeFilters,
                         resumeLabel = resumeProgress?.let { "من ${formatClock(it.positionMillis)}" },
                         episodeProgress = watchProgressItems.associate { it.key to it.progressFraction } +
                             watchedEpisodes.associateWith { 1f },
                         onToggleFavorite = {
                             hapticTap()
-                            if (item.id in favoriteIds) {
-                                favoriteItems.removeAll { it.id == item.id }
+                            if (item.id in favoriteIds || favoriteItems.any { sameMedia(it, item) }) {
+                                favoriteItems.removeAll { it.id == item.id || sameMedia(it, item) }
                             } else {
                                 val meta = selectedMeta
                                 val saved = item.copy(

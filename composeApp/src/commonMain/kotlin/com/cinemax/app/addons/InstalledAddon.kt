@@ -17,5 +17,7 @@ data class InstalledAddon(
     /** Id prefixes the addon accepts, e.g. ["tt"] for IMDb-based addons. */
     val idPrefixes: List<String> = emptyList(),
     /** Catalogs declared by the manifest, used for cross-addon search. */
-    val catalogs: List<StremioCatalog> = emptyList()
+    val catalogs: List<StremioCatalog> = emptyList(),
+    /** True when the manifest advertises a configure page for this addon. */
+    val configurable: Boolean = false
 )
