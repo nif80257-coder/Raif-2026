@@ -756,6 +756,14 @@ fun CinemaxSearchScreen(
             color = Color.White,
             modifier = Modifier.padding(top = 18.dp, bottom = 12.dp)
         )
+        if (results.isNotEmpty()) {
+            Text(
+                "${results.size} نتيجة",
+                color = CinemaxPalette.textMuted,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf("all" to "الكل", "movie" to "أفلام", "series" to "مسلسلات").forEach { (value, label) ->
                 CinemaxFilterChip(
@@ -877,7 +885,14 @@ fun CinemaxLibraryScreen(
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         item {
-            Text("مكتبتي", fontSize = 30.sp, fontWeight = FontWeight.Black, color = Color.White)
+            Column {
+                Text("مكتبتي", fontSize = 30.sp, fontWeight = FontWeight.Black, color = Color.White)
+                Text(
+                    "${favorites.size} محفوظًا • ${continueWatching.size} قيد المشاهدة",
+                    color = CinemaxPalette.textMuted,
+                    fontSize = 12.sp
+                )
+            }
         }
         item {
             OutlinedTextField(
@@ -1127,6 +1142,7 @@ fun CinemaxDetailScreen(
     val directCount = visibleSources.count { it.stream.url != null }
     val providerCount = sourceProviders.values.flatten().distinct().size
     var onlyDirect by remember { mutableStateOf(false) }
+    var episodeQuery by remember { mutableStateOf("") }
     val ranked = rankSources(
         visibleSources,
         stats = sourceStats,
@@ -1303,8 +1319,20 @@ fun CinemaxDetailScreen(
                         }
                     }
                 }
+                if (videos.size > 12) {
+                    item {
+                        OutlinedTextField(
+                            value = episodeQuery,
+                            onValueChange = { episodeQuery = it },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            placeholder = { Text("ابحث عن حلقة", fontSize = 12.sp) }
+                        )
+                    }
+                }
                 val shown = videos
                     .filter { activeSeason == null || it.season == activeSeason }
+                    .filter { episodeQuery.isBlank() || matchesLibraryQuery(episodeLabel(it), episodeQuery) }
                     .sortedBy { it.episode ?: 0 }
                 items(shown, key = { it.id }) { episode ->
                     EpisodeCard(
@@ -1787,6 +1815,13 @@ fun CinemaxPlayerScreen(
                         )
                     )
                     Text(formatClock(durationMs), color = Color.White, fontSize = 11.sp)
+                    if (durationMs > positionMs) {
+                        Text(
+                            "−${formatClock(durationMs - positionMs)}",
+                            color = CinemaxPalette.textMuted,
+                            fontSize = 10.sp
+                        )
+                    }
                 }
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -1846,6 +1881,8 @@ fun CinemaxSettingsScreen(
     onCheckAddons: () -> Unit = {},
     onRemoveDeadAddons: () -> Unit = {},
     onClearSourceStats: () -> Unit = {},
+    /** How many source links the app has a track record for. */
+    sourceStatCount: Int = 0,
     activeAddonId: String?,
     onSelectAddon: (InstalledAddon) -> Unit,
     onRemoveAddon: (InstalledAddon) -> Unit,
@@ -2023,6 +2060,11 @@ fun CinemaxSettingsScreen(
         PreferenceSwitch("إخفاء المصادر المعطلة", preferences.hideDeadSources) {
             onPreferences(preferences.copy(hideDeadSources = it))
         }
+        Text(
+            "سجل جودة المصادر: $sourceStatCount رابطًا محفوظًا.",
+            color = CinemaxPalette.textMuted,
+            fontSize = 11.sp
+        )
         TextButton(onClick = onClearSourceStats) {
             Text("مسح سجل جودة المصادر", fontSize = 12.sp)
         }

@@ -105,6 +105,14 @@ class AddonRepository(
         StremioAddonClient.manifestUrl(manifestUrl)
             ?: throw IllegalArgumentException("رابط الإضافة غير صالح")
 
+    /** Drops every cached answer, used when the installed addons change. */
+    fun clearCaches() {
+        manifestCache.clear()
+        catalogCache.clear()
+        metaCache.clear()
+        streamCache.clear()
+    }
+
     private companion object {
         const val MANIFEST_TTL_MS = 10L * 60L * 1000L
         const val CATALOG_TTL_MS = 3L * 60L * 1000L

@@ -261,6 +261,7 @@ fun App() {
     // cancels the older search and that search cannot overwrite its results.
     var searchJob by remember { mutableStateOf<Job?>(null) }
     var searchGeneration by remember { mutableStateOf(0) }
+    var lastSearchQuery by remember { mutableStateOf<String?>(null) }
     var showAddDialog by remember { mutableStateOf(false) }
     var addonUrl by remember { mutableStateOf("") }
     // The exported source files ship in the app bundle; they are merged and
@@ -403,14 +404,17 @@ fun App() {
             null
         }
         selectedMeta = meta
-        lastPlayedUrl = lastSourceStore.load(item.id)
-        pinnedSourceUrl = preferredSourceStore.load(item.id)
         val videos = meta?.videos.orEmpty()
         val nextVideo = videos.firstOrNull { it.id == pendingVideoId }
             ?: videos.firstOrNull { it.id == selectedVideo?.id }
             ?: videos.firstOrNull()
         if (nextVideo?.id != selectedVideo?.id) selectedVideo = nextVideo
         if (nextVideo?.season != activeSeason) activeSeason = nextVideo?.season
+        // The pinned source and the last link belong to the episode being looked
+        // at, not to the series as a whole.
+        val sourceKey = nextVideo?.id ?: item.id
+        lastPlayedUrl = lastSourceStore.load(sourceKey)
+        pinnedSourceUrl = preferredSourceStore.load(sourceKey)
         if (meta != null) {
             val index = favoriteItems.indexOfFirst { it.id == item.id }
             if (index >= 0) {
@@ -893,12 +897,13 @@ fun App() {
     fun togglePinnedSource(option: StreamOption) {
         val item = selectedItem ?: return
         val url = option.stream.url ?: return
+        val key = selectedVideo?.id ?: item.id
         if (pinnedSourceUrl == url) {
-            preferredSourceStore.clear(item.id)
+            preferredSourceStore.clear(key)
             pinnedSourceUrl = null
             status = "أُزيل تثبيت المصدر"
         } else {
-            preferredSourceStore.save(item.id, url)
+            preferredSourceStore.save(key, url)
             pinnedSourceUrl = url
             status = "المصدر المفضل: ${option.stream.name ?: option.addonName}"
         }
@@ -982,6 +987,8 @@ fun App() {
     /** Reloads the active addon's catalog and shelves, for the home refresh button. */
     fun refreshHome() {
         val addon = activeAddon ?: return
+        // A manual refresh must show fresh data, not the cached answer.
+        repository.clearCaches()
         loading = true
         scope.launch {
             try {
@@ -1154,7 +1161,7 @@ fun App() {
     /** Opens the player for a source the user picked in the detail screen. */
     fun startPlayback(option: StreamOption, mediaUrl: String) {
         val item = selectedItem ?: return
-        lastSourceStore.save(item.id, mediaUrl)
+        lastSourceStore.save(selectedVideo?.id ?: item.id, mediaUrl)
         lastPlayedUrl = mediaUrl
         val meta = selectedMeta
         playingItem = item.copy(
@@ -1189,7 +1196,7 @@ fun App() {
      */
     fun switchToSource(option: StreamOption, url: String) {
         val item = playingItem ?: return
-        lastSourceStore.save(item.id, url)
+        lastSourceStore.save(playingVideo?.id ?: item.id, url)
         lastPlayedUrl = url
         playingStream = option
         attemptedSourceUrls = attemptedSourceUrls + url
@@ -1247,6 +1254,7 @@ fun App() {
                 addons.removeAll { it.id == installed.id }
                 addons.add(installed)
                 addonStore.save(addons.toList())
+                repository.clearCaches()
                 activeAddon = installed
                 selectedItem = null
                 playbackUrl = null
@@ -1298,6 +1306,9 @@ fun App() {
     fun runSearch(rawQuery: String) {
         val query = rawQuery.trim()
         if (query.isEmpty()) return
+        // The debounced effect and the button can fire together: one search is enough.
+        if (searchJob?.isActive == true && lastSearchQuery == query) return
+        lastSearchQuery = query
         searchJob?.cancel()
         val generation = searchGeneration + 1
         searchGeneration = generation
@@ -1452,7 +1463,7 @@ fun App() {
                     versionLabel = appVersionLabel(),
                     tonightPick = tonightPick,
                     onShuffleTonight = { pickTonight() },
-                    onRefresh = { refreshHome() },
+                    onRefresh = { refreshHome(); loadArchive() },
                     onBrowseShelf = { shelf -> openShelf(shelf) },
                     posterStatus = posterStatuses
                 )
@@ -1537,11 +1548,13 @@ fun App() {
                     onCheckAddons = { checkAddons() },
                     onRemoveDeadAddons = { removeDeadAddons() },
                     onClearSourceStats = { clearSourceStats() },
+                    sourceStatCount = sourceStats.size,
                     activeAddonId = activeAddon?.id,
                     onSelectAddon = { addon -> selectAddon(addon) },
                     onRemoveAddon = { addon ->
                         addons.remove(addon)
                         addonStore.save(addons.toList())
+                        repository.clearCaches()
                         if (activeAddon?.id == addon.id) {
                             activeAddon = null
                             catalogItems.clear()
