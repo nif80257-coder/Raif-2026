@@ -108,6 +108,13 @@ import com.cinemax.app.core.canonicalMediaKey
 import com.cinemax.app.core.distinctTitles
 import com.cinemax.app.core.episodeNumber
 import com.cinemax.app.core.isFailedRecently
+import com.cinemax.app.core.PUBLIC_DOMAIN_FILMS
+import com.cinemax.app.core.PUBLIC_DOMAIN_PROVIDER
+import com.cinemax.app.core.isPublicDomainId
+import com.cinemax.app.core.publicDomainImdbId
+import com.cinemax.app.core.publicDomainMeta
+import com.cinemax.app.core.publicDomainPreviews
+import com.cinemax.app.core.publicDomainStreams
 import com.cinemax.app.core.seasonLengthsOf
 import com.cinemax.app.core.sameMedia
 import com.cinemax.app.core.streamBadges
@@ -436,6 +443,8 @@ fun App() {
         val meta = try {
             if (isArchiveItemId(item.id)) {
                 archive.meta(archiveIdentifier(item.id))
+            } else if (isPublicDomainId(item.id)) {
+                publicDomainMeta(item.id)
             } else {
                 metaFrom(repository, addons.toList(), item.type, item.id)
             }
@@ -527,6 +536,12 @@ fun App() {
             val stremioSources = when {
                 isArchiveItemId(item.id) -> archive.streams(archiveIdentifier(item.id))
                     .map { StreamOption(item.id, ARCHIVE_PROVIDER_NAME, it) }
+                // A public-domain film opens with its own checked file, and the
+                // addons are still asked by the film's IMDb id so a better copy or
+                // a subtitle pack can join it.
+                isPublicDomainId(item.id) -> publicDomainStreams(item.id)
+                    .map { StreamOption(item.id, PUBLIC_DOMAIN_PROVIDER, it) } +
+                    streamsFrom(repository, addons.toList(), item.type, publicDomainImdbId(item.id))
                 // A film seen under more than one catalog id gathers the sources
                 // of every id, which is the practical half of "one page per title".
                 item.type == "movie" && preferences.mergeCatalogSources && aliasIds.size > 1 -> aliasIds
@@ -720,7 +735,9 @@ fun App() {
                 SubtitleChoice(subtitle.lang, subtitle.label ?: subtitle.lang, stream.addonName, subtitle.url)
             )
         }
-        val mediaId = selectedVideo?.id ?: item.id
+        val episodeOrItemId = selectedVideo?.id ?: item.id
+        // A public-domain row carries a made-up id; the addons know the film by its IMDb id.
+        val mediaId = if (isPublicDomainId(item.id)) publicDomainImdbId(item.id) else episodeOrItemId
         val hints = stream.stream.behaviorHints
         val extra = mutableMapOf<String, String>()
         hints.videoHash?.let { extra["videoHash"] = it }
@@ -1617,6 +1634,14 @@ fun App() {
                     archive = true,
                     genreOptions = ARCHIVE_GENRES.map { it.first },
                     sortOptions = ARCHIVE_SORTS.map { it.first }
+                )
+            )
+        }
+        if (PUBLIC_DOMAIN_FILMS.isNotEmpty()) {
+            add(
+                CinemaxShelf(
+                    title = PUBLIC_DOMAIN_PROVIDER,
+                    items = publicDomainPreviews()
                 )
             )
         }
