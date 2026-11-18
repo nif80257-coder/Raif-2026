@@ -9,6 +9,9 @@ data class RoadmapPhase(
     val title: String,
     val goal: String,
     val steps: List<String>,
+    /** Shipped in the app the viewer is holding. */
+    val done: Boolean = false,
+    /** The phase being built right now. */
     val current: Boolean = false
 )
 
@@ -24,7 +27,7 @@ val CinemaxRoadmap: List<RoadmapPhase> = listOf(
             "الإعدادات شاشة كاملة بدل نافذة منبثقة",
             "اختيار المصادر في شريط سفلي، لا في نافذة"
         ),
-        current = true
+        done = true
     ),
     RoadmapPhase(
         id = 1,
@@ -35,7 +38,8 @@ val CinemaxRoadmap: List<RoadmapPhase> = listOf(
             "صف «أكمل المشاهدة» ببطاقات أفقية وشريط تقدّم وشارة «بقي ٤٢ د»",
             "صف بوسترات لكل كتالوج إضافة بعنوان القسم",
             "شيمر تحميل، ورسالة فراغ تسمّي السبب بدقة"
-        )
+        ),
+        done = true
     ),
     RoadmapPhase(
         id = 2,
@@ -47,7 +51,8 @@ val CinemaxRoadmap: List<RoadmapPhase> = listOf(
             "زرّا «مشاهدة» و«حفظ» في صف واحد",
             "المواسم كأقراص وقائمة حلقات بصور مصغّرة وتقدّم لكل حلقة",
             "شريط المصادر بشارات الجودة واسم الإضافة أو المزوّد"
-        )
+        ),
+        done = true
     ),
     RoadmapPhase(
         id = 3,
@@ -59,7 +64,8 @@ val CinemaxRoadmap: List<RoadmapPhase> = listOf(
             "ورقة الترجمة والصوت والجودة والسرعة ونسبة العرض",
             "بطاقة «الحلقة التالية» قبل النهاية وتشغيل تلقائي",
             "تأخير الترجمة وتكبير الخط، والصورة داخل الصورة"
-        )
+        ),
+        done = true
     ),
     RoadmapPhase(
         id = 4,
@@ -69,7 +75,8 @@ val CinemaxRoadmap: List<RoadmapPhase> = listOf(
             "تبويب بحث بسجل بحث ونتائج مجمّعة حسب الإضافة",
             "شبكة بوسترات في المكتبة مع مفاتيح «المحفوظة» و«قيد المشاهدة»",
             "علامات ✓ للحلقات المشاهدة وحالة فراغ واضحة"
-        )
+        ),
+        done = true
     ),
     RoadmapPhase(
         id = 5,
@@ -80,7 +87,8 @@ val CinemaxRoadmap: List<RoadmapPhase> = listOf(
             "التشغيل: المشغّل، الترجمة، الصوت، السرعة",
             "المصادر: إضافات Stremio، مزوّدو Nuvio، مفتاح TMDB",
             "حول التطبيق: الإصدار وخطة التطوير"
-        )
+        ),
+        current = true
     ),
     RoadmapPhase(
         id = 6,

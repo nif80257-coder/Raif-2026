@@ -1171,6 +1171,23 @@ fun CinemaxDetailScreen(
     val directCount = visibleSources.count { it.stream.url != null }
     val providerCount = sourceProviders.values.flatten().distinct().size
     var onlyDirect by remember { mutableStateOf(false) }
+    var storyExpanded by remember { mutableStateOf(false) }
+    // "Copied" note that appears under the header after the share button is used.
+    var linkCopied by remember { mutableStateOf(false) }
+    LaunchedEffect(linkCopied) {
+        if (linkCopied) {
+            delay(1800)
+            linkCopied = false
+        }
+    }
+    val clipboard = LocalClipboardManager.current
+    fun shareTitle() {
+        val imdb = if (item.id.startsWith("tt")) item.id.substringBefore(':') else null
+        val link = if (imdb != null) "https://www.imdb.com/title/$imdb/" else item.id
+        clipboard.setText(AnnotatedString(link))
+        hapticTap()
+        linkCopied = true
+    }
     var episodeQuery by remember { mutableStateOf("") }
     val ranked = rankSources(
         visibleSources,
@@ -1212,6 +1229,8 @@ fun CinemaxDetailScreen(
             ) {
                 CinemaxCircleButton("‹") { onBack() }
                 Spacer(Modifier.weight(1f))
+                CinemaxCircleButton("↗") { shareTitle() }
+                Spacer(Modifier.width(6.dp))
                 CinemaxCircleButton(if (isFavorite) "♥" else "♡") { onToggleFavorite() }
             }
             Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(16.dp)) {
@@ -1246,6 +1265,20 @@ fun CinemaxDetailScreen(
                         fontSize = 12.sp
                     )
                 }
+            }
+            if (linkCopied) {
+                Text(
+                    "تم نسخ الرابط",
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .windowInsetsPadding(WindowInsets.statusBars)
+                        .padding(top = 56.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(Color(0xCC1C1C1E))
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                )
             }
         }
         LazyColumn(
@@ -1298,7 +1331,27 @@ fun CinemaxDetailScreen(
                 }
             }
             overview?.takeIf { it.isNotBlank() }?.let { text ->
-                item { Text(text, color = CinemaxPalette.text.copy(alpha = 0.9f), fontSize = 14.sp, lineHeight = 21.sp) }
+                item {
+                    Column {
+                        Text(
+                            text,
+                            color = CinemaxPalette.text.copy(alpha = 0.9f),
+                            fontSize = 14.sp,
+                            lineHeight = 21.sp,
+                            maxLines = if (storyExpanded) Int.MAX_VALUE else 4,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (text.length > 180) {
+                            TextButton(onClick = { storyExpanded = !storyExpanded }) {
+                                Text(
+                                    if (storyExpanded) "أقل" else "المزيد",
+                                    color = accent,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+                    }
+                }
             }
             meta?.director?.takeIf { it.isNotEmpty() }?.let { directors ->
                 item {

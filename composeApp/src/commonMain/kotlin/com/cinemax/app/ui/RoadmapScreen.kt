@@ -80,7 +80,7 @@ fun CinemaxRoadmapScreen(
             item {
                 Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
                     Text(
-                        "المرحلة 0 و1 هما ما يُبنى الآن، وبعد كل مرحلة يصل بناء جديد برقم أكبر.",
+                        "المراحل 0–4 مكتملة وهي في هذا الإصدار. المرحلة 5 هي الجارية الآن، وبعدها مرحلة الصقل.",
                         color = CinemaxPalette.textMuted,
                         fontSize = 12.sp,
                         lineHeight = 18.sp
@@ -112,12 +112,14 @@ private fun RoadmapPhaseCard(phase: RoadmapPhase, accent: Color) {
                 modifier = Modifier
                     .size(28.dp)
                     .clip(CircleShape)
-                    .background(if (phase.current) accent else accent.copy(alpha = 0.16f)),
+                    .background(
+                        if (phase.done || phase.current) accent else accent.copy(alpha = 0.16f)
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    phase.id.toString(),
-                    color = if (phase.current) Color.Black else accent,
+                    if (phase.done) "✓" else phase.id.toString(),
+                    color = if (phase.done || phase.current) Color.Black else accent,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -137,7 +139,10 @@ private fun RoadmapPhaseCard(phase: RoadmapPhase, accent: Color) {
                     lineHeight = 17.sp
                 )
             }
-            if (phase.current) {
+            if (phase.done) {
+                Spacer(Modifier.width(8.dp))
+                CinemaxPill("مكتملة", accent)
+            } else if (phase.current) {
                 Spacer(Modifier.width(8.dp))
                 CinemaxPill("الحالية", accent)
             }
