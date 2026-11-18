@@ -32,7 +32,7 @@ exists but a piece is missing or unplayable, **no** = absent.
 | Catalog builder / addon publish helper | awesome-stremio | Web tools for addon authors | no | none for viewers | — | 1 |
 | Stremio Downloader | awesome-stremio | Downloads a stream for offline viewing | no | offline flights/travel | hard | 4 |
 | PimpMyStremio (local addon runner) | awesome-stremio | Runs local/legacy addon code | no | nothing on iOS (no local node runtime) | impossible on iOS | 1 |
-| Curated public-domain collection with an exclusion list | stremio-public-domain | IMDb ids + verified PD streams, `exclude/meta.json` guards | partial (our free library uses the Internet Archive instead) | more legal free content, curated | easy | 3 |
+| Curated public-domain collection with an exclusion list | stremio-public-domain | IMDb ids + verified PD streams, `exclude/meta.json` guards | partial (ten curated films over HTTPS in `core/PublicDomain.kt`; our free library otherwise uses the Internet Archive) | more legal free content, curated | easy | 3 |
 | Legal availability ("where to watch") via TMDB/JustWatch-style data | official-sources | Official provider links per region | no | answers "أين أشاهده قانونيًا" | medium | 4 |
 | Configured manifest token (`/c/<base64url>/manifest.json`) | official-sources | Non-sensitive prefs encoded in the addon URL | partial (we open the configure page and install the returned URL) | per-region/per-subscription setup without an account | easy | 3 |
 | Region + subscription preferences for an addon | official-sources | User picks country and services | no | relevance of the availability rows | medium | 3 |
@@ -103,3 +103,10 @@ exists but a piece is missing or unplayable, **no** = absent.
    from `stremio-public-domain` into the app bundle as a second built-in source
    next to the Internet Archive shelf, honouring its exclusion list and keeping
    the licence and provenance in the file.
+   *Shipped:* `core/PublicDomain.kt` carries that repository's own pick plus nine
+   more films (Blender's open movies and US public-domain classics) in Arabic.
+   Each direct file was range-checked and answers `video/mp4` over HTTPS; the
+   repository's `http://` link is replaced by the Internet Archive copy of the
+   same film, `exclude/meta.json` is moot because the list is curated by hand,
+   and the provenance is the file's own doc comment. Installed addons are still
+   asked by each film's IMDb id for streams and subtitles.
