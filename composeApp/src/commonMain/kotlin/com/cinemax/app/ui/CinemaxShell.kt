@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -238,6 +239,18 @@ fun CinemaxHomeScreen(
                     CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = accent)
                     Spacer(Modifier.width(8.dp))
                 }
+                // Always on screen, so the build a phone is running can be told
+                // apart from an older install at a glance.
+                Text(
+                    versionLabel,
+                    color = CinemaxPalette.textMuted,
+                    fontSize = 10.sp,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(CinemaxPalette.surfaceHigh)
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                )
+                Spacer(Modifier.width(4.dp))
                 TextButton(onClick = onRefresh) {
                     Text("↻", color = Color.White, fontSize = 20.sp)
                 }
@@ -1997,320 +2010,398 @@ fun CinemaxSettingsScreen(
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp)
     ) {
-        Text(
-            "الإعدادات",
-            fontSize = 30.sp,
-            fontWeight = FontWeight.Black,
-            color = Color.White,
-            modifier = Modifier.padding(top = 18.dp, bottom = 10.dp)
-        )
-        CinemaxSectionTitle(title = "المظهر", accent = accent)
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            listOf("Violet" to "بنفسجي", "Blue" to "أزرق", "Rose" to "وردي", "Emerald" to "أخضر", "Amber" to "ذهبي")
-                .forEach { (tone, label) ->
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 18.dp, bottom = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "CINEMAX",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 3.sp,
+                    color = CinemaxPalette.textMuted
+                )
+                Text("الإعدادات", fontSize = 32.sp, fontWeight = FontWeight.Black, color = Color.White)
+            }
+            Text(
+                versionLabel,
+                color = CinemaxPalette.textMuted,
+                fontSize = 11.sp,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(CinemaxPalette.surfaceHigh)
+                    .padding(horizontal = 10.dp, vertical = 5.dp)
+            )
+        }
+
+        SettingsGroup(title = "المظهر") {
+            SettingsLabel("لون الواجهة")
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(
+                    "Violet" to "بنفسجي",
+                    "Blue" to "أزرق",
+                    "Rose" to "وردي",
+                    "Emerald" to "أخضر",
+                    "Amber" to "ذهبي"
+                ).forEach { (tone, label) ->
                     CinemaxFilterChip(
                         selected = preferences.accent == tone,
                         onClick = { onPreferences(preferences.copy(accent = tone)) },
                         label = { Text(label, fontSize = 12.sp) }
                     )
                 }
-        }
-        PreferenceSwitch("خلفية سوداء OLED", preferences.oledBlack) {
-            onPreferences(preferences.copy(oledBlack = it))
-        }
-        PreferenceSwitch("بطاقات أكثر اختصارًا", preferences.compactCards) {
-            onPreferences(preferences.copy(compactCards = it))
-        }
-
-        Spacer(Modifier.height(8.dp))
-        CinemaxSectionTitle(title = "التشغيل", accent = accent)
-        PreferenceSwitch("تذكّر موضع التوقف", preferences.rememberPlaybackPosition) {
-            onPreferences(preferences.copy(rememberPlaybackPosition = it))
-        }
-        PreferenceSwitch("تشغيل الحلقة التالية تلقائيًا", preferences.autoplayNextEpisode) {
-            onPreferences(preferences.copy(autoplayNextEpisode = it))
-        }
-        Text(
-            "MPV يشغّل MKV وكل الصيغ، ومشغل النظام (AVPlayer) أخف لكنه لا يدعم MKV وAVI.",
-            fontSize = 12.sp,
-            color = CinemaxPalette.textMuted,
-            lineHeight = 18.sp
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            CinemaxFilterChip(
-                selected = preferences.preferredPlayer != "system",
-                onClick = { onPreferences(preferences.copy(preferredPlayer = "mpv")) },
-                label = { Text("MPV (كل الصيغ)") }
-            )
-            CinemaxFilterChip(
-                selected = preferences.preferredPlayer == "system",
-                onClick = { onPreferences(preferences.copy(preferredPlayer = "system")) },
-                label = { Text("مشغل النظام") }
-            )
+            }
+            PreferenceSwitch("خلفية سوداء OLED", preferences.oledBlack) {
+                onPreferences(preferences.copy(oledBlack = it))
+            }
+            PreferenceSwitch("بطاقات أكثر اختصارًا", preferences.compactCards) {
+                onPreferences(preferences.copy(compactCards = it))
+            }
         }
 
-        Text("الجودة المفضلة عند التشغيل", fontSize = 13.sp, color = CinemaxPalette.text)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf("auto" to "تلقائي", "4K" to "4K", "1080p" to "1080p", "720p" to "720p")
-                .forEach { (value, label) ->
-                    CinemaxFilterChip(
-                        selected = preferences.preferredQuality == value,
-                        onClick = { onPreferences(preferences.copy(preferredQuality = value)) },
-                        label = { Text(label, fontSize = 11.sp) }
-                    )
-                }
-        }
-
-        Spacer(Modifier.height(8.dp))
-        CinemaxSectionTitle(title = "الترجمة والصوت", accent = accent)
-        Text("لغة الترجمة المفضلة", fontSize = 13.sp, color = CinemaxPalette.text)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            CinemaxFilterChip(
-                selected = preferences.preferredSubtitleLanguage == "ar",
-                onClick = { onPreferences(preferences.copy(preferredSubtitleLanguage = "ar")) },
-                label = { Text("العربية") }
-            )
-            CinemaxFilterChip(
-                selected = preferences.preferredSubtitleLanguage == "en",
-                onClick = { onPreferences(preferences.copy(preferredSubtitleLanguage = "en")) },
-                label = { Text("English") }
-            )
-            CinemaxFilterChip(
-                selected = preferences.preferredSubtitleLanguage == "off",
-                onClick = { onPreferences(preferences.copy(preferredSubtitleLanguage = "off")) },
-                label = { Text("إيقاف") }
-            )
-        }
-        Text("لغة الصوت المفضلة", fontSize = 13.sp, color = CinemaxPalette.text)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            CinemaxFilterChip(
-                selected = preferences.preferredAudioLanguage == "device",
-                onClick = { onPreferences(preferences.copy(preferredAudioLanguage = "device")) },
-                label = { Text("لغة الجهاز") }
-            )
-            CinemaxFilterChip(
-                selected = preferences.preferredAudioLanguage == "ar",
-                onClick = { onPreferences(preferences.copy(preferredAudioLanguage = "ar")) },
-                label = { Text("العربية") }
-            )
-            CinemaxFilterChip(
-                selected = preferences.preferredAudioLanguage == "en",
-                onClick = { onPreferences(preferences.copy(preferredAudioLanguage = "en")) },
-                label = { Text("English") }
-            )
-        }
-        Text("حجم ترجمة الإضافات", fontSize = 13.sp, color = CinemaxPalette.text)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf("small" to "صغير", "medium" to "وسط", "large" to "كبير").forEach { (value, label) ->
+        SettingsGroup(title = "التشغيل") {
+            PreferenceSwitch("تذكّر موضع التوقف", preferences.rememberPlaybackPosition) {
+                onPreferences(preferences.copy(rememberPlaybackPosition = it))
+            }
+            PreferenceSwitch("تشغيل الحلقة التالية تلقائيًا", preferences.autoplayNextEpisode) {
+                onPreferences(preferences.copy(autoplayNextEpisode = it))
+            }
+            SettingsLabel("المشغّل")
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 CinemaxFilterChip(
-                    selected = preferences.subtitleSize == value,
-                    onClick = { onPreferences(preferences.copy(subtitleSize = value)) },
-                    label = { Text(label, fontSize = 11.sp) }
+                    selected = preferences.preferredPlayer != "system",
+                    onClick = { onPreferences(preferences.copy(preferredPlayer = "mpv")) },
+                    label = { Text("MPV (كل الصيغ)") }
+                )
+                CinemaxFilterChip(
+                    selected = preferences.preferredPlayer == "system",
+                    onClick = { onPreferences(preferences.copy(preferredPlayer = "system")) },
+                    label = { Text("مشغل النظام") }
                 )
             }
+            SettingsNote("MPV يشغّل MKV وكل الصيغ، ومشغل النظام (AVPlayer) أخف لكنه لا يدعم MKV وAVI.")
+            SettingsLabel("الجودة المفضلة عند التشغيل")
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf("auto" to "تلقائي", "4K" to "4K", "1080p" to "1080p", "720p" to "720p")
+                    .forEach { (value, label) ->
+                        CinemaxFilterChip(
+                            selected = preferences.preferredQuality == value,
+                            onClick = { onPreferences(preferences.copy(preferredQuality = value)) },
+                            label = { Text(label, fontSize = 11.sp) }
+                        )
+                    }
+            }
         }
 
-        Spacer(Modifier.height(8.dp))
-        CinemaxSectionTitle(title = "المصادر", accent = accent)
-        CinemaxCard(Modifier.padding(horizontal = 16.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onAddAddon, shape = RoundedCornerShape(12.dp)) { Text("＋ إضافة Stremio") }
-            OutlinedButton(onClick = onNuvio, shape = RoundedCornerShape(12.dp)) { Text("Nuvio") }
+        SettingsGroup(title = "الترجمة والصوت") {
+            SettingsLabel("لغة الترجمة المفضلة")
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                CinemaxFilterChip(
+                    selected = preferences.preferredSubtitleLanguage == "ar",
+                    onClick = { onPreferences(preferences.copy(preferredSubtitleLanguage = "ar")) },
+                    label = { Text("العربية") }
+                )
+                CinemaxFilterChip(
+                    selected = preferences.preferredSubtitleLanguage == "en",
+                    onClick = { onPreferences(preferences.copy(preferredSubtitleLanguage = "en")) },
+                    label = { Text("English") }
+                )
+                CinemaxFilterChip(
+                    selected = preferences.preferredSubtitleLanguage == "off",
+                    onClick = { onPreferences(preferences.copy(preferredSubtitleLanguage = "off")) },
+                    label = { Text("إيقاف") }
+                )
+            }
+            SettingsLabel("لغة الصوت المفضلة")
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                CinemaxFilterChip(
+                    selected = preferences.preferredAudioLanguage == "device",
+                    onClick = { onPreferences(preferences.copy(preferredAudioLanguage = "device")) },
+                    label = { Text("لغة الجهاز") }
+                )
+                CinemaxFilterChip(
+                    selected = preferences.preferredAudioLanguage == "ar",
+                    onClick = { onPreferences(preferences.copy(preferredAudioLanguage = "ar")) },
+                    label = { Text("العربية") }
+                )
+                CinemaxFilterChip(
+                    selected = preferences.preferredAudioLanguage == "en",
+                    onClick = { onPreferences(preferences.copy(preferredAudioLanguage = "en")) },
+                    label = { Text("English") }
+                )
+            }
+            SettingsLabel("حجم الترجمة")
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf("صغير" to "small", "متوسط" to "medium", "كبير" to "large")
+                    .forEach { (label, value) ->
+                        CinemaxFilterCard(
+                            selected = preferences.subtitleSize == value,
+                            label = label,
+                            onClick = { onPreferences(preferences.copy(subtitleSize = value)) }
+                        )
+                    }
+            }
         }
-        if (suggestedSourceCount > 0) {
-            Text(
-                "لديك $suggestedSourceCount مصدرًا جاهزًا مدموجًا من ملفّاتك. افتح «إضافة Stremio» واختر «تثبيت» بجانب أي مصدر.",
-                color = CinemaxPalette.textMuted,
-                fontSize = 11.sp,
-                lineHeight = 16.sp
-            )
-        }
-        Text(status, color = CinemaxPalette.textMuted, fontSize = 12.sp, lineHeight = 18.sp)
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            OutlinedButton(
-                onClick = onCheckAddons,
-                enabled = !checkingAddons && addons.isNotEmpty(),
-                shape = RoundedCornerShape(12.dp)
+
+        SettingsGroup(title = "المصادر") {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onAddAddon, shape = RoundedCornerShape(12.dp)) {
+                    Text("＋ إضافة Stremio")
+                }
+                OutlinedButton(onClick = onNuvio, shape = RoundedCornerShape(12.dp)) { Text("Nuvio") }
+            }
+            if (suggestedSourceCount > 0) {
+                SettingsNote(
+                    "لديك $suggestedSourceCount مصدرًا جاهزًا مدموجًا من ملفّاتك. افتح «إضافة Stremio» واختر «تثبيت» بجانب أي مصدر."
+                )
+            }
+            SettingsNote(status)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(if (checkingAddons) "جارٍ الفحص…" else "فحص المصادر", fontSize = 12.sp)
-            }
-            val dead = addons.count { addonHealth[it.id] == false }
-            if (dead > 0) {
-                TextButton(onClick = onRemoveDeadAddons) {
-                    Text("أزل $dead متوقفة", fontSize = 12.sp)
+                OutlinedButton(
+                    onClick = onCheckAddons,
+                    enabled = !checkingAddons && addons.isNotEmpty(),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(if (checkingAddons) "جارٍ الفحص…" else "فحص المصادر", fontSize = 12.sp)
+                }
+                val dead = addons.count { addonHealth[it.id] == false }
+                if (dead > 0) {
+                    TextButton(onClick = onRemoveDeadAddons) {
+                        Text("أزل $dead متوقفة", fontSize = 12.sp)
+                    }
+                }
+                if (addonUpdates.isNotEmpty()) {
+                    TextButton(onClick = onUpdateAllAddons) {
+                        Text("حدّث الكل (${addonUpdates.size})", fontSize = 12.sp)
+                    }
                 }
             }
-            if (addonUpdates.isNotEmpty()) {
-                TextButton(onClick = onUpdateAllAddons) {
-                    Text("حدّث الكل (${addonUpdates.size})", fontSize = 12.sp)
-                }
+            PreferenceSwitch("إخفاء المصادر المعطلة", preferences.hideDeadSources) {
+                onPreferences(preferences.copy(hideDeadSources = it))
             }
-        }
-        PreferenceSwitch("إخفاء المصادر المعطلة", preferences.hideDeadSources) {
-            onPreferences(preferences.copy(hideDeadSources = it))
-        }
-        PreferenceSwitch("دمج مصادر العنوان من كل الكتالوجات", preferences.mergeCatalogSources) {
-            onPreferences(preferences.copy(mergeCatalogSources = it))
-        }
-        Text(
-            "سجل جودة المصادر: $sourceStatCount رابطًا محفوظًا.",
-            color = CinemaxPalette.textMuted,
-            fontSize = 11.sp
-        )
-        TextButton(onClick = onClearSourceStats) {
-            Text("مسح سجل جودة المصادر", fontSize = 12.sp)
-        }
-        if (addons.isNotEmpty()) {
-            TextButton(onClick = {
-                clipboard.setText(AnnotatedString(addons.joinToString("\n") { it.manifestUrl }))
-                hapticTap()
-            }) { Text("نسخ روابط كل الإضافات", fontSize = 12.sp) }
-        }
-        if (addons.isEmpty()) {
-            Text("لا توجد إضافة مثبتة بعد.", color = CinemaxPalette.textMuted, fontSize = 12.sp)
-        }
-        addons.forEach { addon ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        addon.name,
-                        color = CinemaxPalette.text,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
+            PreferenceSwitch("دمج مصادر العنوان من كل الكتالوجات", preferences.mergeCatalogSources) {
+                onPreferences(preferences.copy(mergeCatalogSources = it))
+            }
+            SettingsNote("سجل جودة المصادر: $sourceStatCount رابطًا محفوظًا.")
+            TextButton(onClick = onClearSourceStats) {
+                Text("مسح سجل جودة المصادر", color = accent, fontSize = 12.sp)
+            }
+            if (addons.isNotEmpty()) {
+                TextButton(onClick = {
+                    clipboard.setText(AnnotatedString(addons.joinToString("\n") { it.manifestUrl }))
+                    hapticTap()
+                }) { Text("نسخ روابط كل الإضافات", color = accent, fontSize = 12.sp) }
+            }
+            if (addons.isEmpty()) {
+                SettingsNote("لا توجد إضافة مثبتة بعد.")
+            }
+            addons.forEach { addon ->
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            addon.name,
+                            modifier = Modifier.weight(1f),
+                            color = CinemaxPalette.text,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        if (activeAddonId == addon.id) {
+                            Text(
+                                "نشط",
+                                color = accent,
+                                fontSize = 10.sp,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(50))
+                                    .background(CinemaxPalette.frosted)
+                                    .padding(horizontal = 8.dp, vertical = 3.dp)
+                            )
+                        }
+                    }
                     Text(
                         buildString {
-                            append(
-                                if (activeAddonId == addon.id) "الكتالوج النشط • ${addon.version}"
-                                else addon.version
-                            )
+                            append(addon.version)
                             when (addonHealth[addon.id]) {
                                 true -> append(" • يعمل")
                                 false -> append(" • متوقف")
                                 null -> Unit
                             }
+                            addonUpdates[addon.id]?.let { newer -> append(" • تحديث $newer") }
                         },
                         color = when (addonHealth[addon.id]) {
                             false -> Color(0xFFFF6B6B)
-                            else -> if (activeAddonId == addon.id) accent else CinemaxPalette.textMuted
+                            else -> CinemaxPalette.textMuted
                         },
                         fontSize = 11.sp
                     )
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        TextButton(onClick = { onSelectAddon(addon) }) {
+                            Text("اختيار", color = accent, fontSize = 12.sp)
+                        }
+                        addonUpdates[addon.id]?.let {
+                            TextButton(onClick = { onUpdateAddon(addon) }) {
+                                Text("حدّث", color = Color(0xFFFFC857), fontSize = 12.sp)
+                            }
+                        }
+                        TextButton(onClick = {
+                            clipboard.setText(AnnotatedString(addon.manifestUrl))
+                            hapticTap()
+                        }) { Text("نسخ", color = accent, fontSize = 12.sp) }
+                        if (addon.configurable) {
+                            TextButton(onClick = { onConfigureAddon(addon) }) {
+                                Text("إعداد", color = accent, fontSize = 12.sp)
+                            }
+                        }
+                        TextButton(onClick = { onRemoveAddon(addon) }) {
+                            Text("إزالة", color = Color(0xFFFF6B6B), fontSize = 12.sp)
+                        }
+                    }
                 }
-                TextButton(onClick = { onSelectAddon(addon) }) { Text("اختيار", fontSize = 12.sp) }
-                addonUpdates[addon.id]?.let { newer ->
-                    Text(
-                        "تحديث $newer",
-                        color = Color(0xFFFFC857),
-                        fontSize = 10.sp,
-                        maxLines = 1
-                    )
-                    TextButton(onClick = { onUpdateAddon(addon) }) { Text("حدّث", fontSize = 12.sp) }
-                }
-                val addonClipboard = LocalClipboardManager.current
-                TextButton(onClick = {
-                    addonClipboard.setText(AnnotatedString(addon.manifestUrl))
-                    hapticTap()
-                }) { Text("نسخ", fontSize = 12.sp) }
-                if (addon.configurable) {
-                    TextButton(onClick = { onConfigureAddon(addon) }) { Text("إعداد", fontSize = 12.sp) }
-                }
-                TextButton(onClick = { onRemoveAddon(addon) }) { Text("إزالة", fontSize = 12.sp) }
             }
         }
-        }
-        Text(
-            "مزوّدو Nuvio: $nuvioRepositoryCount مستودعًا و$nuvioProviderCount مصدرًا مفعّلًا.",
-            color = CinemaxPalette.textMuted,
-            fontSize = 12.sp
-        )
-        OutlinedTextField(
-            value = tmdbKey,
-            onValueChange = onTmdbKey,
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            label = { Text("مفتاح TMDB (اختياري)") }
-        )
-        Text(
-            "مصادر Nuvio تعمل داخل محرك JavaScript معزول: بلا وصول للملفات أو مفاتيح الجهاز، وروابط HTTPS فقط.",
-            fontSize = 11.sp,
-            color = CinemaxPalette.textMuted,
-            lineHeight = 17.sp
-        )
 
-        Spacer(Modifier.height(10.dp))
-        CinemaxSectionTitle(title = "شارات المصادر (Fusion)", accent = accent)
-        Text(
-            "شارات مرسومة فوق كل مصدر بحسب اسمه وجودته، ويُظهر المختار $badgeCount شارة.",
-            color = CinemaxPalette.textMuted,
-            fontSize = 12.sp,
-            lineHeight = 18.sp
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            BADGE_PACKS.forEach { (label, url) ->
-                CinemaxFilterChip(
-                    selected = badgePackUrl == url,
-                    onClick = { onBadgePack(url) },
-                    label = { Text(label, fontSize = 11.sp) }
+        SettingsGroup(title = "Nuvio") {
+            SettingsNote("مزوّدو Nuvio: $nuvioRepositoryCount مستودعًا و$nuvioProviderCount مصدرًا مفعّلًا.")
+            OutlinedTextField(
+                value = tmdbKey,
+                onValueChange = onTmdbKey,
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text("مفتاح TMDB (اختياري)") }
+            )
+            SettingsNote(
+                "مصادر Nuvio تعمل داخل محرك JavaScript معزول: بلا وصول للملفات أو مفاتيح الجهاز، وروابط HTTPS فقط."
+            )
+        }
+
+        SettingsGroup(title = "شارات المصادر (Fusion)") {
+            SettingsNote("شارات مرسومة فوق كل مصدر بحسب اسمه وجودته، ويُظهر المختار $badgeCount شارة.")
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                BADGE_PACKS.forEach { (label, url) ->
+                    CinemaxFilterChip(
+                        selected = badgePackUrl == url,
+                        onClick = { onBadgePack(url) },
+                        label = { Text(label, fontSize = 11.sp) }
+                    )
+                }
+            }
+        }
+
+        SettingsGroup(title = "بيانات التطبيق") {
+            SettingsNote("$favoriteCount عنوانًا محفوظًا • $progressCount قيد المشاهدة")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = onClearProgress,
+                    enabled = progressCount > 0,
+                    shape = RoundedCornerShape(12.dp)
+                ) { Text("مسح سجل المشاهدة", fontSize = 12.sp) }
+                OutlinedButton(
+                    onClick = onClearFavorites,
+                    enabled = favoriteCount > 0,
+                    shape = RoundedCornerShape(12.dp)
+                ) { Text("مسح المفضلة", fontSize = 12.sp) }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = { clipboard.setText(AnnotatedString(onExportBackup())) },
+                    shape = RoundedCornerShape(12.dp)
+                ) { Text("نسخ نسخة احتياطية", fontSize = 12.sp) }
+                OutlinedButton(
+                    onClick = { onImportBackup(clipboard.getText()?.text.orEmpty()) },
+                    shape = RoundedCornerShape(12.dp)
+                ) { Text("استعادة", fontSize = 12.sp) }
+            }
+            SettingsNote(
+                "النسخة تحمل المفضلة ومتابعة المشاهدة والحلقات المعلّمة والإضافات، وتُنسخ إلى الحافظة لتنقلها إلى جهاز آخر."
+            )
+        }
+
+        SettingsGroup(title = "حول التطبيق") {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("CINEMAX", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    versionLabel,
+                    color = CinemaxPalette.textMuted,
+                    fontSize = 12.sp,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(CinemaxPalette.frosted)
+                        .padding(horizontal = 8.dp, vertical = 3.dp)
                 )
             }
-        }
-
-        Spacer(Modifier.height(10.dp))
-        CinemaxSectionTitle(title = "بيانات التطبيق", accent = accent)
-        CinemaxCard(Modifier.padding(horizontal = 16.dp)) {
-        Text(
-            "$favoriteCount عنوانًا محفوظًا • $progressCount قيد المشاهدة",
-            color = CinemaxPalette.textMuted,
-            fontSize = 12.sp
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(
-                onClick = onClearProgress,
-                enabled = progressCount > 0,
+                onClick = onOpenRoadmap,
+                modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp)
-            ) { Text("مسح سجل المشاهدة", fontSize = 12.sp) }
-            OutlinedButton(
-                onClick = onClearFavorites,
-                enabled = favoriteCount > 0,
-                shape = RoundedCornerShape(12.dp)
-            ) { Text("مسح المفضلة", fontSize = 12.sp) }
+            ) { Text("خطة التطوير — الطريق إلى Nuvio", fontWeight = FontWeight.SemiBold) }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(
-                onClick = { clipboard.setText(AnnotatedString(onExportBackup())) },
-                shape = RoundedCornerShape(12.dp)
-            ) { Text("نسخ نسخة احتياطية", fontSize = 12.sp) }
-            OutlinedButton(
-                onClick = { onImportBackup(clipboard.getText()?.text.orEmpty()) },
-                shape = RoundedCornerShape(12.dp)
-            ) { Text("استعادة", fontSize = 12.sp) }
-        }
-        Text(
-            "النسخة تحمل المفضلة ومتابعة المشاهدة والحلقات المعلّمة والإضافات، وتُنسخ إلى الحافظة لتنقلها إلى جهاز آخر.",
-            color = CinemaxPalette.textMuted,
-            fontSize = 11.sp,
-            lineHeight = 16.sp
-        )
-        }
-
-        Spacer(Modifier.height(10.dp))
-        CinemaxSectionTitle(title = "حول التطبيق", accent = accent)
-        Text("CINEMAX • $versionLabel", color = CinemaxPalette.textMuted, fontSize = 12.sp)
-        OutlinedButton(
-            onClick = onOpenRoadmap,
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp)
-        ) { Text("خطة التطوير — الطريق إلى Nuvio", fontWeight = FontWeight.SemiBold) }
         Spacer(Modifier.height(110.dp))
     }
 }
+
+/** One titled group of settings, drawn as a single rounded card. */
+@Composable
+private fun SettingsGroup(
+    title: String,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Column(Modifier.fillMaxWidth().padding(bottom = 18.dp)) {
+        Text(
+            title,
+            color = CinemaxPalette.textMuted,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(22.dp))
+                .background(CinemaxPalette.surface)
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            content = content
+        )
+    }
+}
+
+/** A quiet caption above a row of options. */
+@Composable
+private fun SettingsLabel(text: String) {
+    Text(text, color = CinemaxPalette.text, fontSize = 14.sp)
+}
+
+/** Muted explanatory copy inside a settings card. */
+@Composable
+private fun SettingsNote(text: String) {
+    Text(text, color = CinemaxPalette.textMuted, fontSize = 12.sp, lineHeight = 18.sp)
+}
+
+/** A labelled choice for the compact option rows. */
+@Composable
+private fun CinemaxFilterCard(selected: Boolean, label: String, onClick: () -> Unit) {
+    CinemaxFilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = { Text(label, fontSize = 12.sp) }
+    )
+}
+
 
 @Composable
 private fun PreferenceSwitch(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
