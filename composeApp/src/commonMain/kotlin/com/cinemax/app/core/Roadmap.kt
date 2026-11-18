@@ -88,7 +88,7 @@ val CinemaxRoadmap: List<RoadmapPhase> = listOf(
             "المصادر: إضافات Stremio، مزوّدو Nuvio، مفتاح TMDB",
             "حول التطبيق: الإصدار وخطة التطوير"
         ),
-        current = true
+        done = true
     ),
     RoadmapPhase(
         id = 6,
@@ -99,6 +99,7 @@ val CinemaxRoadmap: List<RoadmapPhase> = listOf(
             "اهتزاز خفيف عند الحفظ وتدرّج على البوسترات",
             "دعم كامل للكتابة من اليمين إلى اليسار",
             "تحقّق VoiceOver والحجم الديناميكي"
-        )
+        ),
+        current = true
     )
 )

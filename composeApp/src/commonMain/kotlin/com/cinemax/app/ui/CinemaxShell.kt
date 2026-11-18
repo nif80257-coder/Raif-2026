@@ -2056,6 +2056,19 @@ fun CinemaxSettingsScreen(
     onOpenRoadmap: () -> Unit
 ) {
     val clipboard = LocalClipboardManager.current
+    // Null is the settings index; anything else is one section opened as its own page.
+    var page by remember { mutableStateOf<String?>(null) }
+    val pageTitle = when (page) {
+        "look" -> "المظهر"
+        "playback" -> "التشغيل"
+        "subs" -> "الترجمة والصوت"
+        "sources" -> "المصادر"
+        "nuvio" -> "Nuvio وTMDB"
+        "badges" -> "شارات المصادر"
+        "data" -> "بيانات التطبيق"
+        "about" -> "عن التطبيق"
+        else -> "الإعدادات"
+    }
     Column(
         Modifier
             .fillMaxSize()
@@ -2069,6 +2082,10 @@ fun CinemaxSettingsScreen(
                 .padding(top = 18.dp, bottom = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            if (page != null) {
+                CinemaxCircleButton("‹") { page = null }
+                Spacer(Modifier.width(12.dp))
+            }
             Column(Modifier.weight(1f)) {
                 Text(
                     "CINEMAX",
@@ -2077,7 +2094,7 @@ fun CinemaxSettingsScreen(
                     letterSpacing = 3.sp,
                     color = CinemaxPalette.textMuted
                 )
-                Text("الإعدادات", fontSize = 32.sp, fontWeight = FontWeight.Black, color = Color.White)
+                Text(pageTitle, fontSize = 32.sp, fontWeight = FontWeight.Black, color = Color.White)
             }
             Text(
                 versionLabel,
@@ -2090,7 +2107,42 @@ fun CinemaxSettingsScreen(
             )
         }
 
-        SettingsGroup(title = "المظهر") {
+        if (page == null) {
+            SettingsEntry(
+                title = "المظهر",
+                summary = "لون الواجهة، الخلفية السوداء، حجم البطاقات"
+            ) { page = "look" }
+            SettingsEntry(
+                title = "التشغيل",
+                summary = "المشغّل، الجودة المفضلة، تذكّر موضع التوقف"
+            ) { page = "playback" }
+            SettingsEntry(
+                title = "الترجمة والصوت",
+                summary = "لغات الترجمة والصوت وحجم الخط"
+            ) { page = "subs" }
+            SettingsEntry(
+                title = "المصادر",
+                summary = "إضافات Stremio وNuvio وحالة كل مصدر"
+            ) { page = "sources" }
+            SettingsEntry(
+                title = "Nuvio وTMDB",
+                summary = "مستودعات Nuvio ومفتاح TMDB الاختياري"
+            ) { page = "nuvio" }
+            SettingsEntry(
+                title = "شارات المصادر",
+                summary = "شارات Fusion المرسومة فوق كل مصدر"
+            ) { page = "badges" }
+            SettingsEntry(
+                title = "بيانات التطبيق",
+                summary = "المفضلة، سجل المشاهدة، النسخة الاحتياطية"
+            ) { page = "data" }
+            SettingsEntry(
+                title = "عن التطبيق",
+                summary = "الإصدار وخطة التطوير"
+            ) { page = "about" }
+        }
+
+        if (page == "look") SettingsGroup(title = "المظهر") {
             SettingsLabel("لون الواجهة")
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf(
@@ -2115,7 +2167,7 @@ fun CinemaxSettingsScreen(
             }
         }
 
-        SettingsGroup(title = "التشغيل") {
+        if (page == "playback") SettingsGroup(title = "التشغيل") {
             PreferenceSwitch("تذكّر موضع التوقف", preferences.rememberPlaybackPosition) {
                 onPreferences(preferences.copy(rememberPlaybackPosition = it))
             }
@@ -2149,7 +2201,7 @@ fun CinemaxSettingsScreen(
             }
         }
 
-        SettingsGroup(title = "الترجمة والصوت") {
+        if (page == "subs") SettingsGroup(title = "الترجمة والصوت") {
             SettingsLabel("لغة الترجمة المفضلة")
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 CinemaxFilterChip(
@@ -2199,7 +2251,7 @@ fun CinemaxSettingsScreen(
             }
         }
 
-        SettingsGroup(title = "المصادر") {
+        if (page == "sources") SettingsGroup(title = "المصادر") {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onAddAddon, shape = RoundedCornerShape(12.dp)) {
                     Text("＋ إضافة Stremio")
@@ -2324,7 +2376,7 @@ fun CinemaxSettingsScreen(
             }
         }
 
-        SettingsGroup(title = "Nuvio") {
+        if (page == "nuvio") SettingsGroup(title = "Nuvio") {
             SettingsNote("مزوّدو Nuvio: $nuvioRepositoryCount مستودعًا و$nuvioProviderCount مصدرًا مفعّلًا.")
             OutlinedTextField(
                 value = tmdbKey,
@@ -2338,7 +2390,7 @@ fun CinemaxSettingsScreen(
             )
         }
 
-        SettingsGroup(title = "شارات المصادر (Fusion)") {
+        if (page == "badges") SettingsGroup(title = "شارات المصادر (Fusion)") {
             SettingsNote("شارات مرسومة فوق كل مصدر بحسب اسمه وجودته، ويُظهر المختار $badgeCount شارة.")
             Row(
                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -2354,7 +2406,7 @@ fun CinemaxSettingsScreen(
             }
         }
 
-        SettingsGroup(title = "بيانات التطبيق") {
+        if (page == "data") SettingsGroup(title = "بيانات التطبيق") {
             SettingsNote("$favoriteCount عنوانًا محفوظًا • $progressCount قيد المشاهدة")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
@@ -2383,7 +2435,7 @@ fun CinemaxSettingsScreen(
             )
         }
 
-        SettingsGroup(title = "حول التطبيق") {
+        if (page == "about") SettingsGroup(title = "حول التطبيق") {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("CINEMAX", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.width(8.dp))
@@ -2430,6 +2482,35 @@ private fun SettingsGroup(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             content = content
         )
+    }
+}
+
+/** One row of the settings index: a titled card that opens its own page. */
+@Composable
+private fun SettingsEntry(title: String, summary: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 10.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(CinemaxPalette.surface)
+            .clickable {
+                hapticTap()
+                onClick()
+            }
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                color = CinemaxPalette.text,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(summary, color = CinemaxPalette.textMuted, fontSize = 12.sp, lineHeight = 17.sp)
+        }
+        Text("‹", color = CinemaxPalette.textMuted, fontSize = 22.sp)
     }
 }
 
