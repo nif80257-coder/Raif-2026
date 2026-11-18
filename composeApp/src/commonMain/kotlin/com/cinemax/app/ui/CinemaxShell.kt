@@ -2091,6 +2091,7 @@ fun CinemaxSettingsScreen(
 
         Spacer(Modifier.height(8.dp))
         CinemaxSectionTitle(title = "المصادر", accent = accent)
+        CinemaxCard(Modifier.padding(horizontal = 16.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onAddAddon, shape = RoundedCornerShape(12.dp)) { Text("＋ إضافة Stremio") }
             OutlinedButton(onClick = onNuvio, shape = RoundedCornerShape(12.dp)) { Text("Nuvio") }
@@ -2199,6 +2200,7 @@ fun CinemaxSettingsScreen(
                 TextButton(onClick = { onRemoveAddon(addon) }) { Text("إزالة", fontSize = 12.sp) }
             }
         }
+        }
         Text(
             "مزوّدو Nuvio: $nuvioRepositoryCount مستودعًا و$nuvioProviderCount مصدرًا مفعّلًا.",
             color = CinemaxPalette.textMuted,
@@ -2241,6 +2243,7 @@ fun CinemaxSettingsScreen(
 
         Spacer(Modifier.height(10.dp))
         CinemaxSectionTitle(title = "بيانات التطبيق", accent = accent)
+        CinemaxCard(Modifier.padding(horizontal = 16.dp)) {
         Text(
             "$favoriteCount عنوانًا محفوظًا • $progressCount قيد المشاهدة",
             color = CinemaxPalette.textMuted,
@@ -2274,6 +2277,7 @@ fun CinemaxSettingsScreen(
             fontSize = 11.sp,
             lineHeight = 16.sp
         )
+        }
 
         Spacer(Modifier.height(10.dp))
         CinemaxSectionTitle(title = "حول التطبيق", accent = accent)

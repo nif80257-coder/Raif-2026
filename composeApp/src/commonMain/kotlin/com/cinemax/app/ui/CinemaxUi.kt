@@ -121,18 +121,23 @@ fun CinemaxFilterChip(
     }
 }
 
-/** Section header: bold 20sp white title with Swiftfin's quiet "›" affordance. */
+/** Section header: bold 20sp title over a hairline, with room to breathe. */
 @Composable
 fun CinemaxSectionTitle(title: String, accent: Color, trailing: (@Composable () -> Unit)? = null) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(title, color = CinemaxPalette.text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.width(6.dp))
-        Text("›", color = CinemaxPalette.textMuted, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.weight(1f))
-        trailing?.invoke()
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+        Spacer(Modifier.height(16.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(title, color = CinemaxPalette.text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.weight(1f))
+            trailing?.invoke()
+        }
+        Spacer(Modifier.height(8.dp))
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(CinemaxPalette.outline.copy(alpha = 0.7f))
+        )
     }
 }
 

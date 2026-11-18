@@ -123,6 +123,7 @@ import com.cinemax.app.nuvio.createNuvioHttpClient
 import com.cinemax.app.nuvio.createNuvioScriptRuntime
 import com.cinemax.app.nuvio.nuvioSourcesFrom
 import com.cinemax.app.ui.CinemaxCatalogScreen
+import com.cinemax.app.ui.cinemaxTypography
 import com.cinemax.app.ui.InAppBrowser
 import com.cinemax.app.ui.CinemaxFilterChip
 import com.cinemax.app.ui.CinemaxDetailScreen
@@ -1621,10 +1622,13 @@ fun App() {
         ?.let { embeddedSubtitleLabel(it) }
         ?: subtitleOptions.firstOrNull { it.url == selectedSubtitleUrl }?.label
 
-    MaterialTheme(colorScheme = darkColorScheme(
-        background = appBackground, surface = Panel, primary = appAccent,
-        onBackground = Color.White, onSurface = Color.White
-    )) {
+    MaterialTheme(
+        colorScheme = darkColorScheme(
+            background = appBackground, surface = Panel, primary = appAccent,
+            onBackground = Color.White, onSurface = Color.White
+        ),
+        typography = cinemaxTypography()
+    ) {
         Box(Modifier.fillMaxSize().background(appBackground)) {
             when (tab) {
                 0 -> CinemaxHomeScreen(
