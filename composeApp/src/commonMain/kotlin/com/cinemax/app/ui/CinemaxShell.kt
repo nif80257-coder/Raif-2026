@@ -768,7 +768,7 @@ fun CinemaxSearchScreen(
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf("all" to "الكل", "movie" to "أفلام", "series" to "مسلسلات").forEach { (value, label) ->
+            listOf("all" to "الكل", "movie" to "أفلام", "series" to "مسلسلات", "channel" to "قنوات").forEach { (value, label) ->
                 CinemaxFilterChip(
                     selected = type == value,
                     onClick = { onType(value) },
@@ -1130,6 +1130,8 @@ fun CinemaxDetailScreen(
     onSelectVideo: (StremioVideo) -> Unit,
     onSeason: (Int) -> Unit,
     onPlay: (StreamOption) -> Unit,
+    /** Opens an official provider page for a row that cannot be played in-app. */
+    onOpenExternal: ((String) -> Unit)? = null,
     onRetrySources: (() -> Unit)? = null,
     onToggleEpisodeWatched: (StremioVideo) -> Unit = {},
     /** Playable source count per episode, filled on demand. */
@@ -1219,7 +1221,11 @@ fun CinemaxDetailScreen(
                     }
                     Text(
                         listOfNotNull(
-                            if (item.type == "series") "مسلسل" else "فيلم",
+                            when (item.type) {
+                                "series" -> "مسلسل"
+                                "channel", "tv" -> "قناة"
+                                else -> "فيلم"
+                            },
                             meta?.releaseInfo ?: item.releaseInfo,
                             meta?.runtime
                         ).joinToString(" • "),
@@ -1480,7 +1486,8 @@ fun CinemaxDetailScreen(
                         onPin = { onPinSource(option) },
                         providers = sourceProviders[streamFingerprint(option)] ?: listOf(option.addonName),
                         packBadges = packBadges,
-                        onPlay = onPlay
+                        onPlay = onPlay,
+                        onOpenExternal = onOpenExternal
                     )
                 }
             }
@@ -1597,10 +1604,13 @@ private fun SourceCard(
     onPin: (() -> Unit)? = null,
     providers: List<String> = emptyList(),
     packBadges: List<BadgeFilter> = emptyList(),
-    onPlay: (StreamOption) -> Unit
+    onPlay: (StreamOption) -> Unit,
+    onOpenExternal: ((String) -> Unit)? = null
 ) {
     val stream = option.stream
+    val external = stream.externalUrl
     val playable = stream.url != null
+    val openable = !playable && external != null
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1667,11 +1677,22 @@ private fun SourceCard(
             )
         }
         if (!playable) {
-            Text(
-                "مصدر تورنت: يحتاج محرك بث محلي مدمج (قيد التنفيذ).",
-                color = CinemaxPalette.textMuted,
-                fontSize = 11.sp
-            )
+            if (openable) {
+                Text(
+                    "صفحة رسمية — تُفتح في تطبيق المشغّل",
+                    color = CinemaxPalette.textMuted,
+                    fontSize = 11.sp
+                )
+                TextButton(onClick = { external?.let { onOpenExternal?.invoke(it) } }) {
+                    Text("فتح في التطبيق", color = accent, fontSize = 12.sp)
+                }
+            } else {
+                Text(
+                    "مصدر تورنت: يحتاج محرك بث محلي مدمج (قيد التنفيذ).",
+                    color = CinemaxPalette.textMuted,
+                    fontSize = 11.sp
+                )
+            }
         }
         if (onPin != null) {
             Row(verticalAlignment = Alignment.CenterVertically) {

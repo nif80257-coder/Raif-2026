@@ -52,6 +52,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.cinemax.app.addons.AddonCapabilities
+import com.cinemax.app.addons.AddonDirectory
+import com.cinemax.app.addons.AddonDirectoryEntry
 import com.cinemax.app.addons.AddonRepository
 import com.cinemax.app.addons.AddonSettingsStore
 import com.cinemax.app.addons.CatalogEntry
@@ -169,6 +171,7 @@ private data class SubtitleChoice(
 fun App() {
     val http = remember { createCinemaxHttpClient() }
     val repository = remember { AddonRepository(http) }
+    val addonDirectory = remember { AddonDirectory(http) }
     val archive = remember { ArchiveClient(http) }
     val addonStore = remember { AddonSettingsStore() }
     val nuvioHttp = remember { createNuvioHttpClient() }
@@ -283,6 +286,9 @@ fun App() {
     var suggestedSources by remember { mutableStateOf<List<SuggestedSource>>(emptyList()) }
     var suggestedQuery by remember { mutableStateOf("") }
     var installingSourceUrl by remember { mutableStateOf<String?>(null) }
+    // The public addon collection, fetched only when the viewer asks for it.
+    var directoryEntries by remember { mutableStateOf<List<AddonDirectoryEntry>>(emptyList()) }
+    var directoryLoading by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("أضف إضافة Stremio متوافقة للبدء") }
     var loading by remember { mutableStateOf(false) }
     var loadingMeta by remember { mutableStateOf(false) }
@@ -1161,6 +1167,28 @@ fun App() {
         status = "تمت استعادة ${backup.summary()}"
     }
 
+    /**
+     * Reads Stremio's public addon collection so a new install can pick addons
+     * without hunting for a manifest URL.
+     */
+    fun loadAddonDirectory() {
+        if (directoryLoading) return
+        directoryLoading = true
+        scope.launch {
+            try {
+                val entries = addonDirectory.load()
+                directoryEntries = entries
+                status = if (entries.isEmpty()) "لم أجد إضافات في القائمة العامة"
+                else "${entries.size} إضافة في القائمة العامة"
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                status = "تعذر تحميل قائمة الإضافات: ${error.message ?: "خطأ غير معروف"}"
+            } finally {
+                directoryLoading = false
+            }
+        }
+    }
+
     /** Forgets what the app learned about link health. */
     fun clearSourceStats() {
         statsStore.clear()
@@ -1913,6 +1941,9 @@ fun App() {
                         onPlay = { option ->
                             option.stream.url?.let { url -> startPlayback(option, url) }
                         },
+                        onOpenExternal = { url ->
+                            if (!openExternalUrl(url)) status = "تعذر فتح الرابط الخارجي"
+                        },
                         onRetrySources = { streamRefresh += 1 },
                         onToggleEpisodeWatched = { video -> toggleEpisodeWatched(video) },
                         episodeSourceCounts = episodeSourceCounts,
@@ -2361,6 +2392,46 @@ fun App() {
                                 }
                             }
                         }
+                        Spacer(Modifier.height(18.dp))
+                        Text(
+                            "استكشاف إضافات",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            "قائمة إضافات المجتمع العامة من Stremio. تُجلب عند الطلب فقط.",
+                            fontSize = 11.sp,
+                            color = Color.LightGray
+                        )
+                        TextButton(onClick = { loadAddonDirectory() }, enabled = !directoryLoading) {
+                            Text(
+                                if (directoryLoading) "جارٍ تحميل القائمة…" else "تحميل القائمة العامة",
+                                fontSize = 12.sp
+                            )
+                        }
+                        directoryEntries.take(40).forEach { entry ->
+                            val entryName = entry.manifest?.name ?: entry.installUrl
+                            val installed = addons.any { it.manifestUrl == entry.installUrl }
+                            Row(
+                                Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(entryName, color = Color.White, fontSize = 12.sp, maxLines = 1)
+                                    entry.manifest?.description?.takeIf { it.isNotBlank() }?.let { text ->
+                                        Text(text, fontSize = 10.sp, color = Color.LightGray, maxLines = 1)
+                                    }
+                                }
+                                if (installed) {
+                                    Text("مثبّت", fontSize = 11.sp, color = appAccent)
+                                } else {
+                                    TextButton(
+                                        enabled = !loading,
+                                        onClick = { installAddon(entry.installUrl) }
+                                    ) { Text("تثبيت", fontSize = 12.sp) }
+                                }
+                            }
+                        }
                     }
                 },
                 confirmButton = {
@@ -2690,7 +2761,15 @@ private suspend fun streamsFrom(
                 try {
                     withTimeout(STREAM_TIMEOUT_MS) {
                         repository.loadStreams(addon.manifestUrl, type, mediaId)
-                            .map { StreamOption(addon.id, addon.name, it) }
+                            .map { stream ->
+                                // YouTube streams are opened as their official watch page.
+                                val playable = if (stream.url == null && stream.infoHash == null &&
+                                    stream.ytId != null
+                                ) {
+                                    stream.copy(externalUrl = "https://www.youtube.com/watch?v=${stream.ytId}")
+                                } else stream
+                                StreamOption(addon.id, addon.name, playable)
+                            }
                     }
                 } catch (_: TimeoutCancellationException) {
                     emptyList<StreamOption>()

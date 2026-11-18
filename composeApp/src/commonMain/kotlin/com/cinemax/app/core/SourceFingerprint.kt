@@ -21,6 +21,8 @@ fun streamFingerprint(option: StreamOption): String {
     if (!hash.isNullOrEmpty()) return "torrent:$hash:${stream.fileIdx ?: -1}"
     val url = stream.url?.trim()
     if (!url.isNullOrEmpty()) return "url:${normalizeStreamUrl(url)}"
+    val external = stream.externalUrl?.trim()
+    if (!external.isNullOrEmpty()) return "external:${external.lowercase()}"
     return "other:${option.addonId}:${stream.name ?: ""}:${stream.title ?: ""}"
 }
 

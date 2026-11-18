@@ -134,6 +134,10 @@ data class StremioStream(
     val url: String? = null,
     val infoHash: String? = null,
     val fileIdx: Int? = null,
+    /** A page or app to open instead of playing anything (official providers). */
+    val externalUrl: String? = null,
+    /** A YouTube video, which is opened as its official watch page. */
+    val ytId: String? = null,
     val subtitles: List<StremioSubtitle> = emptyList(),
     val behaviorHints: StremioBehaviorHints = StremioBehaviorHints()
 )

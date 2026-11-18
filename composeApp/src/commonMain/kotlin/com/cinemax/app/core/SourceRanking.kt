@@ -17,7 +17,10 @@ fun sourceScore(option: StreamOption): Int {
     if ("HDR" in badges) score += 30
     if ("HEVC" in badges) score += 10
     if ("CAM" in badges) score -= 50
-    if (option.stream.url == null) score -= 1000
+    // A link we can open but not play (an official provider page) sits below the
+    // playable ones, but far above a torrent that cannot play at all.
+    if (option.stream.url == null && option.stream.externalUrl != null) score -= 60
+    if (option.stream.url == null && option.stream.externalUrl == null) score -= 1000
     return score
 }
 
