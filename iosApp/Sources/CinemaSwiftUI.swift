@@ -280,14 +280,16 @@ final class CinemaAPI {
         guard let data = try? JSONEncoder().encode(item), let json = String(data: data, encoding: .utf8) else {
             return false
         }
+        // The bridge answers on this same call stack; waiting on a semaphore would
+        // block the main thread and deadlock if that ever changed, so the result is
+        // simply read after the call returns.
         var result = false
-        let semaphore = DispatchSemaphore(value: 0)
+        var answered = false
         bridge.toggleFavorite(itemJson: json, onDone: { state in
             result = state.boolValue
-            semaphore.signal()
+            answered = true
         })
-        _ = semaphore.wait(timeout: .now() + 1)
-        return result
+        return answered ? result : false
     }
 
     func useClassicInterface() {
@@ -1236,7 +1238,13 @@ struct DetailView: View {
     private var playlist: [CinemaItem] {
         guard let detail = model.detail, !detail.episodes.isEmpty else { return [] }
         guard let season else { return detail.episodes }
-        return detail.episodes.filter { $0.id.split(separator: ":").count >= 3 && Int($0.id.split(separator: ":")[1]) == season }
+        // Episode ids end with ":season:episode" both for addons ("tt1:1:2") and for
+        // TMDB ("tmdb:123:series:1:2"), so the season is the second-to-last piece.
+        return detail.episodes.filter { episode in
+            let parts = episode.id.split(separator: ":")
+            guard parts.count >= 2, let value = Int(parts[parts.count - 2]) else { return false }
+            return value == season
+        }
     }
 
     var body: some View {

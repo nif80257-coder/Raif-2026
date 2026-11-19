@@ -293,7 +293,9 @@ class CinemaxAppleBridge {
             ),
             genres = genres,
             runtime = runtimeMinutes?.let { "$it دقيقة" },
-            seasons = seasons,
+            // Only the seasons whose episodes were actually fetched are offered, so
+            // no season chip can lead to an empty list.
+            seasons = if (isMovie) emptyList() else seasons.take(4),
             episodes = episodes
         )
     }
@@ -411,13 +413,23 @@ class CinemaxAppleBridge {
     fun loadStreams(itemId: String, type: String, onDone: (String) -> Unit, onError: (String) -> Unit) {
         scope.launch {
             try {
-                val addons = addonStore.load().filter { AddonCapabilities.supportsStreams(it, type, itemId) }
+                // A TMDB row (or episode) has no id any Stremio addon knows, so it is
+                // translated to its IMDb id first — otherwise the list stays empty.
+                val queryId = if (itemId.startsWith("tmdb:")) {
+                    resolveTmdbStreamId(itemId) ?: run {
+                        onDone(json.encodeToString(AppleStreams(emptyList())))
+                        return@launch
+                    }
+                } else {
+                    itemId
+                }
+                val addons = addonStore.load().filter { AddonCapabilities.supportsStreams(it, type, queryId) }
                 val found = coroutineScope {
                     addons.map { addon ->
                         async {
                             try {
                                 withTimeoutOrNull(12_000) {
-                                    repository.loadStreams(addon.manifestUrl, type, itemId)
+                                    repository.loadStreams(addon.manifestUrl, type, queryId)
                                 }?.mapNotNull { stream ->
                                     val url = stream.url ?: return@mapNotNull null
                                     if (!url.startsWith("https://")) return@mapNotNull null
@@ -453,6 +465,27 @@ class CinemaxAppleBridge {
                 onError(error.message ?: "تعذر جلب المصادر")
             }
         }
+    }
+
+    /**
+     * Turns "tmdb:123:series:1:2" into the "tt…:1:2" id stream addons expect.
+     * A title without an IMDb id answers null, and the list stays honestly empty.
+     */
+    private suspend fun resolveTmdbStreamId(itemId: String): String? {
+        val parts = itemId.split(":")
+        if (parts.size < 3) return null
+        val key = nuvioStore.loadTmdbApiKey()
+        if (key.isBlank()) return null
+        val kind = if (parts[2] == "movie") "movie" else "tv"
+        val body = try {
+            tmdbHttp.get("https://api.themoviedb.org/3/$kind/${parts[1]}/external_ids?api_key=$key").bodyAsText()
+        } catch (_: Throwable) {
+            return null
+        }
+        val imdb = (Json.parseToJsonElement(body).jsonObject["imdb_id"] as? JsonPrimitive)?.content
+            ?.takeIf { it.startsWith("tt") }
+            ?: return null
+        return if (parts.size >= 5) "$imdb:${parts[3]}:${parts[4]}" else imdb
     }
 
     private fun qualityRank(quality: String?): Int = when (quality) {
