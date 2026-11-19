@@ -1453,6 +1453,34 @@ struct DetailView: View {
         return known.filter { present.contains($0) } + (present.contains("أخرى") ? ["أخرى"] : [])
     }
 
+    private func qualityWeight(_ quality: String?) -> Double {
+        switch quality ?? "" {
+        case "4K": return 8
+        case "1080p": return 6
+        case "720p": return 4
+        case "480p": return 2
+        default: return 1
+        }
+    }
+
+    /// Quality stays the main signal; the measured speed breaks ties upwards, so a
+    /// fast 1080p can pass a crawling 4K but quality is never ignored.
+    private func streamScore(_ stream: StreamChoice) -> Double {
+        var score = qualityWeight(stream.quality)
+        if let speed = speeds[stream.url] {
+            score += min(speed, 20.0) / 5.0
+        }
+        return score
+    }
+
+    private func isProxied(_ stream: StreamChoice) -> Bool {
+        let url = stream.url.lowercased()
+        let title = (stream.title + " " + stream.addon).lowercased()
+        let host = url.split(separator: "/").dropFirst(2).first.map(String.init) ?? ""
+        return title.contains("proxy") || host.contains("prox")
+            || url.contains("proxy") || url.contains("?proxy") || url.contains("&proxy")
+    }
+
     private var filteredStreams: [StreamChoice] {
         let known = ["4K", "1080p", "720p", "480p"]
         let list = model.streams.filter { stream in
@@ -1460,11 +1488,7 @@ struct DetailView: View {
             let tier = stream.quality.flatMap { known.contains($0) ? $0 : nil } ?? "أخرى"
             return tier == qualityFilter
         }
-        // Fastest mirror first once the probe has answered; unmeasured links keep
-        // their quality order behind the measured ones.
-        return list.sorted { first, second in
-            (speeds[first.url] ?? -1) > (speeds[second.url] ?? -1)
-        }
+        return list.sorted { streamScore($0) > streamScore($1) }
     }
 
     private struct StreamGroup: Identifiable {
@@ -1570,6 +1594,9 @@ struct DetailView: View {
                 }
                 if let quality = stream.quality {
                     CinemaPill(text: quality)
+                }
+                if isProxied(stream) {
+                    CinemaPill(text: "بروكسي", tint: CinemaTheme.muted)
                 }
                 if playing?.url == stream.url {
                     ProgressView().tint(CinemaTheme.accent)

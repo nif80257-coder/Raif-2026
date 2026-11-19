@@ -436,11 +436,17 @@ class CinemaxAppleBridge {
                         }
                     }.awaitAll().flatten()
                 }
-                // Best quality first, one row per file, so the list reads like a chart
-                // instead of the order the addons happened to answer in.
+                // Direct MP4/HLS answers faster than a big MKV, a known CDN is
+                // quicker than someone's home server, and a link routed through a
+                // free public proxy is the slowest of all. The score mixes those
+                // with the quality tier so the best link is the first row.
                 val sorted = found
                     .distinctBy { it.url }
-                    .sortedWith(compareByDescending<AppleStream> { qualityRank(it.quality) }.thenBy { it.addon })
+                    .sortedWith(
+                        compareByDescending<AppleStream> { streamScore(it) }
+                            .thenByDescending { qualityRank(it.quality) }
+                            .thenBy { it.addon }
+                    )
                 onDone(json.encodeToString(AppleStreams(sorted)))
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
@@ -455,6 +461,34 @@ class CinemaxAppleBridge {
         "720p" -> 3
         "480p" -> 2
         else -> 1
+    }
+
+    private fun isProxied(stream: AppleStream): Boolean {
+        val url = stream.url.lowercase()
+        val title = (stream.title + " " + stream.addon).lowercase()
+        val host = url.substringAfter("://", "").substringBefore('/')
+        return "proxy" in title || "prox" in host || "proxy" in url.substringBefore("?") ||
+            "?proxy" in url || "&proxy" in url
+    }
+
+    /**
+     * Free speed heuristics on top of the quality tier: a direct MP4/HLS link
+     * starts sooner than a large MKV, a CDN host answers faster than a personal
+     * server, and a link wrapped in a free public proxy is demoted.
+     */
+    private fun streamScore(stream: AppleStream): Int {
+        val url = stream.url.lowercase()
+        var score = qualityRank(stream.quality) * 4
+        if (".m3u8" in url) score += 3
+        if (".mp4" in url) score += 2
+        val host = url.substringAfter("://", "").substringBefore('/')
+        val fastHosts = listOf(
+            "r2.dev", "workers.dev", "cloudfront", "fastly", "bunnycdn",
+            "storage.googleapis.com", "googleusercontent.com", "akamai", "b-cdn"
+        )
+        if (fastHosts.any { it in host }) score += 2
+        if (isProxied(stream)) score -= 3
+        return score
     }
 
     fun loadProgress(onDone: (String) -> Unit) {
