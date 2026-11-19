@@ -2308,6 +2308,11 @@
     <string name="plugins_section_installed_repos">المستودعات المثبتة</string>
     <string name="plugins_section_overview">نظرة عامة</string>
     <string name="plugins_section_providers">المزودون</string>
+    <string name="plugins_repositories_hidden_count">%1$d مستودع مخفي</string>
+    <string name="plugins_repositories_show_all">إظهار الكل</string>
+    <string name="plugins_repositories_hide_all">إخفاء الكل</string>
+    <string name="plugins_repository_show">إظهار</string>
+    <string name="plugins_repository_hide">إخفاء</string>
     <string name="plugins_test_error_title">خطأ</string>
     <string name="plugins_test_failed">فشل اختبار المزود</string>
     <string name="plugins_test_results_count">نتائج الاختبار (%1$d)</string>
@@ -2821,7 +2826,13 @@
     <string name="details_where_to_watch_tmdb">اعرض كل الخيارات على TMDB</string>
     <string name="addons_drag_handle">اسحب لإعادة الترتيب</string>
     <string name="home_catalog_free_and_legal">مجاني وقانوني · %1$s</string>
-    <string name="addons_group_built_in">مصادر مدمجة</string>
+    <string name="addons_group_built_in">المصادر المدمجة</string>
+    <string name="addons_repositories_hidden_count">%1$d مستودع مخفي</string>
+    <string name="addons_repositories_show_all">إظهار الكل</string>
+    <string name="addons_repositories_hide_all">إخفاء الكل</string>
+    <string name="addons_repository_show">إظهار</string>
+    <string name="addons_repository_hide">إخفاء</string>
+    <string name="addons_repository_sources_count">%1$d مصدر</string>
     <string name="addons_group_user">إضافاتك</string>
     <string name="addons_built_in_count">%1$d مصدرًا، بالترتيب أدناه</string>
     <string name="addons_reset">إعادة الضبط</string>

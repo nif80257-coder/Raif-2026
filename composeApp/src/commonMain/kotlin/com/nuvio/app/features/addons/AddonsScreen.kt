@@ -121,6 +121,9 @@ internal fun AddonsSettingsPageContent(
     var resetBuiltInVisible by rememberSaveable { mutableStateOf(false) }
     var isResettingBuiltIns by remember { mutableStateOf(false) }
 
+    // Repositories the user folded away, so the screen keeps only the ones being worked on.
+    var collapsedSourceRepositories by remember { mutableStateOf(setOf<String>()) }
+
     val overview = remember(uiState.addons) { uiState.addons.toOverview() }
 
     // Sources that failed three stream requests in a row and are waiting out their pause. The
@@ -292,11 +295,61 @@ internal fun AddonsSettingsPageContent(
             val userAddons = remember(visibleAddons) {
                 visibleAddons
                     .filter { addon -> builtInSourceOrder(addon.manifestUrl) == null }
-                    .sortedBy { addon -> addon.transport().ordinal }
+                    .sortedWith(
+                        compareBy<ManagedAddon> { addon -> addon.transport().ordinal }
+                            .thenBy { addon -> addon.repositoryHost() }
+                            .thenBy { addon -> addon.displayTitle.lowercase() },
+                    )
             }
             val displayAddons = builtInAddons + userAddons
+
+            // Sources are grouped by the repository their manifest lives on, so a whole
+            // repository can be folded away with one button and the rest of the list stays in
+            // view. The header is drawn even while folded, which is how it is opened again.
+            val repositoryHostByManifestUrl = remember(uiState.addons) {
+                uiState.addons.associate { addon -> addon.manifestUrl to addon.repositoryHost() }
+            }
+            val sourceCountByRepository = remember(displayAddons) {
+                displayAddons
+                    .groupingBy { addon -> addon.repositoryHost().ifBlank { addon.manifestUrl } }
+                    .eachCount()
+            }
+            // Only a repository that carries more than one source gets a foldable header; a
+            // repository with a single source is the row itself, so a header would only add noise.
+            val collapsibleRepositories = remember(sourceCountByRepository) {
+                sourceCountByRepository.filterValues { count -> count > 1 }.keys
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = stringResource(
+                        Res.string.addons_repositories_hidden_count,
+                        collapsedSourceRepositories.size,
+                    ),
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TextButton(
+                    enabled = collapsedSourceRepositories.isNotEmpty(),
+                    onClick = { collapsedSourceRepositories = emptySet() },
+                ) {
+                    Text(stringResource(Res.string.addons_repositories_show_all))
+                }
+                TextButton(
+                    enabled = collapsibleRepositories.isNotEmpty(),
+                    onClick = { collapsedSourceRepositories = collapsibleRepositories },
+                ) {
+                    Text(stringResource(Res.string.addons_repositories_hide_all))
+                }
+            }
+
             var renderedSection: String? = null
             var renderedTransport: AddonTransport? = null
+            var renderedRepository: String? = null
             displayAddons.forEach { addon ->
                 val orderNumber = builtInSourceOrder(addon.manifestUrl)
                 val section = if (orderNumber != null) "builtin" else "user"
@@ -333,6 +386,7 @@ internal fun AddonsSettingsPageContent(
                     }
                     renderedSection = section
                     renderedTransport = null
+                    renderedRepository = null
                 }
                 if (orderNumber == null) {
                     val transport = addon.transport()
@@ -348,6 +402,55 @@ internal fun AddonsSettingsPageContent(
                         renderedTransport = transport
                     }
                 }
+
+                val repositoryHost = repositoryHostByManifestUrl[addon.manifestUrl].orEmpty()
+                val repositoryKey = repositoryHost.ifBlank { addon.manifestUrl }
+                if (repositoryKey != renderedRepository) {
+                    renderedRepository = repositoryKey
+                    val repositorySourceCount = sourceCountByRepository[repositoryKey] ?: 0
+                    if (repositorySourceCount > 1) {
+                        val isRepositoryCollapsed = repositoryKey in collapsedSourceRepositories
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = repositoryHost.ifBlank { addon.displayTitle },
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    text = stringResource(
+                                        Res.string.addons_repository_sources_count,
+                                        repositorySourceCount,
+                                    ),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            TextButton(
+                                onClick = {
+                                    collapsedSourceRepositories = if (isRepositoryCollapsed) {
+                                        collapsedSourceRepositories - repositoryKey
+                                    } else {
+                                        collapsedSourceRepositories + repositoryKey
+                                    }
+                                },
+                            ) {
+                                Text(
+                                    stringResource(
+                                        if (isRepositoryCollapsed) Res.string.addons_repository_show
+                                        else Res.string.addons_repository_hide,
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                }
+                if (repositoryKey in collapsedSourceRepositories) return@forEach
                 val index = indexByManifestUrl[addon.manifestUrl] ?: -1
                 val manifest = addon.manifest
                 val behaviorHints = manifest?.behaviorHints

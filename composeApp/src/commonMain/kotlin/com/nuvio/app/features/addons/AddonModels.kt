@@ -189,6 +189,22 @@ internal fun String.summaryLine(maxChars: Int = 120): String {
     return "$boundary…"
 }
 
+/**
+ * The repository a source belongs to: the host its manifest lives on, which is what the add-on
+ * screen groups the list by so one repository can be folded away as a whole.
+ */
+internal fun ManagedAddon.repositoryHost(): String = manifestUrl.repositoryHost()
+
+internal fun String.repositoryHost(): String {
+    val withoutScheme = substringAfter("://", "")
+    if (withoutScheme.isBlank()) return ""
+    return withoutScheme
+        .substringBefore('/')
+        .substringBefore('?')
+        .removePrefix("www.")
+        .lowercase()
+}
+
 sealed interface AddAddonResult {
     data class Success(val manifest: AddonManifest) : AddAddonResult
     data class Error(val message: String) : AddAddonResult

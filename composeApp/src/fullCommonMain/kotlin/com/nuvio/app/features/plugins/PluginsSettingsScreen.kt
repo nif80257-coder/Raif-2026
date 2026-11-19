@@ -19,6 +19,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -69,6 +70,11 @@ import nuvio.composeapp.generated.resources.plugins_provider_no_description
 import nuvio.composeapp.generated.resources.plugins_provider_version
 import nuvio.composeapp.generated.resources.plugins_repo_fallback_label
 import nuvio.composeapp.generated.resources.plugins_repo_version
+import nuvio.composeapp.generated.resources.plugins_repositories_hidden_count
+import nuvio.composeapp.generated.resources.plugins_repositories_hide_all
+import nuvio.composeapp.generated.resources.plugins_repositories_show_all
+import nuvio.composeapp.generated.resources.plugins_repository_hide
+import nuvio.composeapp.generated.resources.plugins_repository_show
 import nuvio.composeapp.generated.resources.plugins_section_add_repo
 import nuvio.composeapp.generated.resources.plugins_section_installed_repos
 import nuvio.composeapp.generated.resources.plugins_section_overview
@@ -103,6 +109,10 @@ fun PluginsSettingsPageContent(
     var loadingSettingsScraperId by remember { mutableStateOf<String?>(null) }
     val settingsLoadErrors = remember { mutableStateMapOf<String, Boolean>() }
 
+    // A repository can carry dozens of providers; folding it away keeps the rest of the screen
+    // reachable without removing anything from the install.
+    var collapsedProviderRepositories by remember { mutableStateOf(setOf<String>()) }
+
     val sortedRepos = remember(uiState.repositories) {
         uiState.repositories.sortedBy { it.name.lowercase() }
     }
@@ -116,6 +126,10 @@ fun PluginsSettingsPageContent(
                 { it.name.lowercase() },
             ),
         )
+    }
+
+    val scrapersByRepository = remember(sortedScrapers) {
+        sortedScrapers.groupBy { scraper -> scraper.repositoryUrl }
     }
 
     val repoFallbackLabel = stringResource(Res.string.plugins_repo_fallback_label)
@@ -345,7 +359,78 @@ fun PluginsSettingsPageContent(
                 )
             }
         } else {
+            val hiddenRepositoryCount = collapsedProviderRepositories.size
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = stringResource(Res.string.plugins_repositories_hidden_count, hiddenRepositoryCount),
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TextButton(
+                    enabled = hiddenRepositoryCount > 0,
+                    onClick = { collapsedProviderRepositories = emptySet() },
+                ) {
+                    Text(stringResource(Res.string.plugins_repositories_show_all))
+                }
+                TextButton(
+                    enabled = scrapersByRepository.isNotEmpty(),
+                    onClick = { collapsedProviderRepositories = scrapersByRepository.keys },
+                ) {
+                    Text(stringResource(Res.string.plugins_repositories_hide_all))
+                }
+            }
+
+            var renderedRepositoryUrl: String? = null
             sortedScrapers.forEach { scraper ->
+                if (scraper.repositoryUrl != renderedRepositoryUrl) {
+                    renderedRepositoryUrl = scraper.repositoryUrl
+                    val isRepositoryCollapsed = scraper.repositoryUrl in collapsedProviderRepositories
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = repositoryNameByUrl[scraper.repositoryUrl]
+                                    ?: scraper.repositoryUrl.fallbackRepositoryLabel(repoFallbackLabel),
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = stringResource(
+                                    Res.string.plugins_badge_providers,
+                                    scrapersByRepository[scraper.repositoryUrl]?.size ?: 0,
+                                ),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        TextButton(
+                            onClick = {
+                                collapsedProviderRepositories = if (isRepositoryCollapsed) {
+                                    collapsedProviderRepositories - scraper.repositoryUrl
+                                } else {
+                                    collapsedProviderRepositories + scraper.repositoryUrl
+                                }
+                            },
+                        ) {
+                            Text(
+                                stringResource(
+                                    if (isRepositoryCollapsed) Res.string.plugins_repository_show
+                                    else Res.string.plugins_repository_hide,
+                                ),
+                            )
+                        }
+                    }
+                }
+                if (scraper.repositoryUrl in collapsedProviderRepositories) return@forEach
+
                 val scraperResults = testResults[scraper.id]
                 val isTestingThisScraper = testingScraperId == scraper.id
                 val repositoryName = repositoryNameByUrl[scraper.repositoryUrl]

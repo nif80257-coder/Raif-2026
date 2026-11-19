@@ -2346,6 +2346,11 @@
     <string name="plugins_section_installed_repos">INSTALLED REPOSITORIES</string>
     <string name="plugins_section_overview">OVERVIEW</string>
     <string name="plugins_section_providers">PROVIDERS</string>
+    <string name="plugins_repositories_hidden_count">%1$d repositories hidden</string>
+    <string name="plugins_repositories_show_all">Show all</string>
+    <string name="plugins_repositories_hide_all">Hide all</string>
+    <string name="plugins_repository_show">Show</string>
+    <string name="plugins_repository_hide">Hide</string>
     <string name="plugins_test_error_title">Error</string>
     <string name="plugins_test_failed">Provider test failed</string>
     <string name="plugins_test_results_count">Test results (%1$d)</string>
@@ -2851,6 +2856,12 @@
     <string name="addons_drag_handle">Drag to reorder</string>
     <string name="home_catalog_free_and_legal">Free &amp; legal · %1$s</string>
     <string name="addons_group_built_in">Built-in sources</string>
+    <string name="addons_repositories_hidden_count">%1$d repositories hidden</string>
+    <string name="addons_repositories_show_all">Show all</string>
+    <string name="addons_repositories_hide_all">Hide all</string>
+    <string name="addons_repository_show">Show</string>
+    <string name="addons_repository_hide">Hide</string>
+    <string name="addons_repository_sources_count">%1$d sources</string>
     <string name="addons_group_user">Your sources</string>
     <string name="addons_built_in_count">%1$d sources, in the order below</string>
     <string name="addons_reset">Reset</string>

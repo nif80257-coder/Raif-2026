@@ -58,7 +58,14 @@ internal fun searchWordScore(name: String, normalizedQuery: String): Int? {
     return score
 }
 
-/** Matches first, best first; everything else keeps the order the source returned. */
+/**
+ * Matching titles first, best first, with the unrelated ones dropped when at least one
+ * result does match the query. A source that answers a search with a whole page of titles
+ * containing none of the typed words used to fill the screen under the real matches; those
+ * now stay out of the result once a real match exists. When nothing matches (the catalogue
+ * names titles in another language, say), the server's list is kept as it is so the query
+ * still shows what the source offered.
+ */
 internal fun <T> rankByWordMatch(
     items: List<T>,
     query: String,
@@ -68,10 +75,11 @@ internal fun <T> rankByWordMatch(
     if (normalizedQuery.isBlank() || items.size < 2) return items
 
     val scored = items.map { item -> item to searchWordScore(title(item), normalizedQuery) }
-    if (scored.none { (_, score) -> score != null }) return items
+    val matched = scored.filter { (_, score) -> score != null }
+    if (matched.isEmpty()) return items
 
-    return scored
-        .sortedByDescending { (_, score) -> score ?: -1 }
+    return matched
+        .sortedByDescending { (_, score) -> score ?: 0 }
         .map { (item, _) -> item }
 }
 

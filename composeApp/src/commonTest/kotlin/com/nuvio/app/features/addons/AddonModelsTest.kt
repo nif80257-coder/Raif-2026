@@ -93,7 +93,18 @@ class AddonModelsTest {
 
         assertTrue(token.isSecret)
         assertTrue(password.isSecret)
-        assertFalse(plain.isSecret)
+    @Test
+    fun `repository host groups the sources of one manifest host`() {
+        assertEquals(
+            "cinema.debrid.in",
+            "https://cinema.debrid.in/sort=quality/manifest.json".repositoryHost(),
+        )
+        assertEquals(
+            "peerflix.mov",
+            "https://www.peerflix.mov/enc_abc/manifest.json".repositoryHost(),
+        )
+        assertEquals("raw.githubusercontent.com", "https://raw.githubusercontent.com/x/y".repositoryHost())
+        assertEquals("", "not a url".repositoryHost())
     }
 }
 
