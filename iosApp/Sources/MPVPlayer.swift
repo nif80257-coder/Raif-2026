@@ -350,6 +350,23 @@ final class MPVViewController: UIViewController {
         // Embedded subtitle tracks stay off until the viewer picks one.
         setOption(ctx, "sid", "no")
 
+        // Streaming tuning, all free and inside the player itself: a generous
+        // read-ahead cache rides out a slow CDN, a short probe keeps the first
+        // frame quick, four decoder threads keep high-quality H.264 smooth, and
+        // libavformat reconnects a dropped socket instead of failing the title.
+        setOption(ctx, "cache", "yes")
+        setOption(ctx, "cache-size", "268435456")
+        setOption(ctx, "demuxer-max-bytes", "134217728")
+        setOption(ctx, "demuxer-max-back-bytes", "67108864")
+        setOption(ctx, "demuxer-readahead-secs", "40")
+        setOption(ctx, "cache-secs", "120")
+        setOption(ctx, "stream-buffer-size", "4194304")
+        setOption(ctx, "network-timeout", "15")
+        setOption(ctx, "demuxer-lavf-o", "analyzeduration=2500000,probesize=2500000")
+        setOption(ctx, "stream-lavf-o", "reconnect=1,reconnect_streamed=1,reconnect_delay_max=5")
+        setOption(ctx, "vd-lavc-threads", "4")
+        setOption(ctx, "audio-buffer", "0.3")
+
         if mpv_initialize(ctx) < 0 {
             errorText = "تعذر تشغيل مشغل MPV"
         }

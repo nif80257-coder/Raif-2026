@@ -440,6 +440,53 @@ struct AmbientGlow: View {
     }
 }
 
+// MARK: - Stream speed probe
+
+/// Measures how fast a link really answers by pulling the first half-megabyte.
+/// The result is used to put the fastest mirror first and to label each source,
+/// which is the free alternative to a paid resolver.
+final class StreamProber {
+    static let shared = StreamProber()
+
+    private let session: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 6
+        configuration.httpMaximumConnectionsPerHost = 4
+        return URLSession(configuration: configuration)
+    }()
+
+    func speed(for url: URL) async -> Double? {
+        var request = URLRequest(url: url)
+        request.setValue("bytes=0-524287", forHTTPHeaderField: "Range")
+        request.timeoutInterval = 6
+        let start = Date()
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode < 400 else { return nil }
+            let seconds = Date().timeIntervalSince(start)
+            guard seconds > 0.05, !data.isEmpty else { return nil }
+            return Double(data.count) / 1_048_576.0 / seconds
+        } catch {
+            return nil
+        }
+    }
+
+    /// Probes the first links in parallel; a dead one simply stays unlabelled.
+    func speeds(for streams: [StreamChoice], limit: Int = 12) async -> [String: Double] {
+        var result: [String: Double] = [:]
+        await withTaskGroup(of: (String, Double?).self) { group in
+            for stream in streams.prefix(limit) {
+                guard let url = URL(string: stream.url) else { continue }
+                group.addTask { (stream.url, await StreamProber.shared.speed(for: url)) }
+            }
+            for await outcome in group {
+                if let speed = outcome.1 { result[outcome.0] = speed }
+            }
+        }
+        return result
+    }
+}
+
 // MARK: - Small components
 
 struct CinemaPill: View {
@@ -1184,6 +1231,7 @@ struct DetailView: View {
     @State private var episode: CinemaItem?
     @State private var playing: StreamChoice?
     @State private var qualityFilter: String?
+    @State private var speeds: [String: Double] = [:]
 
     private var playlist: [CinemaItem] {
         guard let detail = model.detail, !detail.episodes.isEmpty else { return [] }
@@ -1210,6 +1258,13 @@ struct DetailView: View {
             topBar
         }
         .task { await model.load(item: item) }
+        .onChange(of: model.streams) { streams in
+            speeds = [:]
+            Task {
+                let measured = await StreamProber.shared.speeds(for: streams)
+                await MainActor.run { speeds = measured }
+            }
+        }
         .fullScreenCover(item: $playing) { choice in
             PlayerScreen(
                 title: item.name,
@@ -1276,7 +1331,7 @@ struct DetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
                 Button {
-                    if let first = model.streams.first { playing = first }
+                    if let first = filteredStreams.first ?? model.streams.first { playing = first }
                 } label: {
                     Label("مشاهدة", systemImage: "play.fill")
                         .font(.system(size: 15, weight: .bold))
@@ -1399,11 +1454,16 @@ struct DetailView: View {
     }
 
     private var filteredStreams: [StreamChoice] {
-        guard let qualityFilter else { return model.streams }
         let known = ["4K", "1080p", "720p", "480p"]
-        return model.streams.filter { stream in
+        let list = model.streams.filter { stream in
+            guard let qualityFilter else { return true }
             let tier = stream.quality.flatMap { known.contains($0) ? $0 : nil } ?? "أخرى"
             return tier == qualityFilter
+        }
+        // Fastest mirror first once the probe has answered; unmeasured links keep
+        // their quality order behind the measured ones.
+        return list.sorted { first, second in
+            (speeds[first.url] ?? -1) > (speeds[second.url] ?? -1)
         }
     }
 
@@ -1505,6 +1565,9 @@ struct DetailView: View {
                         .lineLimit(2)
                 }
                 Spacer()
+                if let speed = speeds[stream.url] {
+                    CinemaPill(text: String(format: "⚡ %.1f MB/s", speed), tint: speed > 1.5 ? CinemaTheme.accent : CinemaTheme.muted)
+                }
                 if let quality = stream.quality {
                     CinemaPill(text: quality)
                 }
