@@ -97,6 +97,20 @@ struct StreamChoice: Identifiable, Codable, Hashable {
     var id: String { url }
 }
 
+struct InstalledAddonRow: Identifiable, Codable {
+    let id: String
+    let name: String
+    let url: String
+    let version: String
+}
+
+struct SuggestedAddonRow: Identifiable, Codable {
+    let name: String
+    let url: String
+
+    var id: String { url }
+}
+
 struct CinemaError: LocalizedError {
     let message: String
     var errorDescription: String? { message }
@@ -195,6 +209,66 @@ final class CinemaAPI {
     }
 
     func isFavorite(_ id: String) -> Bool { bridge.isFavorite(itemId: id) }
+
+    func saveProgress(item: CinemaItem, positionMs: Int64, durationMs: Int64, videoId: String?, videoLabel: String?) {
+        guard let data = try? JSONEncoder().encode(item), let json = String(data: data, encoding: .utf8) else { return }
+        bridge.saveProgress(
+            itemJson: json,
+            positionMillis: positionMs,
+            durationMillis: durationMs,
+            videoId: videoId,
+            videoLabel: videoLabel
+        )
+    }
+
+    func resume(itemId: String, videoId: String?) async -> Int64 {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Int64, Never>) in
+            bridge.resumeJson(itemId: itemId, videoId: videoId, onDone: { json in
+                let data = Data(json.utf8)
+                let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+                let value = (object?["positionMillis"] as? NSNumber)?.int64Value ?? 0
+                continuation.resume(returning: value)
+            })
+        }
+    }
+
+    func installedAddons() async -> [InstalledAddonRow] {
+        await withCheckedContinuation { (continuation: CheckedContinuation<[InstalledAddonRow], Never>) in
+            bridge.installedAddons(onDone: { json in
+                continuation.resume(returning: (try? self.decode([InstalledAddonRow].self, json)) ?? [])
+            })
+        }
+    }
+
+    func suggestedAddons() async -> [SuggestedAddonRow] {
+        await withCheckedContinuation { (continuation: CheckedContinuation<[SuggestedAddonRow], Never>) in
+            bridge.suggestedAddons(onDone: { json in
+                continuation.resume(returning: (try? self.decode([SuggestedAddonRow].self, json)) ?? [])
+            })
+        }
+    }
+
+    func installAddon(_ url: String) async throws -> String {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+            bridge.installAddon(url: url, onDone: { name in
+                continuation.resume(returning: name)
+            }, onError: { message in
+                continuation.resume(throwing: CinemaError(message: message))
+            })
+        }
+    }
+
+    func removeAddon(_ url: String) {
+        bridge.removeAddon(url: url)
+    }
+
+    func installAllSuggested() async -> String {
+        await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+            bridge.installAllSuggested(onDone: { json in
+                continuation.resume(returning: json)
+            })
+        }
+    }
 
     func toggleFavorite(_ item: CinemaItem) -> Bool {
         guard let data = try? JSONEncoder().encode(item), let json = String(data: data, encoding: .utf8) else {
@@ -924,11 +998,12 @@ struct CircleButton: View {
 /// uses, so MKV, HEVC, AVI and embedded subtitle tracks all work here too.
 struct MPVSurface: UIViewControllerRepresentable {
     let url: String
+    var startMs: Int64 = 0
     @Binding var controller: MPVViewController?
 
     func makeUIViewController(context: Context) -> MPVViewController {
         let player = MPVViewController()
-        player.load(urlString: url, headersJson: "{}", startMs: 0)
+        player.load(urlString: url, headersJson: "{}", startMs: startMs)
         DispatchQueue.main.async { controller = player }
         return player
     }
@@ -939,6 +1014,9 @@ struct MPVSurface: UIViewControllerRepresentable {
 struct PlayerScreen: View {
     let title: String
     let url: String
+    var item: CinemaItem? = nil
+    var videoId: String? = nil
+    var videoLabel: String? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var player: MPVViewController?
@@ -946,12 +1024,18 @@ struct PlayerScreen: View {
     @State private var position: Double = 0
     @State private var duration: Double = 0
     @State private var ticker: Timer?
+    @State private var startMs: Int64 = 0
+    @State private var ready = false
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            MPVSurface(url: url, controller: $player)
-                .ignoresSafeArea()
+            if ready {
+                MPVSurface(url: url, startMs: startMs, controller: $player)
+                    .ignoresSafeArea()
+            } else {
+                ProgressView().tint(CinemaTheme.accent)
+            }
             VStack {
                 HStack(spacing: 12) {
                     CircleButton(system: "xmark") { dismiss() }
@@ -1002,8 +1086,30 @@ struct PlayerScreen: View {
             }
         }
         .preferredColorScheme(.dark)
-        .onAppear(perform: startTicker)
-        .onDisappear { ticker?.invalidate() }
+        .task {
+            if let item {
+                startMs = await CinemaAPI.shared.resume(itemId: item.id, videoId: videoId)
+            }
+            ready = true
+            startTicker()
+        }
+        .onDisappear {
+            ticker?.invalidate()
+            saveProgress()
+        }
+    }
+
+    /// Writes the stop position back, so "أكمل المشاهدة" and resume stay accurate
+    /// even when playback happened in this interface rather than the classic one.
+    private func saveProgress() {
+        guard let item, duration > 0 else { return }
+        CinemaAPI.shared.saveProgress(
+            item: item,
+            positionMs: Int64(position * 1000),
+            durationMs: Int64(duration * 1000),
+            videoId: videoId,
+            videoLabel: videoLabel
+        )
     }
 
     private func startTicker() {
@@ -1014,7 +1120,10 @@ struct PlayerScreen: View {
                 player.refreshState()
                 position = Double(player.positionMs) / 1000
                 duration = max(1, Double(player.durationMs) / 1000)
-                if player.ended { dismiss() }
+                if player.ended {
+                    saveProgress()
+                    dismiss()
+                }
             }
         }
     }
@@ -1095,7 +1204,13 @@ struct DetailView: View {
         }
         .task { await model.load(item: item) }
         .fullScreenCover(item: $playing) { choice in
-            PlayerScreen(title: item.name, url: choice.url)
+            PlayerScreen(
+                title: item.name,
+                url: choice.url,
+                item: item,
+                videoId: episode?.id,
+                videoLabel: episode?.name
+            )
         }
     }
 
@@ -1502,6 +1617,11 @@ struct LibraryView: View {
 struct SettingsView: View {
     @State private var classic = CinemaxAppleBridge().isClassicInterfaceSelected()
     @AppStorage("cinemax.design") private var design = "cinematic"
+    @State private var addons: [InstalledAddonRow] = []
+    @State private var suggested: [SuggestedAddonRow] = []
+    @State private var addonURL = ""
+    @State private var addonBusy = false
+    @State private var addonMessage: String?
 
     private let designs: [(id: String, title: String, detail: String)] = [
         ("cinematic", "سينمائي زجاجي", "هيرو بعرض الشاشة، وهج بلون البوستر، شريط عائم زجاجي"),
@@ -1564,6 +1684,81 @@ struct SettingsView: View {
                         }
                     }
 
+                    card(title: "الإضافات") {
+                        if addons.isEmpty {
+                            Text("لا إضافة مثبتة بعد. الصق رابط manifest أو ثبّت المصادر الجاهزة.")
+                                .font(.system(size: 12))
+                                .foregroundStyle(CinemaTheme.muted)
+                        } else {
+                            ForEach(addons) { addon in
+                                HStack(spacing: 10) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(addon.name)
+                                            .font(.system(size: 14, weight: .semibold))
+                                            .foregroundStyle(.white)
+                                            .lineLimit(1)
+                                        Text("الإصدار \(addon.version)")
+                                            .font(.system(size: 11))
+                                            .foregroundStyle(CinemaTheme.muted)
+                                    }
+                                    Spacer()
+                                    Button {
+                                        Haptics.tap()
+                                        CinemaAPI.shared.removeAddon(addon.url)
+                                        addons.removeAll { $0.url == addon.url }
+                                        addonMessage = "أُزيلت \(addon.name)"
+                                    } label: {
+                                        Image(systemName: "trash")
+                                            .font(.system(size: 14, weight: .semibold))
+                                            .foregroundStyle(CinemaTheme.favourite)
+                                            .frame(width: 34, height: 34)
+                                            .background(CinemaTheme.elevated, in: Circle())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+
+                        HStack(spacing: 8) {
+                            TextField("رابط manifest https://…", text: $addonURL)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 12))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+                                .background(CinemaTheme.elevated, in: Capsule())
+                            Button(addonBusy ? "…" : "تثبيت") {
+                                Task { await installAddon() }
+                            }
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            .background(CinemaTheme.accent, in: Capsule())
+                            .disabled(addonBusy || addonURL.trimmingCharacters(in: .whitespaces).isEmpty)
+                        }
+
+                        Button {
+                            Task { await installAll() }
+                        } label: {
+                            Text(addonBusy ? "جارٍ التثبيت…" : "ثبّت المصادر الجاهزة (\(suggested.count))")
+                                .font(.system(size: 13, weight: .semibold))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 11)
+                                .background(Color.white.opacity(0.1), in: Capsule())
+                                .foregroundStyle(.white)
+                        }
+                        .buttonStyle(CinemaPressStyle())
+                        .disabled(addonBusy || suggested.isEmpty)
+
+                        if let addonMessage {
+                            Text(addonMessage)
+                                .font(.system(size: 11))
+                                .foregroundStyle(CinemaTheme.muted)
+                        }
+                    }
+                    .task { await loadAddons() }
+
                     card(title: "الواجهة") {
                         Toggle(isOn: $classic) {
                             VStack(alignment: .leading, spacing: 2) {
@@ -1593,6 +1788,39 @@ struct SettingsView: View {
             }
             .background(CinemaTheme.canvas.ignoresSafeArea())
         }
+    }
+
+    private func loadAddons() async {
+        addons = await CinemaAPI.shared.installedAddons()
+        suggested = await CinemaAPI.shared.suggestedAddons()
+    }
+
+    private func installAddon() async {
+        let url = addonURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !url.isEmpty else { return }
+        addonBusy = true
+        addonMessage = nil
+        do {
+            let name = try await CinemaAPI.shared.installAddon(url)
+            addonURL = ""
+            addonMessage = "تم تثبيت \(name)"
+            addons = await CinemaAPI.shared.installedAddons()
+        } catch {
+            addonMessage = error.localizedDescription
+        }
+        addonBusy = false
+    }
+
+    private func installAll() async {
+        addonBusy = true
+        addonMessage = nil
+        let json = await CinemaAPI.shared.installAllSuggested()
+        addonBusy = false
+        let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
+        let added = (object?["added"] as? NSNumber)?.intValue ?? 0
+        let failed = (object?["failed"] as? NSNumber)?.intValue ?? 0
+        addonMessage = failed > 0 ? "تم تثبيت \(added) وتعذّر \(failed)" : "تم تثبيت \(added) مصدرًا"
+        addons = await CinemaAPI.shared.installedAddons()
     }
 
     private func card<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
