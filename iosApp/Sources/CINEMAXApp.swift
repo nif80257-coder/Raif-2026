@@ -34,8 +34,6 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
 final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?
 
-    private var switchObserver: NSObjectProtocol?
-
     func scene(
         _ scene: UIScene,
         willConnectTo session: UISceneSession,
@@ -55,25 +53,15 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         }
         #endif
 
-        switchObserver = NotificationCenter.default.addObserver(
-            forName: Notification.Name("CinemaxSwitchInterface"),
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.applyInterface(animated: true)
-        }
         showLastKotlinCrashIfAny()
     }
 
-    /// Puts the interface the viewer picked last in the window.
+    /// The SwiftUI interface owns the window; the Kotlin framework underneath is
+    /// the data engine (addons, caches, history, addon protocol) and nothing else.
     private func applyInterface(animated: Bool) {
         guard let window = self.window else { return }
         window.overrideUserInterfaceStyle = .dark
-        let classic = UserDefaults.standard.bool(forKey: "cinemax.ui.classic")
-        let root: UIViewController = classic
-            ? MainViewControllerKt.MainViewController()
-            : UIHostingController(rootView: CinemaRootView())
-        window.rootViewController = root
+        window.rootViewController = UIHostingController(rootView: CinemaRootView())
         if animated {
             UIView.transition(with: window, duration: 0.28, options: .transitionCrossDissolve, animations: nil)
         }

@@ -13,7 +13,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.datetime.Clock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -109,30 +113,36 @@ class CinemaxAppleBridge {
         imdbRating = item.rating
     )
 
-    /** The first catalogue of every installed addon, one shelf each. */
+    /** The first catalogue of every installed addon, one shelf each, in parallel. */
     fun loadShelves(onDone: (String) -> Unit, onError: (String) -> Unit) {
         scope.launch {
             try {
-                val shelves = mutableListOf<AppleShelf>()
-                for (addon in addonStore.load()) {
-                    val catalog = addon.catalogs.firstOrNull { it.type == "movie" || it.type == "series" }
-                        ?: addon.catalogs.firstOrNull()
-                        ?: continue
-                    val items = try {
-                        repository.loadCatalog(addon.manifestUrl, catalog.type, catalog.id)
-                    } catch (error: CancellationException) {
-                        throw error
-                    } catch (_: Throwable) {
-                        emptyList()
-                    }
-                    if (items.isNotEmpty()) {
-                        shelves += AppleShelf(
-                            id = addon.id + ":" + catalog.id,
-                            title = catalog.name?.takeIf { it.isNotBlank() } ?: addon.name,
-                            items = items.take(24).map(::itemOf)
-                        )
-                    }
-                    if (shelves.size >= 14) break
+                val shelves = coroutineScope {
+                    addonStore.load().map { addon ->
+                        async {
+                            val catalog = addon.catalogs.firstOrNull { it.type == "movie" || it.type == "series" }
+                                ?: addon.catalogs.firstOrNull()
+                                ?: return@async null
+                            val items = try {
+                                withTimeoutOrNull(10_000) {
+                                    repository.loadCatalog(addon.manifestUrl, catalog.type, catalog.id)
+                                } ?: emptyList()
+                            } catch (error: CancellationException) {
+                                throw error
+                            } catch (_: Throwable) {
+                                emptyList()
+                            }
+                            if (items.isEmpty()) {
+                                null
+                            } else {
+                                AppleShelf(
+                                    id = addon.id + ":" + catalog.id,
+                                    title = catalog.name?.takeIf { it.isNotBlank() } ?: addon.name,
+                                    items = items.take(24).map(::itemOf)
+                                )
+                            }
+                        }
+                    }.awaitAll().filterNotNull().take(14)
                 }
                 onDone(json.encodeToString(AppleShelves(shelves)))
             } catch (error: Throwable) {
@@ -242,38 +252,54 @@ class CinemaxAppleBridge {
         }
     }
 
-    /** Every playable HTTPS link for an item or an episode id. */
+    /** Every playable HTTPS link for an item or an episode id, fetched in parallel. */
     fun loadStreams(itemId: String, type: String, onDone: (String) -> Unit, onError: (String) -> Unit) {
         scope.launch {
             try {
-                val streams = mutableListOf<AppleStream>()
-                for (addon in addonStore.load()) {
-                    if (!AddonCapabilities.supportsStreams(addon, type, itemId)) continue
-                    val found = try {
-                        repository.loadStreams(addon.manifestUrl, type, itemId)
-                    } catch (error: CancellationException) {
-                        throw error
-                    } catch (_: Throwable) {
-                        emptyList()
-                    }
-                    for (stream in found) {
-                        val url = stream.url ?: continue
-                        if (!url.startsWith("https://")) continue
-                        val quality = streamBadges(stream.name, stream.title).firstOrNull()
-                        streams += AppleStream(
-                            url = url,
-                            addon = addon.name,
-                            title = stream.title ?: stream.name ?: url,
-                            quality = quality
-                        )
-                    }
+                val addons = addonStore.load().filter { AddonCapabilities.supportsStreams(it, type, itemId) }
+                val found = coroutineScope {
+                    addons.map { addon ->
+                        async {
+                            try {
+                                withTimeoutOrNull(12_000) {
+                                    repository.loadStreams(addon.manifestUrl, type, itemId)
+                                }?.mapNotNull { stream ->
+                                    val url = stream.url ?: return@mapNotNull null
+                                    if (!url.startsWith("https://")) return@mapNotNull null
+                                    AppleStream(
+                                        url = url,
+                                        addon = addon.name,
+                                        title = stream.title ?: stream.name ?: url,
+                                        quality = streamBadges(stream.name, stream.title).firstOrNull()
+                                    )
+                                } ?: emptyList()
+                            } catch (error: CancellationException) {
+                                throw error
+                            } catch (_: Throwable) {
+                                emptyList()
+                            }
+                        }
+                    }.awaitAll().flatten()
                 }
-                onDone(json.encodeToString(AppleStreams(streams.distinctBy { it.url })))
+                // Best quality first, one row per file, so the list reads like a chart
+                // instead of the order the addons happened to answer in.
+                val sorted = found
+                    .distinctBy { it.url }
+                    .sortedWith(compareByDescending<AppleStream> { qualityRank(it.quality) }.thenBy { it.addon })
+                onDone(json.encodeToString(AppleStreams(sorted)))
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
                 onError(error.message ?: "تعذر جلب المصادر")
             }
         }
+    }
+
+    private fun qualityRank(quality: String?): Int = when (quality) {
+        "4K" -> 5
+        "1080p" -> 4
+        "720p" -> 3
+        "480p" -> 2
+        else -> 1
     }
 
     fun loadProgress(onDone: (String) -> Unit) {

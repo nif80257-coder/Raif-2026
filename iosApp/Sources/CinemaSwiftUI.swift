@@ -790,7 +790,7 @@ final class HomeModel: ObservableObject {
             favorites = Set(await favoritesTask.map(\.id))
             shelves = loaded
             if loaded.isEmpty {
-                error = "لا كتالوجات بعد. افتح الإعدادات ← الواجهة الكلاسيكية وأضف إضافة، أو ثبّت المصادر الجاهزة."
+                error = "لا كتالوجات بعد. ثبّت المصادر الجاهزة من الإعدادات ← الإضافات."
             }
         } catch {
             self.error = error.localizedDescription
@@ -1177,6 +1177,7 @@ struct DetailView: View {
     @State private var season: Int?
     @State private var episode: CinemaItem?
     @State private var playing: StreamChoice?
+    @State private var qualityFilter: String?
 
     private var playlist: [CinemaItem] {
         guard let detail = model.detail, !detail.episodes.isEmpty else { return [] }
@@ -1352,6 +1353,7 @@ struct DetailView: View {
                             Haptics.tap()
                             episode = entry
                             Task {
+                                qualityFilter = nil
                                 await model.loadStreams(id: entry.id, type: item.type)
                             }
                         } label: {
@@ -1381,9 +1383,50 @@ struct DetailView: View {
         }
     }
 
+    private var qualityOrder: [String] {
+        let known = ["4K", "1080p", "720p", "480p"]
+        let present = Set(model.streams.map { stream -> String in
+            guard let quality = stream.quality else { return "أخرى" }
+            return known.contains(quality) ? quality : "أخرى"
+        })
+        return known.filter { present.contains($0) } + (present.contains("أخرى") ? ["أخرى"] : [])
+    }
+
+    private var filteredStreams: [StreamChoice] {
+        guard let qualityFilter else { return model.streams }
+        let known = ["4K", "1080p", "720p", "480p"]
+        return model.streams.filter { stream in
+            let tier = stream.quality.flatMap { known.contains($0) ? $0 : nil } ?? "أخرى"
+            return tier == qualityFilter
+        }
+    }
+
+    private struct StreamGroup: Identifiable {
+        let id: String
+        let streams: [StreamChoice]
+    }
+
+    private var groupedStreams: [StreamGroup] {
+        var order: [String] = []
+        var buckets: [String: [StreamChoice]] = [:]
+        for stream in filteredStreams {
+            let key = stream.quality ?? "أخرى"
+            if buckets[key] == nil {
+                buckets[key] = []
+                order.append(key)
+            }
+            buckets[key]?.append(stream)
+        }
+        return order.map { StreamGroup(id: $0, streams: buckets[$0] ?? []) }
+    }
+
     private var sources: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(title: episode == nil ? "مصادر المشاهدة" : "مصادر \(episode?.name ?? "")")
+        VStack(alignment: .leading, spacing: 12) {
+            SectionHeader(
+                title: episode == nil
+                    ? "مصادر المشاهدة (\(model.streams.count))"
+                    : "مصادر \(episode?.name ?? "") (\(model.streams.count))"
+            )
             if model.loadingStreams {
                 HStack(spacing: 8) {
                     ProgressView().tint(CinemaTheme.accent)
@@ -1398,42 +1441,86 @@ struct DetailView: View {
                     .foregroundStyle(CinemaTheme.muted)
                     .padding(.horizontal, 20)
             } else {
-                VStack(spacing: 8) {
-                    ForEach(model.streams) { stream in
-                        Button {
-                            playing = stream
-                        } label: {
-                            HStack(spacing: 10) {
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(stream.addon)
-                                        .font(.system(size: 13, weight: .semibold))
-                                        .foregroundStyle(.white)
-                                    Text(stream.title)
-                                        .font(.system(size: 11))
-                                        .foregroundStyle(CinemaTheme.muted)
-                                        .lineLimit(2)
-                                }
-                                Spacer()
-                                if let quality = stream.quality {
-                                    CinemaPill(text: quality)
-                                }
-                                Image(systemName: "play.circle.fill")
-                                    .font(.system(size: 22))
-                                    .foregroundStyle(CinemaTheme.accent)
-                            }
-                            .padding(14)
-                            .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .strokeBorder(CinemaTheme.hairline, lineWidth: 1)
-                            )
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        qualityChip("الكل", nil)
+                        ForEach(qualityOrder, id: \.self) { quality in
+                            qualityChip(quality, quality)
                         }
-                        .buttonStyle(CinemaPressStyle())
+                    }
+                    .padding(.horizontal, 20)
+                }
+                ForEach(groupedStreams) { group in
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(group.id)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.muted)
+                            .padding(.horizontal, 20)
+                        ForEach(group.streams) { stream in
+                            sourceRow(stream)
+                        }
                     }
                 }
                 .padding(.horizontal, 20)
             }
         }
+    }
+
+    private func qualityChip(_ title: String, _ value: String?) -> some View {
+        Button {
+            Haptics.select()
+            withAnimation(.easeInOut(duration: 0.15)) { qualityFilter = value }
+        } label: {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(qualityFilter == value ? .black : .white)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 7)
+                .background {
+                    Capsule().fill(qualityFilter == value ? CinemaTheme.accent : Color.white.opacity(0.08))
+                }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func sourceRow(_ stream: StreamChoice) -> some View {
+        Button {
+            Haptics.tap()
+            withAnimation(.easeInOut(duration: 0.15)) { playing = stream }
+        } label: {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(stream.addon)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Text(stream.title)
+                        .font(.system(size: 11))
+                        .foregroundStyle(CinemaTheme.muted)
+                        .lineLimit(2)
+                }
+                Spacer()
+                if let quality = stream.quality {
+                    CinemaPill(text: quality)
+                }
+                if playing?.url == stream.url {
+                    ProgressView().tint(CinemaTheme.accent)
+                } else {
+                    Image(systemName: "play.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundStyle(CinemaTheme.accent)
+                }
+            }
+            .padding(14)
+            .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(
+                        playing?.url == stream.url ? CinemaTheme.accent : CinemaTheme.hairline,
+                        lineWidth: playing?.url == stream.url ? 1.5 : 1
+                    )
+            )
+        }
+        .buttonStyle(CinemaPressStyle())
     }
 }
 
@@ -1615,7 +1702,6 @@ struct LibraryView: View {
 // MARK: - Settings
 
 struct SettingsView: View {
-    @State private var classic = CinemaxAppleBridge().isClassicInterfaceSelected()
     @AppStorage("cinemax.design") private var design = "cinematic"
     @State private var addons: [InstalledAddonRow] = []
     @State private var suggested: [SuggestedAddonRow] = []
@@ -1758,23 +1844,6 @@ struct SettingsView: View {
                         }
                     }
                     .task { await loadAddons() }
-
-                    card(title: "الواجهة") {
-                        Toggle(isOn: $classic) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("الواجهة الكلاسيكية")
-                                    .font(.system(size: 15, weight: .medium))
-                                    .foregroundStyle(.white)
-                                Text("إدارة الإضافات والخيارات المتقدمة في الواجهة السابقة")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(CinemaTheme.muted)
-                            }
-                        }
-                        .tint(CinemaTheme.accent)
-                        .onChange(of: classic) { value in
-                            CinemaxAppleBridge().switchInterface(classic: value)
-                        }
-                    }
 
                     card(title: "عن التطبيق") {
                         Text("واجهة سينمائية سريعة مبنية بـ SwiftUI فوق نفس محرك المصادر: إضافات Stremio، مشغّل libmpv للـMKV، ترجمة مدمجة، ومتابعة مشاهدة.")
@@ -1992,7 +2061,7 @@ struct PosterWallHomeView: View {
                         Text("لا شيء هنا بعد")
                             .font(.system(size: 18, weight: .bold))
                             .foregroundStyle(.white)
-                        Text("أضف إضافة أو ثبّت المصادر الجاهزة من الإعدادات ← الواجهة الكلاسيكية.")
+                        Text("ثبّت المصادر الجاهزة أو أضف إضافة من الإعدادات ← الإضافات.")
                             .font(.system(size: 13))
                             .foregroundStyle(CinemaTheme.muted)
                     }
