@@ -92,6 +92,7 @@ import com.cinemax.app.core.PosterStatus
 import com.cinemax.app.core.BADGE_PACKS
 import com.cinemax.app.core.BadgeFilter
 import com.cinemax.app.core.matchingBadges
+import com.cinemax.app.core.openCinemaShell
 import com.cinemax.app.core.episodeLabel
 import com.cinemax.app.core.episodeReleaseLabel
 import com.cinemax.app.core.librarySortLabel
@@ -2459,6 +2460,11 @@ fun CinemaxSettingsScreen(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp)
             ) { Text("خطة التطوير — الطريق إلى Nuvio", fontWeight = FontWeight.SemiBold) }
+            OutlinedButton(
+                onClick = { openCinemaShell() },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            ) { Text("الواجهة الجديدة (SwiftUI)", fontWeight = FontWeight.SemiBold) }
         }
         Spacer(Modifier.height(110.dp))
     }

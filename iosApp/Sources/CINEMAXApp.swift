@@ -1,4 +1,5 @@
 import UIKit
+import SwiftUI
 import CinemaxKit
 
 /// UIKit entry point adopting the scene lifecycle. The window is created by the
@@ -27,11 +28,13 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 }
 
-/// The shared Compose UI is the window's root controller. Nothing sits between
-/// UIKit and it, so the layout, display density and safe-area insets all come
-/// straight from the system and the interface always fills the screen.
+/// The window's root is either the SwiftUI interface (the default) or the classic
+/// Compose one, chosen by the flag both interfaces write. Either way it is the
+/// window's own controller, so layout, density and safe areas come from the system.
 final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?
+
+    private var switchObserver: NSObjectProtocol?
 
     func scene(
         _ scene: UIScene,
@@ -42,15 +45,38 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         let window = UIWindow(windowScene: windowScene)
         window.backgroundColor = .black
         window.overrideUserInterfaceStyle = .dark
-        window.rootViewController = MainViewControllerKt.MainViewController()
-        window.makeKeyAndVisible()
         self.window = window
+        applyInterface(animated: false)
+        window.makeKeyAndVisible()
+
         #if canImport(Libmpv)
         DispatchQueue.main.async {
             CinemaxMPVRegistration.register()
         }
         #endif
+
+        switchObserver = NotificationCenter.default.addObserver(
+            forName: Notification.Name("CinemaxSwitchInterface"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.applyInterface(animated: true)
+        }
         showLastKotlinCrashIfAny()
+    }
+
+    /// Puts the interface the viewer picked last in the window.
+    private func applyInterface(animated: Bool) {
+        guard let window = self.window else { return }
+        window.overrideUserInterfaceStyle = .dark
+        let classic = UserDefaults.standard.bool(forKey: "cinemax.ui.classic")
+        let root: UIViewController = classic
+            ? MainViewControllerKt.MainViewController()
+            : UIHostingController(rootView: CinemaRootView())
+        window.rootViewController = root
+        if animated {
+            UIView.transition(with: window, duration: 0.28, options: .transitionCrossDissolve, animations: nil)
+        }
     }
 
     /// A Kotlin exception that killed a previous launch is reported here, with
