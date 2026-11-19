@@ -752,7 +752,8 @@ final class HomeModel: ObservableObject {
     }
 }
 
-struct HomeView: View {
+/// Design 1 — the cinematic, glass, ambient-glow home.
+struct CinematicHomeView: View {
     @Binding var selection: Int
     @StateObject private var model = HomeModel()
     @State private var glow: [Color] = [CinemaTheme.accent]
@@ -1500,6 +1501,13 @@ struct LibraryView: View {
 
 struct SettingsView: View {
     @State private var classic = CinemaxAppleBridge().isClassicInterfaceSelected()
+    @AppStorage("cinemax.design") private var design = "cinematic"
+
+    private let designs: [(id: String, title: String, detail: String)] = [
+        ("cinematic", "سينمائي زجاجي", "هيرو بعرض الشاشة، وهج بلون البوستر، شريط عائم زجاجي"),
+        ("wall", "جدار بوسترات", "بحث أولًا وشبكات بوسترات كثيفة وعدّادات، بلا هيرو"),
+        ("panorama", "بانورامي", "خلفية واحدة غامرة ثم بطاقات عريضة 16:9")
+    ]
 
     var body: some View {
         NavigationStack {
@@ -1519,6 +1527,42 @@ struct SettingsView: View {
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, 8)
+
+                    card(title: "التصميم") {
+                        VStack(spacing: 8) {
+                            ForEach(designs, id: \.id) { option in
+                                Button {
+                                    Haptics.select()
+                                    design = option.id
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text(option.title)
+                                                .font(.system(size: 15, weight: .semibold))
+                                                .foregroundStyle(.white)
+                                            Text(option.detail)
+                                                .font(.system(size: 11))
+                                                .foregroundStyle(CinemaTheme.muted)
+                                                .multilineTextAlignment(.leading)
+                                        }
+                                        Spacer()
+                                        Image(systemName: design == option.id ? "checkmark.circle.fill" : "circle")
+                                            .font(.system(size: 20))
+                                            .foregroundStyle(design == option.id ? CinemaTheme.accent : CinemaTheme.muted)
+                                    }
+                                    .padding(12)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(
+                                        design == option.id
+                                            ? CinemaTheme.accent.opacity(0.14)
+                                            : CinemaTheme.elevated,
+                                        in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
 
                     card(title: "الواجهة") {
                         Toggle(isOn: $classic) {
@@ -1591,5 +1635,305 @@ struct CinemaRootView: View {
         .preferredColorScheme(.dark)
         .environment(\.layoutDirection, .rightToLeft)
         .tint(CinemaTheme.accent)
+    }
+}
+
+
+// MARK: - Home designs
+
+/// The home surface, chosen in Settings → التصميم. Three complete directions are
+/// shipped together so one can be adopted after comparing them on a device.
+struct HomeView: View {
+    @Binding var selection: Int
+    @AppStorage("cinemax.design") private var design = "cinematic"
+
+    var body: some View {
+        switch design {
+        case "wall":
+            PosterWallHomeView(selection: $selection)
+        case "panorama":
+            PanoramaHomeView(selection: $selection)
+        default:
+            CinematicHomeView(selection: $selection)
+        }
+    }
+}
+
+/// The filter chips shared by every home design.
+struct FilterChipsBar: View {
+    @ObservedObject var model: HomeModel
+
+    private let filters: [(id: String, title: String)] = [
+        ("all", "الكل"), ("movie", "أفلام"), ("series", "مسلسلات"), ("channel", "قنوات")
+    ]
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(filters, id: \.id) { filter in
+                    Button {
+                        Haptics.select()
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { model.filter = filter.id }
+                    } label: {
+                        Text(filter.title)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(model.filter == filter.id ? .black : .white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 9)
+                            .background {
+                                Capsule()
+                                    .fill(model.filter == filter.id ? CinemaTheme.accent : Color.white.opacity(0.08))
+                            }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 20)
+        }
+        .padding(.bottom, 8)
+    }
+}
+
+/// Design 2 — the poster wall: search first, dense three-column grids, counters,
+/// no hero and no glow. The opposite trade-off to the cinematic home.
+struct PosterWallHomeView: View {
+    @Binding var selection: Int
+    @StateObject private var model = HomeModel()
+    @State private var detailItem: CinemaItem?
+    @State private var query = ""
+
+    private let columns = [GridItem(.adaptive(minimum: 104), spacing: 10)]
+
+    private var shelves: [Shelf] {
+        guard !query.isEmpty else { return model.visibleShelves }
+        return model.visibleShelves.compactMap { shelf in
+            let hits = shelf.items.filter { $0.name.localizedCaseInsensitiveContains(query) }
+            return hits.isEmpty ? nil : Shelf(id: shelf.id, title: shelf.title, items: hits)
+        }
+    }
+
+    private var total: Int { model.shelves.reduce(0) { $0 + $1.items.count } }
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("استكشف")
+                        .font(.system(size: 34, weight: .heavy))
+                        .foregroundStyle(.white)
+                    Text("\(total) عنوانًا في مكتبتك")
+                        .font(.system(size: 13))
+                        .foregroundStyle(CinemaTheme.muted)
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+
+                HStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(CinemaTheme.muted)
+                    TextField("ابحث داخل ما لديك", text: $query)
+                        .textFieldStyle(.plain)
+                        .foregroundStyle(.white)
+                    if !query.isEmpty {
+                        Button { query = "" } label: {
+                            Image(systemName: "xmark.circle.fill").foregroundStyle(CinemaTheme.muted)
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(CinemaTheme.surface, in: Capsule())
+                .overlay(Capsule().strokeBorder(CinemaTheme.hairline, lineWidth: 1))
+                .padding(.horizontal, 20)
+
+                FilterChipsBar(model: model)
+
+                HStack(spacing: 10) {
+                    counter("\(model.shelves.flatMap(\.items).filter { $0.type == "movie" }.count)", "أفلام")
+                    counter("\(model.shelves.flatMap(\.items).filter { $0.type == "series" }.count)", "مسلسلات")
+                    counter("\(model.channels)", "قنوات")
+                }
+                .padding(.horizontal, 20)
+
+                if model.loading {
+                    LazyVGrid(columns: columns, spacing: 14) {
+                        ForEach(0..<12, id: \.self) { _ in ShimmerBlock(height: 170, width: nil) }
+                    }
+                    .padding(.horizontal, 20)
+                } else if shelves.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("لا شيء هنا بعد")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundStyle(.white)
+                        Text("أضف إضافة أو ثبّت المصادر الجاهزة من الإعدادات ← الواجهة الكلاسيكية.")
+                            .font(.system(size: 13))
+                            .foregroundStyle(CinemaTheme.muted)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 20)
+                } else {
+                    ForEach(shelves) { shelf in
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack(alignment: .firstTextBaseline) {
+                                Text(shelf.title)
+                                    .font(.system(size: 17, weight: .bold))
+                                    .foregroundStyle(.white)
+                                Spacer()
+                                Text("\(shelf.items.count)")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(CinemaTheme.muted)
+                            }
+                            LazyVGrid(columns: columns, alignment: .leading, spacing: 14) {
+                                ForEach(shelf.items) { item in
+                                    PosterCard(
+                                        item: item,
+                                        width: 104,
+                                        progress: model.continueWatching.first { $0.item.id == item.id }?.fraction ?? 0,
+                                        saved: model.favorites.contains(item.id),
+                                        onOpen: { detailItem = item }
+                                    )
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 20)
+                    }
+                }
+                Spacer(minLength: 120)
+            }
+        }
+        .background(CinemaTheme.canvas.ignoresSafeArea())
+        .task { await model.load() }
+        .refreshable { await model.load() }
+        .fullScreenCover(item: $detailItem) { DetailView(item: $0) }
+    }
+
+    private func counter(_ value: String, _ title: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(value)
+                .font(.system(size: 20, weight: .heavy))
+                .foregroundStyle(CinemaTheme.accent)
+            Text(title)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(CinemaTheme.muted)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(CinemaTheme.elevated, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+}
+
+private extension HomeModel {
+    var channels: Int {
+        shelves.flatMap(\.items).filter { $0.type == "channel" || $0.type == "tv" }.count
+    }
+}
+
+/// Design 3 — the panorama: one full-bleed backdrop with the title over it, then
+/// wide 16:9 cards instead of posters. Fewer, larger pictures per screen.
+struct PanoramaHomeView: View {
+    @Binding var selection: Int
+    @StateObject private var model = HomeModel()
+    @State private var detailItem: CinemaItem?
+    @State private var glow: [Color] = [CinemaTheme.accent]
+
+    private var spotlight: CinemaItem? { model.heroItems.first }
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
+                hero
+                FilterChipsBar(model: model)
+                    .padding(.top, 14)
+                if model.loading {
+                    HStack(spacing: 12) {
+                        ForEach(0..<2, id: \.self) { _ in ShimmerBlock(height: 140, width: 248) }
+                    }
+                    .padding(.horizontal, 20)
+                } else {
+                    if !model.continueWatching.isEmpty {
+                        SectionHeader(title: "أكمل المشاهدة")
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            LazyHStack(spacing: 12) {
+                                ForEach(model.continueWatching) { entry in
+                                    ContinueCard(entry: entry) { detailItem = entry.item }
+                                }
+                            }
+                            .padding(.horizontal, 20)
+                        }
+                    }
+                    ForEach(model.visibleShelves) { shelf in
+                        SectionHeader(title: shelf.title)
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            LazyHStack(spacing: 12) {
+                                ForEach(shelf.items) { item in
+                                    WideCard(item: item) { detailItem = item }
+                                }
+                            }
+                            .padding(.horizontal, 20)
+                        }
+                    }
+                }
+                Spacer(minLength: 120)
+            }
+        }
+        .background(AmbientGlow(colors: glow).ignoresSafeArea())
+        .task { await model.load() }
+        .refreshable { await model.load() }
+        .fullScreenCover(item: $detailItem) { DetailView(item: $0) }
+    }
+
+    private var hero: some View {
+        ZStack(alignment: .bottomLeading) {
+            RemoteImage(url: spotlight?.backdropURL ?? spotlight?.posterURL)
+                .frame(height: 520)
+                .overlay(
+                    LinearGradient(
+                        stops: [
+                            .init(color: .black.opacity(0.15), location: 0.0),
+                            .init(color: CinemaTheme.canvas.opacity(0.85), location: 0.72),
+                            .init(color: CinemaTheme.canvas, location: 1)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+            VStack(alignment: .leading, spacing: 12) {
+                Text("CINEMAX")
+                    .font(.system(size: 11, weight: .semibold))
+                    .tracking(4)
+                    .foregroundStyle(.white.opacity(0.65))
+                if let item = spotlight {
+                    Text(item.name)
+                        .font(.system(size: 34, weight: .heavy))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                        .shadow(color: .black.opacity(0.5), radius: 14, y: 6)
+                    HStack(spacing: 8) {
+                        if let rating = item.rating, !rating.isEmpty { CinemaPill(text: "★ \(rating)") }
+                        if let year = item.releaseInfo, !year.isEmpty { CinemaPill(text: year, tint: CinemaTheme.muted) }
+                        CinemaPill(text: item.type == "series" ? "مسلسل" : "فيلم", tint: CinemaTheme.muted)
+                    }
+                    Button { detailItem = item } label: {
+                        Label("ابدأ المشاهدة", systemImage: "play.fill")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 24)
+                            .padding(.vertical, 13)
+                            .background(.white, in: Capsule())
+                    }
+                    .buttonStyle(CinemaPressStyle())
+                    .padding(.top, 4)
+                } else if model.loading {
+                    ShimmerBlock(height: 26, width: 240)
+                }
+            }
+            .padding(.horizontal, 22)
+            .padding(.bottom, 24)
+        }
+        .frame(height: 520)
+        .task(id: spotlight?.id) {
+            guard let url = spotlight?.posterURL else { return }
+            let colors = await PaletteSampler.colors(for: url)
+            if !colors.isEmpty { glow = colors }
+        }
     }
 }
