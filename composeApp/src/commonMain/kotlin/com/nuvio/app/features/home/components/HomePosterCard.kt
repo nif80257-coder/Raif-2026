@@ -6,6 +6,7 @@ import com.nuvio.app.core.format.formatReleaseDateForDisplay
 import com.nuvio.app.core.ui.NuvioPosterCard
 import com.nuvio.app.core.ui.NuvioPosterShape
 import com.nuvio.app.core.ui.rememberPosterCardStyleUiState
+import com.nuvio.app.features.details.metahubPosterUrl
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.home.PosterShape
 
@@ -22,9 +23,11 @@ fun HomePosterCard(
     val posterCardStyle = rememberPosterCardStyleUiState()
     val isLandscapeMode = useLandscapeBackdropMode || posterCardStyle.catalogLandscapeModeEnabled
     val effectiveLandscapePoster = if (posterCardStyle.alwaysShowLandscapeClearlogo) null else item.landscapePoster
+    // A source can list a title without artwork; MetaHub covers the poster then, keylessly.
+    val poster = item.poster?.takeIf { it.isNotBlank() } ?: metahubPosterUrl(item.id)
     val imageUrl = if (isLandscapeMode) {
-        effectiveLandscapePoster ?: item.banner ?: item.poster
-    } else item.poster
+        effectiveLandscapePoster ?: item.banner ?: poster
+    } else poster
     val fallbackImageUrl = if (isLandscapeMode && !effectiveLandscapePoster.isNullOrBlank()) {
         // Landscape custom poster -> fall back to original backdrop, then portrait
         item.banner ?: item.rawPosterUrl

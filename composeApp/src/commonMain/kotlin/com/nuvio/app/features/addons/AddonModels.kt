@@ -47,7 +47,17 @@ data class AddonConfigField(
 ) {
     val isChoice: Boolean
         get() = options.isNotEmpty()
+
+    /**
+     * Sources that need an API token or a password declare it in `config[]`; the value is typed
+     * into a masked field so it is not shown on screen while it is entered.
+     */
+    val isSecret: Boolean
+        get() = type?.equals("password", ignoreCase = true) == true ||
+            key.lowercase().let { name -> SECRET_CONFIG_KEY_HINTS.any(name::contains) }
 }
+
+private val SECRET_CONFIG_KEY_HINTS = listOf("token", "apikey", "api_key", "password", "secret")
 
 /** True when this source serves a directory of other add-ons through `addon_catalog`. */
 fun AddonManifest.servesAddonDirectory(): Boolean =

@@ -42,9 +42,14 @@ class MetaHubArtworkTest {
     }
 
     @Test
-    fun leavesATitleWithoutAnImdbIdAlone() {
-        val original = meta(imdbId = null)
-
-        assertEquals(original, original.withMetahubArtwork())
+    fun fillsAnArtworklessCatalogCardOnlyForARealImdbId() {
+        assertEquals(
+            "https://images.metahub.space/poster/medium/tt0111161/img",
+            metahubPosterUrl("tt0111161"),
+        )
+        assertEquals(null, metahubPosterUrl(null))
+        assertEquals(null, metahubPosterUrl("  "))
+        assertEquals(null, metahubPosterUrl("tmdb:123"))
+        assertEquals(null, metahubPosterUrl("tt"))
     }
 }

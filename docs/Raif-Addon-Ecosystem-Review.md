@@ -202,7 +202,7 @@
 - `AddonsScreen.kt`: عنوان المجموعة الجديد.
 
 **٣) تحصين `externalUrl`**
-- `StreamModels.kt`: `externalOpenUrl` لا يقبل إلا `https`، و`externalOpenHost` يعطي المضيف للعرض قبل الخروج. الروابط غير المشفّرة أو مخططات التطبيقات لم تعد تُفتح على الثقة.
+- `StreamModels.kt`: `externalOpenUrl` لا يقبل إلا صفحة ويب (`https` أو `http`) ويرفض مخططات التطبيقات والتورنت، و`externalOpenHost` يعطي المضيف للعرض قبل الخروج. راجع «اكتمال الروابط الخارجية» أدناه للتوسعة الأخيرة.
 
 **٤) فلترة المحتوى**
 - `ContentFilterRepository.kt` (جديد): عناوين مخفية لكل ملف شخصي، ومفتاح «إخفاء المصادر المصنّفة للبالغين» الذي يحترم `behaviorHints.adult`، مع `clear` عند حذف الملف الشخصي على نمط `AddonPauseExceptions`.
@@ -245,3 +245,13 @@
 **السحب لإعادة الترتيب وخانة «مجاني وقانوني» — نُفِّذا**
 - `AddonsScreen.kt`: مقبض `DragHandle` في بطاقة كل مصدر؛ ضغط مطوّل ثم سحب يحرّك المصدر خانة واحدة كل 72 نقطة، عبر `moveAddon` الموجود، فبقي زرّا أعلى/أسفل كبديل وصول. `addons_drag_handle` في النصوص.
 - `HomeCatalogDefinitions.kt`: كتالوجات مضيف `publicdomainmovies` تحمل الوسم المحلي «مجاني وقانوني · …» في عنوان الرف بدل اسم الإضافة وحدها، فلا تُخلط مع مصادر تحتاج مفاتيح أو تحمل خطر حقوق.
+
+
+**اكتمال المتتبعات العامة والترتيب والملصقات — نُفِّذ**
+- `PublicTrackers.kt` (جديد): قائمة announce عامة واحدة (أكثر من ثلاثين متتبعًا، بلا تكرار) يشاركها iOS وأندرويد، ودالة `withStreamTrackers` تضمّها إلى متتبعات المصدر وتزيل التكرار، فلا يبقى مصدران بقائمتين مختلفتين.
+- `P2pStreamingEngine.ios.kt` و`P2pStreamingEngine.android.kt`: استبدال القائمتين المحليتين المتباعدتين (٢٠ في أندرويد و٣٦ مع تكرار في iOS) بالقائمة المشتركة، فصار كل تورنت يعلن للقائمة الكاملة لا لجزء منها.
+- `StreamsRepository` و`PlayerStreamsRepository`: `sortedForGroupedDisplay` و`deduplicatedAcrossSources` كانا يطبّقان إزالة التكرار وترتيب الجودة داخل كل مصدر؛ وأضيف في `StreamsScreen.kt` ترتيب **رؤوس المصادر** نفسها بأقوى جودة لديها بدل الترتيب الأبجدي، فلا يظهر مصدر 480p فوق مصدر 4K.
+- `StreamModels.kt`: `externalOpenUrl` صار يقبل `http` و`https` (صفحة ويب فقط)، و`externalOpenHost` يستخرج المضيف من المخططين، فلم تبق روابط «شاهد على الموقع» غير المشفّرة ميتة.
+- `MetaHubArtwork.kt`: `metahubPosterUrl(imdbId)` بلا مفتاح، و`HomePosterCard.kt` يستخدمه حين يترك المصدر الملصق فارغًا، فالرفوف تُرسم بلا TMDB.
+- `AddonModels.kt` + `AddonConfigDialog.kt`: حقل `config[]` الذي اسمه أو نوعه يدل على رمز/كلمة مرور (`token`, `apikey`, `password`, `secret`, `type: password`) يُعرض بحقل مخفي `SettingsSecretTextField` بدل حقل نص مكشوف.
+- اختبارات: `PublicTrackersTest.kt` (الطول، شكل الرابط، عدم التكرار، الدمج) وإضافة حالة في `MetaHubArtworkTest.kt` و`AddonModelsTest.kt`.

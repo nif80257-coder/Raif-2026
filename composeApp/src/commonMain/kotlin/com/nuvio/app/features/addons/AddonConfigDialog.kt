@@ -30,6 +30,7 @@ import com.nuvio.app.core.ui.NuvioPrimaryButton
 import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioSurfaceCard
+import com.nuvio.app.features.settings.SettingsSecretTextField
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
@@ -185,6 +186,12 @@ private fun ConfigFieldCard(
                     }
                 }
             }
+        } else if (field.isSecret) {
+            SettingsSecretTextField(
+                value = value,
+                onValueChange = onChange,
+                label = field.title ?: field.key,
+            )
         } else {
             NuvioInputField(
                 value = value,

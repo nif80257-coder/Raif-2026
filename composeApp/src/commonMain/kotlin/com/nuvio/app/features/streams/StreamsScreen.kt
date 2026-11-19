@@ -811,7 +811,15 @@ private fun LazyListScope.streamSection(
     val streamsBySource = group.streams.groupBy { stream ->
         stream.sourceName?.takeIf { it.isNotBlank() } ?: stream.addonName
     }
-    val sortedSources = streamsBySource.keys.sortedBy { it.lowercase() }
+    // The strongest source first, so the list reads by quality instead of by an alphabetical order
+    // that can put a 480p group above a 4K one. Ties stay alphabetical, which keeps them stable.
+    val bestQualityBySource = streamsBySource.mapValues { (_, streams) ->
+        streams.maxOf { stream -> stream.qualityRank() }
+    }
+    val sortedSources = streamsBySource.keys.sortedWith(
+        compareByDescending<String> { sourceName -> bestQualityBySource[sourceName] ?: 0 }
+            .thenBy { sourceName -> sourceName.lowercase() },
+    )
     val showSourceHeaders = sortedSources.size > 1
 
     sortedSources.forEachIndexed { sourceIndex, sourceName ->

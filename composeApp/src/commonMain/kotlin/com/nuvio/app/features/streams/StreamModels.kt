@@ -54,19 +54,21 @@ data class StreamItem(
     /**
      * Where an availability source points: an official service page for the title.
      *
-     * Only `https` is accepted. A plain `http` page or a non-web scheme would leave the app on an
-     * unverified destination, and the protocol only defines this field as an external webpage.
+     * Both `https` and plain `http` web pages are accepted, and the destination's host is shown
+     * before the app hands the user over. A non-web scheme (a magnet, a `torrent:` link or an app
+     * deep link) is refused: the protocol only defines this field as an external webpage, and the
+     * app must not open a scheme it has not verified.
      */
     val externalOpenUrl: String?
         get() = externalUrl
             ?.trim()
             ?.takeIf { it.isNotEmpty() && !it.isMagnetLink() && !it.isTorrentSchemeUrl() }
-            ?.takeIf { it.isHttpsUrl() }
+            ?.takeIf { it.isWebUrl() }
 
     /** The destination's host, shown before the app hands the user to another service. */
     val externalOpenHost: String?
         get() = externalOpenUrl
-            ?.removePrefix("https://")
+            ?.substringAfter("://")
             ?.substringBefore('/')
             ?.substringBefore('?')
             ?.removePrefix("www.")
@@ -174,10 +176,13 @@ private fun String?.isTorrentSchemeUrl(): Boolean =
 
 /**
  * An `externalUrl` is handed to the system, which may open any app the page is linked to, so only
- * `https` is accepted. Anything else is dropped rather than opened on trust.
+ * a web page is accepted. Both schemes the protocol allows (`https` and plain `http`) count, and
+ * anything else is dropped rather than opened on trust.
  */
-internal fun String?.isHttpsUrl(): Boolean =
-    this?.trimStart()?.startsWith("https://", ignoreCase = true) == true
+internal fun String?.isWebUrl(): Boolean {
+    val value = this?.trimStart()?.lowercase() ?: return false
+    return value.startsWith("https://") || value.startsWith("http://")
+}
 
 private fun String?.extractTorrentSchemeInfoHash(): String? {
     val raw = this?.trimStart()?.takeIf { it.isTorrentSchemeUrl() } ?: return null

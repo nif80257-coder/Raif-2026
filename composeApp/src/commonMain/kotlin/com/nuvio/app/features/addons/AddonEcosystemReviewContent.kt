@@ -493,7 +493,7 @@ internal val AddonReviewPlan: List<AddonReviewStep> = listOf(
     AddonReviewStep(
         title = "«أين أشاهد رسميًا» وتحصين الروابط",
         steps = listOf(
-            "ارفض غير HTTPS في externalOpenUrl واعرض مضيف الوجهة",
+            "اقبل https وhttp فقط في externalOpenUrl واعرض مضيف الوجهة قبل الخروج",
             "شارة «رسمي» في بطاقة المصدر وتأكيد قبل الخروج من التطبيق",
             "قسم «متوفر على» من TMDB watch/providers بلا مفتاح جديد",
         ),

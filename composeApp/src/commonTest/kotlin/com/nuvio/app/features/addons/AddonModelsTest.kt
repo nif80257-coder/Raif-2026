@@ -84,6 +84,17 @@ class AddonModelsTest {
             listOf(disabledFailure, resolvedFailure, unresolvedFailure).firstEnabledManifestError(),
         )
     }
+
+    @Test
+    fun `config fields that ask for a token are treated as secret`() {
+        val token = AddonConfigField(key = "rdToken", title = "Debrid token")
+        val password = AddonConfigField(key = "loginPassword", type = "password")
+        val plain = AddonConfigField(key = "language", default = "ar")
+
+        assertTrue(token.isSecret)
+        assertTrue(password.isSecret)
+        assertFalse(plain.isSecret)
+    }
 }
 
 private fun manifest(id: String = "addon") = AddonManifest(

@@ -21,3 +21,15 @@ internal fun MetaDetails.withMetahubArtwork(): MetaDetails {
             ?: "$METAHUB_IMAGE_BASE/logo/medium/$id/img",
     )
 }
+
+/**
+ * The MetaHub poster for a title known by its IMDb id, or null when the id is not one.
+ *
+ * Catalog rows use it for a title their source listed without artwork, so a shelf still draws
+ * with no API key and no extra configuration.
+ */
+internal fun metahubPosterUrl(imdbId: String?): String? =
+    imdbId
+        ?.trim()
+        ?.takeIf { id -> id.startsWith("tt") && id.length > 2 && id.all { it.isDigit() } }
+        ?.let { id -> "$METAHUB_IMAGE_BASE/poster/medium/$id/img" }
