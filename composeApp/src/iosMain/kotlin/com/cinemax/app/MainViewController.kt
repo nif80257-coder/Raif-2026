@@ -29,8 +29,14 @@ fun MainViewController() = ComposeUIViewController {
     // Installed before the first composition, so a failure to build the shared UI
     // is recorded and can be shown on the next launch.
     CinemaxDiagnostics.install()
+    // Grows the whole UI a notch without ignoring the reader's own text size: the
+    // system font scale is multiplied, never replaced.
+    val systemDensity = LocalDensity.current
     CompositionLocalProvider(
-        LocalDensity provides Density(density = 1.1f, fontScale = 1.08f)
+        LocalDensity provides Density(
+            density = systemDensity.density * 1.1f,
+            fontScale = systemDensity.fontScale * 1.08f
+        )
     ) {
         App()
     }

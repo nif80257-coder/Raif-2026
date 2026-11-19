@@ -43,6 +43,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -293,6 +295,15 @@ fun CinemaxPosterCard(
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 )
             }
+            // A soft scrim at the foot of the poster keeps the heart, the progress
+            // bar and any bright artwork from fighting each other.
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(52.dp)
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0x8C000000))))
+            )
             PosterStatusMarks(status = status, accent = accent)
         }
         Spacer(Modifier.height(8.dp))
@@ -359,13 +370,20 @@ fun CinemaxRow(
 
 /** Round frosted control used over artwork, the shape of Swiftfin's back button. */
 @Composable
-fun CinemaxCircleButton(label: String, onClick: () -> Unit) {
+fun CinemaxCircleButton(label: String, contentDescription: String? = null, onClick: () -> Unit) {
     Box(
         modifier = Modifier
-            .size(40.dp)
+            .size(44.dp)
             .clip(CircleShape)
             .background(CinemaxPalette.frostedStrong)
-            .clickable(onClick = onClick),
+            .clickable(onClick = onClick)
+            .then(
+                if (contentDescription != null) {
+                    Modifier.semantics { this.contentDescription = contentDescription }
+                } else {
+                    Modifier
+                }
+            ),
         contentAlignment = Alignment.Center
     ) {
         Text(label, color = Color.White, fontSize = 19.sp, textAlign = TextAlign.Center)

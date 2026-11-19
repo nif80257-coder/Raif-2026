@@ -1227,11 +1227,14 @@ fun CinemaxDetailScreen(
                     .padding(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                CinemaxCircleButton("‹") { onBack() }
+                CinemaxCircleButton("‹", contentDescription = "رجوع") { onBack() }
                 Spacer(Modifier.weight(1f))
-                CinemaxCircleButton("↗") { shareTitle() }
+                CinemaxCircleButton("↗", contentDescription = "مشاركة") { shareTitle() }
                 Spacer(Modifier.width(6.dp))
-                CinemaxCircleButton(if (isFavorite) "♥" else "♡") { onToggleFavorite() }
+                CinemaxCircleButton(
+                    if (isFavorite) "♥" else "♡",
+                    contentDescription = if (isFavorite) "إزالة من المفضلة" else "أضف إلى المفضلة"
+                ) { onToggleFavorite() }
             }
             Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(16.dp)) {
                 Text(title, color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Black, maxLines = 2)
