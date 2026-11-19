@@ -80,7 +80,7 @@ fun CinemaxRoadmapScreen(
             item {
                 Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
                     Text(
-                        "المراحل 0–5 مكتملة بالكامل، والمرحلة 6 (الصقل) جارية: التدرّج على البوسترات، حجم الخط من النظام، وأسماء لأزرار قارئ الشاشة.",
+                        "المراحل السبع مكتملة: التنقل، الرئيسية، التفاصيل، المشغّل، البحث والمكتبة، إعدادات بصفحات مستقلة، والصقل.",
                         color = CinemaxPalette.textMuted,
                         fontSize = 12.sp,
                         lineHeight = 18.sp

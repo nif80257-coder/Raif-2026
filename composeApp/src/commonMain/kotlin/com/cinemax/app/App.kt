@@ -4,6 +4,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -1902,8 +1904,10 @@ fun App() {
 
             AnimatedVisibility(
                 visible = playbackUrl == null && selectedItem != null,
-                enter = fadeIn(tween(220)),
-                exit = fadeOut(tween(160))
+                // The page grows out of the artwork the viewer just tapped instead
+                // of appearing flatly, which is the last piece of the detail polish.
+                enter = fadeIn(tween(220)) + scaleIn(initialScale = 0.94f, animationSpec = tween(240)),
+                exit = fadeOut(tween(160)) + scaleOut(targetScale = 1.02f, animationSpec = tween(160))
             ) {
                 val item = lastDetailItem
                 if (item != null) {
