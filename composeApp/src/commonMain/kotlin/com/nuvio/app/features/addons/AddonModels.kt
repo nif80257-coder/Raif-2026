@@ -167,6 +167,18 @@ internal fun List<ManagedAddon>.matchingQuery(query: String): List<ManagedAddon>
     }
 }
 
+/**
+ * The opening of a description on one line, for a compact add-on row: whitespace collapsed and
+ * cut at a word boundary rather than mid-word.
+ */
+internal fun String.summaryLine(maxChars: Int = 120): String {
+    val flat = trim().replace(Regex("\\s+"), " ")
+    if (flat.length <= maxChars) return flat
+    val cut = flat.take(maxChars)
+    val boundary = cut.substringBeforeLast(' ', cut).trimEnd().trimEnd('.', ',', ';', ':')
+    return "$boundary…"
+}
+
 sealed interface AddAddonResult {
     data class Success(val manifest: AddonManifest) : AddAddonResult
     data class Error(val message: String) : AddAddonResult

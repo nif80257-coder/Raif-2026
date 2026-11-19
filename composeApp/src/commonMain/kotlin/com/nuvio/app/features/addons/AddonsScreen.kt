@@ -359,6 +359,7 @@ internal fun AddonsSettingsPageContent(
                 InstalledAddonCard(
                     addon = addon,
                     orderBadge = orderNumber,
+                    summary = addon.manifest?.description?.summaryLine().orEmpty().takeIf { it.isNotBlank() },
                     isPaused = addon.manifestUrl in health.pausedManifestUrls,
                     failureStreak = health.failureStreaks[addon.manifestUrl] ?: 0,
                     failureReason = health.failureReasons[addon.manifestUrl],
@@ -870,6 +871,7 @@ private fun EmptyStateCard(
 private fun InstalledAddonCard(
     addon: ManagedAddon,
     orderBadge: Int?,
+    summary: String?,
     isPaused: Boolean,
     failureStreak: Int,
     failureReason: AddonFailureReason?,
@@ -954,6 +956,16 @@ private fun InstalledAddonCard(
                         modifier = Modifier.weight(1f),
                         style = MaterialTheme.typography.headlineLarge,
                         color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                summary?.let { line ->
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = line,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -1138,16 +1150,6 @@ private fun InstalledAddonCard(
 
             manifest != null -> {
                 Spacer(modifier = Modifier.height(16.dp))
-                manifest.description.takeIf { it.isNotBlank() }?.let { description ->
-                    Text(
-                        text = description,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-
-                    Spacer(modifier = Modifier.height(14.dp))
-                }
-
                 Text(
                     text = manifestSummary(manifest),
                     style = MaterialTheme.typography.bodyMedium,
