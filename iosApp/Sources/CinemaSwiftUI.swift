@@ -1137,6 +1137,20 @@ struct MPVSurface: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: MPVViewController, context: Context) {}
 }
 
+struct TrackInfo: Decodable, Identifiable {
+    let id: Int64
+    let index: Int
+    let language: String
+    let title: String
+    let codec: String
+    let selected: Bool
+
+    var label: String {
+        let name = title.isEmpty ? (language.isEmpty ? codec : language) : title
+        return name.isEmpty ? "مسار \(index + 1)" : name
+    }
+}
+
 struct PlayerScreen: View {
     let title: String
     let url: String
@@ -1152,6 +1166,11 @@ struct PlayerScreen: View {
     @State private var ticker: Timer?
     @State private var startMs: Int64 = 0
     @State private var ready = false
+    @State private var showOptions = false
+    @State private var subtitleTracks: [TrackInfo] = []
+    @State private var audioTracks: [TrackInfo] = []
+    @State private var speed: Double = 1
+    @State private var subtitlesOff = false
 
     var body: some View {
         ZStack {
@@ -1170,6 +1189,11 @@ struct PlayerScreen: View {
                         .foregroundStyle(.white)
                         .lineLimit(1)
                     Spacer()
+                    CircleButton(system: "captions.bubble") {
+                        Haptics.tap()
+                        loadTracks()
+                        showOptions = true
+                    }
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 8)
@@ -1210,6 +1234,35 @@ struct PlayerScreen: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 18)
             }
+            if showOptions {
+                PlayerOptionsPanel(
+                    subtitleTracks: subtitleTracks,
+                    audioTracks: audioTracks,
+                    speed: speed,
+                    subtitlesOff: subtitlesOff,
+                    onClose: { showOptions = false },
+                    onSubtitle: { track in
+                        subtitlesOff = track == nil
+                        if let track {
+                            player?.setSubtitleTrack(track.id, ordinal: Int32(track.index))
+                        } else {
+                            player?.setSubtitleTrack(-1, ordinal: 0)
+                        }
+                        Haptics.select()
+                        showOptions = false
+                    },
+                    onAudio: { track in
+                        player?.setAudioTrack(track.id, ordinal: Int32(track.index))
+                        Haptics.select()
+                        showOptions = false
+                    },
+                    onSpeed: { value in
+                        speed = value
+                        player?.setSpeed(value)
+                        Haptics.select()
+                    }
+                )
+            }
         }
         .preferredColorScheme(.dark)
         .task {
@@ -1223,6 +1276,25 @@ struct PlayerScreen: View {
             ticker?.invalidate()
             saveProgress()
         }
+        .onChange(of: duration) { value in
+            // The track list is only reliable once the file is demuxed.
+            if value > 0, subtitleTracks.isEmpty, audioTracks.isEmpty {
+                loadTracks()
+            }
+        }
+    }
+
+    private func loadTracks() {
+        guard let player else { return }
+        let decoder = JSONDecoder()
+        subtitleTracks = (try? decoder.decode(
+            [TrackInfo].self,
+            from: Data(player.embeddedSubtitleTracksJson().utf8)
+        )) ?? []
+        audioTracks = (try? decoder.decode(
+            [TrackInfo].self,
+            from: Data(player.embeddedAudioTracksJson().utf8)
+        )) ?? []
     }
 
     /// Writes the stop position back, so "أكمل المشاهدة" and resume stay accurate
@@ -1262,6 +1334,126 @@ struct PlayerScreen: View {
         return hours > 0
             ? String(format: "%d:%02d:%02d", hours, minutes, secs)
             : String(format: "%d:%02d", minutes, secs)
+    }
+}
+
+/// The player's own control panel: subtitle and audio tracks packed in the file,
+/// plus playback speed. Everything here talks straight to libmpv.
+struct PlayerOptionsPanel: View {
+    let subtitleTracks: [TrackInfo]
+    let audioTracks: [TrackInfo]
+    let speed: Double
+    let subtitlesOff: Bool
+
+    let onClose: () -> Void
+    let onSubtitle: (TrackInfo?) -> Void
+    let onAudio: (TrackInfo) -> Void
+    let onSpeed: (Double) -> Void
+
+    private let speeds: [Double] = [0.5, 0.75, 1, 1.25, 1.5, 2]
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            Color.black.opacity(0.45)
+                .ignoresSafeArea()
+                .onTapGesture(perform: onClose)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack {
+                        Text("خيارات التشغيل")
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundStyle(.white)
+                        Spacer()
+                        CircleButton(system: "xmark") { onClose() }
+                    }
+
+                    if !subtitleTracks.isEmpty {
+                        label("الترجمة")
+                        Button { onSubtitle(nil) } label: {
+                            optionRow("بدون", selected: subtitlesOff)
+                        }
+                        .buttonStyle(.plain)
+                        ForEach(subtitleTracks) { track in
+                            Button { onSubtitle(track) } label: {
+                                optionRow(track.label, selected: track.selected && !subtitlesOff)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+
+                    if !audioTracks.isEmpty {
+                        label("الصوت")
+                        ForEach(audioTracks) { track in
+                            Button { onAudio(track) } label: {
+                                optionRow(track.label, selected: track.selected)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+
+                    label("سرعة التشغيل")
+                    HStack(spacing: 8) {
+                        ForEach(speeds, id: \.self) { value in
+                            Button {
+                                onSpeed(value)
+                            } label: {
+                                Text(value == 1 ? "عادي" : String(format: "%g×", value))
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(abs(speed - value) < 0.01 ? .black : .white)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 7)
+                                    .background {
+                                        Capsule().fill(
+                                            abs(speed - value) < 0.01
+                                                ? CinemaTheme.accent
+                                                : Color.white.opacity(0.1)
+                                        )
+                                    }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+
+                    if subtitleTracks.isEmpty && audioTracks.isEmpty {
+                        Text("هذا الملف لا يحتوي مسارات مدمجة.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(CinemaTheme.muted)
+                    }
+                }
+                .padding(20)
+            }
+            .frame(maxHeight: 420)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 26, style: .continuous)
+                    .strokeBorder(CinemaTheme.hairline, lineWidth: 1)
+            )
+            .padding(16)
+        }
+    }
+
+    private func label(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(CinemaTheme.muted)
+    }
+
+    private func optionRow(_ text: String, selected: Bool) -> some View {
+        HStack {
+            Text(text)
+                .font(.system(size: 14, weight: selected ? .semibold : .regular))
+                .foregroundStyle(selected ? CinemaTheme.accent : .white)
+            Spacer()
+            if selected {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(CinemaTheme.accent)
+            }
+        }
+        .padding(.vertical, 9)
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(CinemaTheme.elevated.opacity(0.6), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 
@@ -1344,7 +1536,7 @@ struct DetailView: View {
                 await MainActor.run { speeds = measured }
             }
         }
-        .fullScreenCover(item: $playing) { choice in
+        .fullScreenCover(item: $playing, onDismiss: { playing = nil }) { choice in
             PlayerScreen(
                 title: item.name,
                 url: choice.url,
@@ -1605,10 +1797,26 @@ struct DetailView: View {
                 }
                 .padding(.horizontal, 20)
             } else if model.streams.isEmpty {
-                Text("لا يوجد رابط مباشر لهذا العنوان من إضافاتك.")
-                    .font(.system(size: 13))
-                    .foregroundStyle(CinemaTheme.muted)
-                    .padding(.horizontal, 20)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("لا يوجد رابط مباشر لهذا العنوان من إضافاتك.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(CinemaTheme.muted)
+                    Button {
+                        Haptics.tap()
+                        Task {
+                            await model.loadStreams(id: episode?.id ?? item.id, type: item.type)
+                        }
+                    } label: {
+                        Text("أعد المحاولة")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 9)
+                            .background(CinemaTheme.accent, in: Capsule())
+                    }
+                    .buttonStyle(CinemaPressStyle())
+                }
+                .padding(.horizontal, 20)
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
