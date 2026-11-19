@@ -126,6 +126,18 @@ class AddonDirectoryTest {
     }
 
     @Test
+    fun directoryRequestUsesTheAddonCatalogResourcePath() {
+        val url = buildAddonResourceUrl(
+            manifestUrl = "https://source.example/abc/manifest.json",
+            resource = "addon_catalog",
+            type = "other",
+            id = "directory",
+        )
+
+        assertEquals("https://source.example/abc/addon_catalog/other/directory.json", url)
+    }
+
+    @Test
     fun requiredFieldsMustBeFilled() {
         val fields = listOf(
             AddonConfigField(key = "apiKey", required = true),

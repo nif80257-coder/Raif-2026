@@ -40,13 +40,7 @@ object AddonDirectoryRepository {
             val installed = AddonRepository.uiState.value.addons
                 .mapTo(mutableSetOf()) { addon -> addon.manifestUrl }
             val result = runCatching {
-                val url = buildAddonResourceUrl(
-                    manifestUrl = manifestUrl,
-                    resource = "catalog",
-                    type = catalog.type,
-                    id = catalog.id,
-                )
-                val payload = fetchAddonResponseText(url = url, forceRefresh = true)
+                val payload = fetchDirectoryPayload(manifestUrl = manifestUrl, catalog = catalog)
                 withContext(Dispatchers.Default) {
                     AddonDirectoryParser.parse(
                         payload = payload,
@@ -74,6 +68,32 @@ object AddonDirectoryRepository {
                 }
             }
         }
+    }
+
+    /**
+     * The directory a source serves is the `addon_catalog` resource, so the request has to go to
+     * `{base}/addon_catalog/{type}/{id}.json`. It used to be sent to `/catalog/...`, which is the
+     * ordinary catalog endpoint: a source that only serves a directory answered that with an
+     * HTTP error, or listed something else. A source that does serve the list as a plain catalog
+     * is still accepted through the fallback.
+     */
+    private suspend fun fetchDirectoryPayload(
+        manifestUrl: String,
+        catalog: AddonCatalogRef,
+    ): String {
+        var lastFailure: Throwable? = null
+        for (resource in listOf("addon_catalog", "catalog")) {
+            val url = buildAddonResourceUrl(
+                manifestUrl = manifestUrl,
+                resource = resource,
+                type = catalog.type,
+                id = catalog.id,
+            )
+            val outcome = runCatching { fetchAddonResponseText(url = url, forceRefresh = true) }
+            outcome.getOrNull()?.let { return it }
+            lastFailure = outcome.exceptionOrNull()
+        }
+        throw lastFailure ?: IllegalStateException("Add-on directory request failed")
     }
 
     /** Marks an entry installed as soon as the add-on list accepts it, without refetching. */
