@@ -4,13 +4,50 @@ import CinemaxKit
 
 // MARK: - Theme
 
-/// The house palette: an OLED-black canvas, one orchid accent, and glass surfaces
-/// drawn with the system's own materials so they match iOS everywhere.
+/// The accent colours the viewer can pick from, kept next to the theme so the
+/// settings screen and the whole interface agree on one list.
+enum AccentPalette {
+    static let entries: [(id: String, name: String, hex: UInt32)] = [
+        ("raif", "Raif", 0xE8A24A),
+        ("white", "الأبيض", 0xE5E5EA),
+        ("violet", "البنفسجي", 0xC173E6),
+        ("ocean", "المحيطي", 0x3B82F6),
+        ("crimson", "القرمزي", 0xE64545),
+        ("pink", "الوردي", 0xEC4899),
+        ("amber", "الكهرماني", 0xF59E0B),
+        ("emerald", "الزمردي", 0x22C55E),
+        ("indigo", "الأرجواني", 0x8B5CF6)
+    ]
+
+    static func color(_ id: String) -> Color {
+        let hex = entries.first { $0.id == id }?.hex ?? 0xE8A24A
+        return Color(
+            red: Double((hex >> 16) & 0xFF) / 255,
+            green: Double((hex >> 8) & 0xFF) / 255,
+            blue: Double(hex & 0xFF) / 255
+        )
+    }
+}
+
+/// The house palette. The accent and the canvas come from settings, so a viewer
+/// can recolour the app and choose an OLED-deep or a softer black canvas.
 enum CinemaTheme {
-    static let canvas = Color.black
+    static var accent: Color {
+        AccentPalette.color(UserDefaults.standard.string(forKey: "cinemax.accent") ?? "raif")
+    }
+
+    static var canvas: Color {
+        UserDefaults.standard.bool(forKey: "cinemax.oled")
+            ? .black
+            : Color(red: 0.039, green: 0.039, blue: 0.051)
+    }
+
+    static var reduceMotion: Bool {
+        UserDefaults.standard.bool(forKey: "cinemax.reduceMotion")
+    }
+
     static let surface = Color(red: 0.067, green: 0.067, blue: 0.075)
     static let elevated = Color(red: 0.106, green: 0.106, blue: 0.118)
-    static let accent = Color(red: 0.757, green: 0.451, blue: 0.902)
     static let favourite = Color(red: 1.0, green: 0.357, blue: 0.557)
     static let muted = Color(white: 0.58)
     static let hairline = Color.white.opacity(0.08)
@@ -826,6 +863,10 @@ struct FloatingTabBar: View {
 
 @MainActor
 final class HomeModel: ObservableObject {
+    /// One model for the whole session: switching tabs must not throw the
+    /// catalogues away and fetch them again.
+    static let shared = HomeModel()
+
     @Published var shelves: [Shelf] = []
     @Published var continueWatching: [ProgressItem] = []
     @Published var favorites: Set<String> = []
@@ -833,8 +874,27 @@ final class HomeModel: ObservableObject {
     @Published var error: String?
     @Published var filter = "all"
 
-    func load() async {
-        loading = true
+    private var lastLoaded: Date?
+    private let cacheKey = "cinemax.shelves.cache.v1"
+
+    init() {
+        // The last catalogues are painted immediately on launch, then refreshed.
+        if let data = UserDefaults.standard.data(forKey: cacheKey),
+           let cached = try? JSONDecoder().decode([Shelf].self, from: data),
+           !cached.isEmpty {
+            shelves = cached
+            loading = false
+        }
+    }
+
+    /// Refetches at most once a minute unless forced; the personal rows (resume
+    /// points, watchlist) refresh on every visit since they change while watching.
+    func load(force: Bool = false) async {
+        if !force, let last = lastLoaded, Date().timeIntervalSince(last) < 60 {
+            await refreshPersonal()
+            return
+        }
+        loading = shelves.isEmpty
         error = nil
         do {
             async let shelvesTask = CinemaAPI.shared.shelves()
@@ -844,6 +904,10 @@ final class HomeModel: ObservableObject {
             continueWatching = await progressTask
             favorites = Set(await favoritesTask.map(\.id))
             shelves = loaded
+            if let data = try? JSONEncoder().encode(loaded) {
+                UserDefaults.standard.set(data, forKey: cacheKey)
+            }
+            lastLoaded = Date()
             if loaded.isEmpty {
                 error = "لا كتالوجات بعد. ثبّت المصادر الجاهزة من الإعدادات ← الإضافات."
             }
@@ -851,6 +915,13 @@ final class HomeModel: ObservableObject {
             self.error = error.localizedDescription
         }
         loading = false
+    }
+
+    private func refreshPersonal() async {
+        async let progressTask = CinemaAPI.shared.progress()
+        async let favoritesTask = CinemaAPI.shared.favorites()
+        continueWatching = await progressTask
+        favorites = Set(await favoritesTask.map(\.id))
     }
 
     func toggle(_ item: CinemaItem) {
@@ -884,7 +955,7 @@ final class HomeModel: ObservableObject {
 /// Design 1 — the cinematic, glass, ambient-glow home.
 struct CinematicHomeView: View {
     @Binding var selection: Int
-    @StateObject private var model = HomeModel()
+    @ObservedObject private var model = HomeModel.shared
     @State private var glow: [Color] = [CinemaTheme.accent]
     @State private var detailItem: CinemaItem?
 
@@ -936,7 +1007,7 @@ struct CinematicHomeView: View {
             }
         }
         .background(AmbientGlow(colors: glow).ignoresSafeArea())
-        .refreshable { await model.load() }
+        .refreshable { await model.load(force: true) }
         .task { await model.load() }
         .fullScreenCover(item: $detailItem) { item in
             DetailView(item: item, onFavorite: { model.toggle(item) })
@@ -1632,6 +1703,8 @@ struct DetailView: View {
 
 @MainActor
 final class SearchModel: ObservableObject {
+    static let shared = SearchModel()
+
     @Published var results: [CinemaItem] = []
     @Published var loading = false
     @Published var error: String?
@@ -1657,7 +1730,7 @@ final class SearchModel: ObservableObject {
 
 struct SearchView: View {
     @State private var query = ""
-    @StateObject private var model = SearchModel()
+    @ObservedObject private var model = SearchModel.shared
     @State private var detailItem: CinemaItem?
     @State private var searchTask: Task<Void, Never>?
 
@@ -1728,6 +1801,8 @@ struct SearchView: View {
 
 @MainActor
 final class LibraryModel: ObservableObject {
+    static let shared = LibraryModel()
+
     @Published var favorites: [CinemaItem] = []
     @Published var progress: [ProgressItem] = []
     @Published var segment = 0
@@ -1741,7 +1816,7 @@ final class LibraryModel: ObservableObject {
 }
 
 struct LibraryView: View {
-    @StateObject private var model = LibraryModel()
+    @ObservedObject private var model = LibraryModel.shared
     @State private var detailItem: CinemaItem?
 
     private let columns = [GridItem(.adaptive(minimum: 112), spacing: 12)]
@@ -1807,6 +1882,9 @@ struct LibraryView: View {
 
 struct SettingsView: View {
     @AppStorage("cinemax.design") private var design = "cinematic"
+    @AppStorage("cinemax.accent") private var accent = "raif"
+    @AppStorage("cinemax.oled") private var oled = false
+    @AppStorage("cinemax.reduceMotion") private var reduceMotion = false
     @State private var addons: [InstalledAddonRow] = []
     @State private var suggested: [SuggestedAddonRow] = []
     @State private var addonURL = ""
@@ -1839,6 +1917,79 @@ struct SettingsView: View {
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, 8)
+
+                    card(title: "المظهر") {
+                        Text("لون الواجهة")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(CinemaTheme.muted)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 58), spacing: 10)], spacing: 14) {
+                            ForEach(AccentPalette.entries, id: \.id) { entry in
+                                Button {
+                                    Haptics.select()
+                                    accent = entry.id
+                                } label: {
+                                    VStack(spacing: 6) {
+                                        ZStack {
+                                            Circle()
+                                                .fill(AccentPalette.color(entry.id))
+                                                .frame(width: 42, height: 42)
+                                            if accent == entry.id {
+                                                Circle()
+                                                    .strokeBorder(Color.white, lineWidth: 2)
+                                                    .frame(width: 52, height: 52)
+                                                Image(systemName: "checkmark")
+                                                    .font(.system(size: 14, weight: .bold))
+                                                    .foregroundStyle(.black)
+                                            }
+                                        }
+                                        .frame(height: 54)
+                                        Text(entry.name)
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(accent == entry.id ? .white : CinemaTheme.muted)
+                                            .lineLimit(1)
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        Toggle(isOn: $oled) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("أسود AMOLED")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundStyle(.white)
+                                Text("خلفية سوداء خالصة بدل الأسود الناعم")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(CinemaTheme.muted)
+                            }
+                        }
+                        .tint(CinemaTheme.accent)
+                        Toggle(isOn: $reduceMotion) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("تقليل الحركة")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundStyle(.white)
+                                Text("يوقف الحركات التلقائية وانتقالات البطاقات")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(CinemaTheme.muted)
+                            }
+                        }
+                        .tint(CinemaTheme.accent)
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("لغة التطبيق")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundStyle(.white)
+                                Text("لغة الجهاز")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(CinemaTheme.muted)
+                            }
+                            Spacer()
+                            Text("العربية")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(CinemaTheme.muted)
+                        }
+                    }
 
                     card(title: "التصميم") {
                         VStack(spacing: 8) {
@@ -2052,6 +2203,8 @@ struct SettingsView: View {
 
 struct CinemaRootView: View {
     @State private var selection = 0
+    @AppStorage("cinemax.accent") private var accent = "raif"
+    @AppStorage("cinemax.oled") private var oled = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -2065,6 +2218,9 @@ struct CinemaRootView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // Rebuilds the screens when the accent or the canvas changes, so the new
+            // colour reaches every view instead of only newly created ones.
+            .id(accent + (oled ? "-oled" : "-soft"))
             FloatingTabBar(selection: $selection)
         }
         .preferredColorScheme(.dark)
@@ -2133,7 +2289,7 @@ struct FilterChipsBar: View {
 /// no hero and no glow. The opposite trade-off to the cinematic home.
 struct PosterWallHomeView: View {
     @Binding var selection: Int
-    @StateObject private var model = HomeModel()
+    @ObservedObject private var model = HomeModel.shared
     @State private var detailItem: CinemaItem?
     @State private var query = ""
 
@@ -2237,7 +2393,7 @@ struct PosterWallHomeView: View {
         }
         .background(CinemaTheme.canvas.ignoresSafeArea())
         .task { await model.load() }
-        .refreshable { await model.load() }
+        .refreshable { await model.load(force: true) }
         .fullScreenCover(item: $detailItem) { DetailView(item: $0) }
     }
 
@@ -2266,7 +2422,7 @@ private extension HomeModel {
 /// wide 16:9 cards instead of posters. Fewer, larger pictures per screen.
 struct PanoramaHomeView: View {
     @Binding var selection: Int
-    @StateObject private var model = HomeModel()
+    @ObservedObject private var model = HomeModel.shared
     @State private var detailItem: CinemaItem?
     @State private var glow: [Color] = [CinemaTheme.accent]
 
@@ -2312,7 +2468,7 @@ struct PanoramaHomeView: View {
         }
         .background(AmbientGlow(colors: glow).ignoresSafeArea())
         .task { await model.load() }
-        .refreshable { await model.load() }
+        .refreshable { await model.load(force: true) }
         .fullScreenCover(item: $detailItem) { DetailView(item: $0) }
     }
 
