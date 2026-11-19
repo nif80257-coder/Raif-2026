@@ -127,6 +127,12 @@ final class CinemaAPI {
 
     var versionLabel: String { bridge.versionLabel() }
 
+    var tmdbKey: String { bridge.tmdbKey() }
+
+    func saveTmdbKey(_ value: String) {
+        bridge.saveTmdbKey(value: value)
+    }
+
     private func decode<T: Decodable>(_ type: T.Type, _ json: String?) throws -> T {
         guard let json, let data = json.data(using: .utf8) else {
             throw CinemaError(message: "لم تصل بيانات")
@@ -1708,6 +1714,8 @@ struct SettingsView: View {
     @State private var addonURL = ""
     @State private var addonBusy = false
     @State private var addonMessage: String?
+    @State private var tmdbKey = ""
+    @State private var keyMessage: String?
 
     private let designs: [(id: String, title: String, detail: String)] = [
         ("cinematic", "سينمائي زجاجي", "هيرو بعرض الشاشة، وهج بلون البوستر، شريط عائم زجاجي"),
@@ -1844,6 +1852,38 @@ struct SettingsView: View {
                         }
                     }
                     .task { await loadAddons() }
+
+                    card(title: "TMDB") {
+                        Text("مفتاح TMDB (مجاني) يضيف أربعة صفوف كاملة بعناوين ووصف عربي وتقييمات حقيقية: الأكثر تداولًا، أفلام شائعة، مسلسلات شائعة، أعلى تقييمًا. بدون مفتاح تبقى إضافاتك فقط.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(CinemaTheme.muted)
+                            .lineSpacing(3)
+                        HStack(spacing: 8) {
+                            TextField("مفتاح TMDB", text: $tmdbKey)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 12))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+                                .background(CinemaTheme.elevated, in: Capsule())
+                            Button("حفظ") {
+                                CinemaAPI.shared.saveTmdbKey(tmdbKey.trimmingCharacters(in: .whitespacesAndNewlines))
+                                keyMessage = "تم حفظ المفتاح — اسحب الرئيسية للتحديث"
+                                Haptics.tap()
+                            }
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            .background(CinemaTheme.accent, in: Capsule())
+                        }
+                        if let keyMessage {
+                            Text(keyMessage)
+                                .font(.system(size: 11))
+                                .foregroundStyle(CinemaTheme.muted)
+                        }
+                    }
+                    .task { tmdbKey = CinemaAPI.shared.tmdbKey }
 
                     card(title: "عن التطبيق") {
                         Text("واجهة سينمائية سريعة مبنية بـ SwiftUI فوق نفس محرك المصادر: إضافات Stremio، مشغّل libmpv للـMKV، ترجمة مدمجة، ومتابعة مشاهدة.")

@@ -9,6 +9,9 @@ import com.cinemax.app.core.appVersionLabel
 import com.cinemax.app.core.dedupeSources
 import com.cinemax.app.core.parseSuggestedSources
 import com.cinemax.app.core.streamBadges
+import com.cinemax.app.nuvio.NuvioProviderStore
+import io.ktor.client.request.get
+import io.ktor.client.statement.bodyAsText
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -21,6 +24,11 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.datetime.Clock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonObject
 import platform.Foundation.NSNotificationCenter
 import platform.Foundation.NSUserDefaults
 
@@ -90,6 +98,15 @@ class CinemaxAppleBridge {
     private val repository = AddonRepository(createCinemaxHttpClient())
     private val progressStore = WatchProgressStore()
     private val favoritesStore = FavoritesStore()
+    private val nuvioStore = NuvioProviderStore()
+    private val tmdbHttp = createCinemaxHttpClient()
+
+    /** The optional TMDB key, shared with the Nuvio providers. */
+    fun tmdbKey(): String = nuvioStore.loadTmdbApiKey()
+
+    fun saveTmdbKey(value: String) {
+        nuvioStore.saveTmdbApiKey(value)
+    }
 
     private fun itemOf(meta: StremioMetaPreview) = AppleItem(
         id = meta.id,
@@ -144,12 +161,141 @@ class CinemaxAppleBridge {
                         }
                     }.awaitAll().filterNotNull().take(14)
                 }
-                onDone(json.encodeToString(AppleShelves(shelves)))
+                // With a TMDB key, four curated rows ride above the addon ones: the
+                // only free catalogue that answers with Arabic titles, Arabic
+                // overviews and a real vote average.
+                onDone(json.encodeToString(AppleShelves(tmdbRows() + shelves)))
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
                 onError(error.message ?: "تعذر تحميل الكتالوج")
             }
         }
+    }
+
+    private suspend fun tmdbRows(): List<AppleShelf> {
+        val key = nuvioStore.loadTmdbApiKey()
+        if (key.isBlank()) return emptyList()
+        val rows = listOf(
+            "trending/all/week" to "الأكثر تداولًا هذا الأسبوع",
+            "movie/popular" to "أفلام شائعة",
+            "tv/popular" to "مسلسلات شائعة",
+            "movie/top_rated" to "أعلى تقييمًا"
+        )
+        return coroutineScope {
+            rows.map { (path, title) ->
+                async {
+                    val items = try {
+                        withTimeoutOrNull(10_000) { fetchTmdbList(key, path) } ?: emptyList()
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: Throwable) {
+                        emptyList()
+                    }
+                    if (items.isEmpty()) null else AppleShelf("tmdb:$path", title, items)
+                }
+            }.awaitAll().filterNotNull()
+        }
+    }
+
+    private suspend fun fetchTmdbList(key: String, path: String): List<AppleItem> {
+        val body = tmdbHttp.get("https://api.themoviedb.org/3/$path?language=ar&api_key=$key").bodyAsText()
+        val results = Json.parseToJsonElement(body).jsonObject["results"] as? JsonArray ?: return emptyList()
+        return results.mapNotNull { element ->
+            val obj = element.jsonObject
+            val id = (obj["id"] as? JsonPrimitive)?.content ?: return@mapNotNull null
+            val isMovie = obj["title"] != null
+            val name = (obj[if (isMovie) "title" else "name"] as? JsonPrimitive)?.content
+                ?: return@mapNotNull null
+            val poster = (obj["poster_path"] as? JsonPrimitive)?.content
+            val backdrop = (obj["backdrop_path"] as? JsonPrimitive)?.content
+            val overview = (obj["overview"] as? JsonPrimitive)?.content
+            val rating = (obj["vote_average"] as? JsonPrimitive)?.doubleOrNull
+            val date = (obj[if (isMovie) "release_date" else "first_air_date"] as? JsonPrimitive)?.content
+            AppleItem(
+                id = "tmdb:$id:" + if (isMovie) "movie" else "series",
+                type = if (isMovie) "movie" else "series",
+                name = name,
+                poster = poster?.let { "https://image.tmdb.org/t/p/w500$it" },
+                background = (backdrop ?: poster)?.let { "https://image.tmdb.org/t/p/w780$it" },
+                releaseInfo = date?.take(4),
+                rating = if (rating != null && rating > 0.0) {
+                    ((rating * 10).toInt() / 10.0).toString()
+                } else {
+                    null
+                },
+                overview = overview?.takeIf { it.isNotBlank() }
+            )
+        }
+    }
+
+    /** Full TMDB detail, including Arabic episodes, for a row that came from TMDB. */
+    private suspend fun tmdbDetail(itemId: String): AppleDetail? {
+        val parts = itemId.split(":")
+        if (parts.size < 3 || parts[0] != "tmdb") return null
+        val id = parts[1]
+        val isMovie = parts[2] == "movie"
+        val key = nuvioStore.loadTmdbApiKey()
+        if (key.isBlank()) return null
+        val path = if (isMovie) "movie/$id" else "tv/$id"
+        val body = tmdbHttp.get("https://api.themoviedb.org/3/$path?language=ar&api_key=$key").bodyAsText()
+        val obj = Json.parseToJsonElement(body).jsonObject
+        val name = (obj[if (isMovie) "title" else "name"] as? JsonPrimitive)?.content ?: return null
+        val poster = (obj["poster_path"] as? JsonPrimitive)?.content
+        val backdrop = (obj["backdrop_path"] as? JsonPrimitive)?.content
+        val overview = (obj["overview"] as? JsonPrimitive)?.content
+        val rating = (obj["vote_average"] as? JsonPrimitive)?.doubleOrNull
+        val date = (obj[if (isMovie) "release_date" else "first_air_date"] as? JsonPrimitive)?.content
+        val genres = (obj["genres"] as? JsonArray)?.mapNotNull {
+            (it.jsonObject["name"] as? JsonPrimitive)?.content
+        } ?: emptyList()
+        val runtimeMinutes = (obj["runtime"] as? JsonPrimitive)?.intOrNull
+        val seasons = (obj["seasons"] as? JsonArray)?.mapNotNull {
+            (it.jsonObject["season_number"] as? JsonPrimitive)?.intOrNull
+        }?.filter { it > 0 } ?: emptyList()
+        val episodes = mutableListOf<AppleItem>()
+        if (!isMovie) {
+            for (season in seasons.take(4)) {
+                val seasonBody = try {
+                    tmdbHttp.get("https://api.themoviedb.org/3/tv/$id/season/$season?language=ar&api_key=$key").bodyAsText()
+                } catch (_: Throwable) {
+                    null
+                } ?: continue
+                val seasonObject = Json.parseToJsonElement(seasonBody).jsonObject
+                (seasonObject["episodes"] as? JsonArray)?.forEach { element ->
+                    val episode = element.jsonObject
+                    val number = (episode["episode_number"] as? JsonPrimitive)?.intOrNull ?: return@forEach
+                    episodes += AppleItem(
+                        id = "$itemId:$season:$number",
+                        type = "episode",
+                        name = (episode["name"] as? JsonPrimitive)?.content ?: "الحلقة $number",
+                        poster = (episode["still_path"] as? JsonPrimitive)?.content
+                            ?.let { "https://image.tmdb.org/t/p/w300$it" },
+                        overview = (episode["overview"] as? JsonPrimitive)?.content,
+                        releaseInfo = (episode["air_date"] as? JsonPrimitive)?.content
+                    )
+                }
+            }
+        }
+        return AppleDetail(
+            item = AppleItem(
+                id = itemId,
+                type = if (isMovie) "movie" else "series",
+                name = name,
+                poster = poster?.let { "https://image.tmdb.org/t/p/w500$it" },
+                background = (backdrop ?: poster)?.let { "https://image.tmdb.org/t/p/w780$it" },
+                releaseInfo = date?.take(4),
+                rating = if (rating != null && rating > 0.0) {
+                    ((rating * 10).toInt() / 10.0).toString()
+                } else {
+                    null
+                },
+                overview = overview?.takeIf { it.isNotBlank() }
+            ),
+            genres = genres,
+            runtime = runtimeMinutes?.let { "$it دقيقة" },
+            seasons = seasons,
+            episodes = episodes
+        )
     }
 
     /** Cross-addon search over every catalogue that advertises it. */
@@ -194,6 +340,15 @@ class CinemaxAppleBridge {
     fun loadDetail(itemId: String, type: String, onDone: (String) -> Unit, onError: (String) -> Unit) {
         scope.launch {
             try {
+                if (itemId.startsWith("tmdb:")) {
+                    val fromTmdb = tmdbDetail(itemId)
+                    if (fromTmdb == null) {
+                        onError("تعذر تحميل بيانات TMDB لهذا العنوان")
+                    } else {
+                        onDone(json.encodeToString(fromTmdb))
+                    }
+                    return@launch
+                }
                 var meta: com.cinemax.app.addons.StremioMeta? = null
                 for (addon in addonStore.load()) {
                     if (!AddonCapabilities.supportsMeta(addon, type)) continue
