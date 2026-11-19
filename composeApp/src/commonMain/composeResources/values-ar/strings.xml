@@ -2821,4 +2821,12 @@
     <string name="details_where_to_watch_tmdb">اعرض كل الخيارات على TMDB</string>
     <string name="addons_drag_handle">اسحب لإعادة الترتيب</string>
     <string name="home_catalog_free_and_legal">مجاني وقانوني · %1$s</string>
+    <string name="addons_group_built_in">مصادر مدمجة</string>
+    <string name="addons_group_user">إضافاتك</string>
+    <string name="addons_built_in_count">%1$d مصدرًا، بالترتيب أدناه</string>
+    <string name="addons_reset">إعادة الضبط</string>
+    <string name="addons_reset_running">جارٍ الإرجاع…</string>
+    <string name="addons_reset_confirm_title">إعادة ضبط المصادر المدمجة؟</string>
+    <string name="addons_reset_confirm_message">تُزال وتُثبَّت من جديد بترتيبها الأصلي. المصادر التي أضفتها بنفسك تبقى كما هي.</string>
+    <string name="addons_reset_confirm_action">إعادة الضبط</string>
 </resources>

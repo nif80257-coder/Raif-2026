@@ -118,6 +118,8 @@ internal fun AddonsSettingsPageContent(
     var addonReviewVisible by rememberSaveable { mutableStateOf(false) }
     var addonDirectoryVisible by rememberSaveable { mutableStateOf(false) }
     var configTarget by remember { mutableStateOf<ManagedAddon?>(null) }
+    var resetBuiltInVisible by rememberSaveable { mutableStateOf(false) }
+    var isResettingBuiltIns by remember { mutableStateOf(false) }
 
     val overview = remember(uiState.addons) { uiState.addons.toOverview() }
 
@@ -279,24 +281,72 @@ internal fun AddonsSettingsPageContent(
                     addon.manifestUrl to position
                 }
             }
-            // Grouped by how a source delivers its results: torrent (played by the built-in p2p
-            // engine), direct HTTP links, and the catalogs/subtitles that stream nothing.
-            val orderedAddons = remember(visibleAddons) {
-                visibleAddons.sortedBy { addon -> addon.transport().ordinal }
+            // Built-in sources first, in the order the bundle lists them and numbered that way;
+            // then the sources the user added, grouped by how they deliver their results.
+            val builtInAddons = remember(visibleAddons) {
+                visibleAddons
+                    .mapNotNull { addon -> builtInSourceOrder(addon.manifestUrl)?.let { order -> order to addon } }
+                    .sortedBy { (order, _) -> order }
+                    .map { (_, addon) -> addon }
             }
+            val userAddons = remember(visibleAddons) {
+                visibleAddons
+                    .filter { addon -> builtInSourceOrder(addon.manifestUrl) == null }
+                    .sortedBy { addon -> addon.transport().ordinal }
+            }
+            val displayAddons = builtInAddons + userAddons
+            var renderedSection: String? = null
             var renderedTransport: AddonTransport? = null
-            orderedAddons.forEach { addon ->
-                val transport = addon.transport()
-                if (transport != renderedTransport) {
+            displayAddons.forEach { addon ->
+                val orderNumber = builtInSourceOrder(addon.manifestUrl)
+                val section = if (orderNumber != null) "builtin" else "user"
+                if (section != renderedSection) {
                     SectionHeader(
-                        when (transport) {
-                            AddonTransport.Torrent -> stringResource(Res.string.addons_group_torrent)
-                            AddonTransport.Direct -> stringResource(Res.string.addons_group_direct)
-                            AddonTransport.Official -> stringResource(Res.string.addons_group_official)
-                            AddonTransport.Catalog -> stringResource(Res.string.addons_group_catalog)
-                        },
+                        stringResource(
+                            if (orderNumber != null) Res.string.addons_group_built_in
+                            else Res.string.addons_group_user,
+                        ),
                     )
-                    renderedTransport = transport
+                    if (orderNumber != null) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = stringResource(Res.string.addons_built_in_count, builtInAddons.size),
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            TextButton(
+                                enabled = !isResettingBuiltIns,
+                                onClick = { resetBuiltInVisible = true },
+                            ) {
+                                Text(
+                                    text = stringResource(
+                                        if (isResettingBuiltIns) Res.string.addons_reset_running
+                                        else Res.string.addons_reset,
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                    renderedSection = section
+                    renderedTransport = null
+                }
+                if (orderNumber == null) {
+                    val transport = addon.transport()
+                    if (transport != renderedTransport) {
+                        SectionHeader(
+                            when (transport) {
+                                AddonTransport.Torrent -> stringResource(Res.string.addons_group_torrent)
+                                AddonTransport.Direct -> stringResource(Res.string.addons_group_direct)
+                                AddonTransport.Official -> stringResource(Res.string.addons_group_official)
+                                AddonTransport.Catalog -> stringResource(Res.string.addons_group_catalog)
+                            },
+                        )
+                        renderedTransport = transport
+                    }
                 }
                 val index = indexByManifestUrl[addon.manifestUrl] ?: -1
                 val manifest = addon.manifest
@@ -308,6 +358,7 @@ internal fun AddonsSettingsPageContent(
                 val configureUrl = addon.manifestUrl.toConfigureUrl()
                 InstalledAddonCard(
                     addon = addon,
+                    orderBadge = orderNumber,
                     isPaused = addon.manifestUrl in health.pausedManifestUrls,
                     failureStreak = health.failureStreaks[addon.manifestUrl] ?: 0,
                     failureReason = health.failureReasons[addon.manifestUrl],
@@ -383,6 +434,31 @@ internal fun AddonsSettingsPageContent(
     }
     if (addonReviewVisible) {
         AddonEcosystemReviewDialog(onDismiss = { addonReviewVisible = false })
+    }
+    if (resetBuiltInVisible) {
+        NuvioStatusModal(
+            title = stringResource(Res.string.addons_reset_confirm_title),
+            message = stringResource(Res.string.addons_reset_confirm_message),
+            isVisible = true,
+            isBusy = isResettingBuiltIns,
+            destructive = true,
+            confirmText = stringResource(
+                if (isResettingBuiltIns) Res.string.addons_reset_running
+                else Res.string.addons_reset_confirm_action,
+            ),
+            dismissText = stringResource(Res.string.action_no),
+            onConfirm = {
+                if (!isResettingBuiltIns) {
+                    isResettingBuiltIns = true
+                    coroutineScope.launch {
+                        AddonRepository.resetBuiltInSources()
+                        isResettingBuiltIns = false
+                        resetBuiltInVisible = false
+                    }
+                }
+            },
+            onDismiss = { if (!isResettingBuiltIns) resetBuiltInVisible = false },
+        )
     }
     if (addonDirectoryVisible) {
         AddonDirectoryDialog(
@@ -793,6 +869,7 @@ private fun EmptyStateCard(
 @Composable
 private fun InstalledAddonCard(
     addon: ManagedAddon,
+    orderBadge: Int?,
     isPaused: Boolean,
     failureStreak: Int,
     failureReason: AddonFailureReason?,
@@ -863,13 +940,24 @@ private fun InstalledAddonCard(
             )
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = addon.displayTitle,
-                    style = MaterialTheme.typography.headlineLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    orderBadge?.let { number ->
+                        Text(
+                            text = "#$number",
+                            modifier = Modifier.padding(end = 8.dp),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    Text(
+                        text = addon.displayTitle,
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.headlineLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 manifest?.version?.let { version ->
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(

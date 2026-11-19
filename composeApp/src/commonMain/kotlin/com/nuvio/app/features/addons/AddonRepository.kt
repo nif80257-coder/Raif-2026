@@ -667,6 +667,65 @@ object AddonRepository {
         defaultAddonSeedJob = seedJob
     }
 
+    /**
+     * Removes the bundled sources from this profile and installs them again in the order the
+     * bundle lists them, leaving the user's own sources untouched. Returns how many installed.
+     */
+    suspend fun resetBuiltInSources(): Int {
+        if (isUsingPrimaryAddonsFromSecondaryProfile()) return 0
+        val profileId = currentProfileId
+        val builtInUrls = DefaultAddonSources.mapTo(mutableSetOf()) { source -> source.manifestUrl }
+
+        _uiState.update { current ->
+            current.copy(addons = current.addons.filterNot { addon -> addon.manifestUrl in builtInUrls })
+        }
+        builtInUrls.forEach { url -> CachedManifestStore.remove(profileId, url) }
+        persist()
+
+        val installed = coroutineScope {
+            DefaultAddonSources.map { source ->
+                async {
+                    if (currentProfileId != profileId) return@async null
+                    runCatching {
+                        val payload = fetchAddonResponseText(
+                            url = source.manifestUrl,
+                            gate = manifestRefreshSemaphore,
+                        )
+                        val manifest = AddonManifestParser.parse(
+                            manifestUrl = source.manifestUrl,
+                            payload = payload,
+                        )
+                        CachedManifestStore.save(
+                            profileId = profileId,
+                            manifestUrl = source.manifestUrl,
+                            payload = payload,
+                        )
+                        ManagedAddon(
+                            manifestUrl = source.manifestUrl,
+                            manifest = manifest,
+                            isRefreshing = false,
+                            errorMessage = null,
+                        )
+                    }.getOrNull()
+                }
+            }.awaitAll()
+        }.filterNotNull()
+        if (currentProfileId != profileId) return 0
+
+        _uiState.update { current ->
+            val userAddons = current.addons.filterNot { addon -> addon.manifestUrl in builtInUrls }
+            current.copy(addons = installed + userAddons)
+        }
+        persist()
+        queueAddonChanges(changedManifestUrls = builtInUrls)
+        pushToServer()
+        withContext(Dispatchers.Main) {
+            HomeCatalogSettingsRepository.syncCatalogs(_uiState.value.addons.enabledAddons())
+        }
+        log.i { "resetBuiltInSources() — reinstalled ${installed.size} bundled sources" }
+        return installed.size
+    }
+
     private fun persist() {
         val addons = _uiState.value.addons
         AddonStorage.saveInstalledAddonUrls(

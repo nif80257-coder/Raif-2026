@@ -3,6 +3,7 @@ package com.nuvio.app.features.addons
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class DefaultAddonSourcesTest {
@@ -57,5 +58,14 @@ class DefaultAddonSourcesTest {
         assertTrue(isRetiredDefaultAddon("https://comet.elfhosted.com/eyJkZWJyaWQifQ==/manifest.json"))
         assertTrue(isRetiredDefaultAddon("https://froststream.cloutteam.com/usr_0488/manifest.json"))
         assertFalse(isRetiredDefaultAddon("https://torrentio.strem.fun/language=arabic/manifest.json"))
+    }
+
+    @Test
+    fun `every bundled source has a stable one-based order`() {
+        assertEquals(1, builtInSourceOrder(DefaultAddonSources.first().manifestUrl))
+        assertEquals(41, builtInSourceOrder(DefaultAddonSources.last().manifestUrl))
+        assertNull(builtInSourceOrder("https://example.com/manifest.json"))
+        assertTrue(isBuiltInSource(DefaultAddonSources[10].manifestUrl))
+        assertFalse(isBuiltInSource("https://example.com/manifest.json"))
     }
 }

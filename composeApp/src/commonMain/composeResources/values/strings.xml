@@ -2850,4 +2850,12 @@
     <string name="details_where_to_watch_tmdb">See every option on TMDB</string>
     <string name="addons_drag_handle">Drag to reorder</string>
     <string name="home_catalog_free_and_legal">Free &amp; legal · %1$s</string>
+    <string name="addons_group_built_in">Built-in sources</string>
+    <string name="addons_group_user">Your sources</string>
+    <string name="addons_built_in_count">%1$d sources, in the order below</string>
+    <string name="addons_reset">Reset</string>
+    <string name="addons_reset_running">Resetting…</string>
+    <string name="addons_reset_confirm_title">Reset the built-in sources?</string>
+    <string name="addons_reset_confirm_message">They are removed and installed again in their original order. Sources you added yourself stay as they are.</string>
+    <string name="addons_reset_confirm_action">Reset</string>
 </resources>

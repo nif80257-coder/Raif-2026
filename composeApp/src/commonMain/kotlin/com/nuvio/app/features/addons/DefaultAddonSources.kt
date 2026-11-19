@@ -146,3 +146,13 @@ internal val DefaultAddonSources: List<DefaultAddonSource> = listOf(
             source.manifestUrl.contains(host, ignoreCase = true)
         } ?: source.manifestUrl
     }
+
+
+/** The 1-based position of a bundled source, or null when the URL is not one of them. */
+internal fun builtInSourceOrder(manifestUrl: String): Int? {
+    val index = DefaultAddonSources.indexOfFirst { source -> source.manifestUrl == manifestUrl }
+    return if (index >= 0) index + 1 else null
+}
+
+/** True when the source ships with the app rather than being added by the user. */
+internal fun isBuiltInSource(manifestUrl: String): Boolean = builtInSourceOrder(manifestUrl) != null
