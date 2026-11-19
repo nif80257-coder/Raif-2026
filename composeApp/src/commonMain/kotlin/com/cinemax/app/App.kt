@@ -295,6 +295,11 @@ fun App() {
     var suggestedSources by remember { mutableStateOf<List<SuggestedSource>>(emptyList()) }
     var suggestedQuery by remember { mutableStateOf("") }
     var installingSourceUrl by remember { mutableStateOf<String?>(null) }
+    // The "install everything" pass over the shipped sources, with its counters so
+    // the button can say how far it got.
+    var bulkInstallRunning by remember { mutableStateOf(false) }
+    var bulkInstallDone by remember { mutableStateOf(0) }
+    var bulkInstallTotal by remember { mutableStateOf(0) }
     // The public addon collection, fetched only when the viewer asks for it.
     var directoryEntries by remember { mutableStateOf<List<AddonDirectoryEntry>>(emptyList()) }
     var directoryLoading by remember { mutableStateOf(false) }
@@ -1529,6 +1534,60 @@ fun App() {
         }
     }
 
+    /**
+     * Installs every shipped source still missing, one after the other so a slow
+     * or dead addon cannot hold back the rest. A failure is counted, never fatal,
+     * and the whole list lands in the addon store in a single save at the end.
+     */
+    fun installAllSuggested(urls: List<String>) {
+        if (bulkInstallRunning || urls.isEmpty()) return
+        bulkInstallRunning = true
+        bulkInstallTotal = urls.size
+        bulkInstallDone = 0
+        scope.launch {
+            var installedCount = 0
+            var failedCount = 0
+            for (url in urls) {
+                bulkInstallDone += 1
+                status = "جارٍ تثبيت المصادر: $bulkInstallDone من $bulkInstallTotal"
+                try {
+                    val manifest = repository.loadManifest(url)
+                    val normalized = com.cinemax.app.addons.StremioAddonClient.manifestUrl(url) ?: url
+                    val installed = InstalledAddon(
+                        manifestUrl = normalized,
+                        id = manifest.id,
+                        name = manifest.name,
+                        version = manifest.version,
+                        description = manifest.description,
+                        installedAtEpochMillis = Clock.System.now().toEpochMilliseconds(),
+                        resources = manifest.resourceNames().toList(),
+                        types = manifest.types,
+                        idPrefixes = manifest.idPrefixes,
+                        catalogs = manifest.catalogs,
+                        configurable = manifest.behaviorHints.configurable
+                    )
+                    addons.removeAll { it.id == installed.id }
+                    addons.add(installed)
+                    installedCount += 1
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Throwable) {
+                    failedCount += 1
+                }
+            }
+            addonStore.save(addons.toList())
+            repository.clearCaches()
+            activeAddon = addons.lastOrNull()
+            status = if (failedCount > 0) {
+                "تم تثبيت $installedCount مصدرًا وتعذّر $failedCount"
+            } else {
+                "تم تثبيت $installedCount مصدرًا"
+            }
+            bulkInstallRunning = false
+            refreshHome()
+        }
+    }
+
     // Whether the search tab can ask anything with the current type choice.
     val canSearchNow = if (searchType == "all") {
         addons.isNotEmpty()
@@ -2396,6 +2455,32 @@ fun App() {
                             Spacer(Modifier.height(4.dp))
                             if (visible.isEmpty()) {
                                 Text("لا مصدر بهذا الاسم", fontSize = 12.sp, color = Color.LightGray)
+                            }
+                            val pending = visible.count { source ->
+                                addons.none { it.manifestUrl == source.url }
+                            }
+                            if (pending > 0) {
+                                Button(
+                                    enabled = !bulkInstallRunning,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    onClick = {
+                                        installAllSuggested(
+                                            visible
+                                                .filter { source -> addons.none { it.manifestUrl == source.url } }
+                                                .map { it.url }
+                                        )
+                                    }
+                                ) {
+                                    Text(
+                                        if (bulkInstallRunning) {
+                                            "جارٍ التثبيت… $bulkInstallDone/$bulkInstallTotal"
+                                        } else {
+                                            "ثبّت الكل ($pending)"
+                                        },
+                                        fontSize = 13.sp
+                                    )
+                                }
+                                Spacer(Modifier.height(6.dp))
                             }
                             for (source in visible) {
                                 val installed = addons.any { it.manifestUrl == source.url }

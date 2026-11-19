@@ -1227,7 +1227,7 @@ fun CinemaxDetailScreen(
                     .padding(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                CinemaxCircleButton("‹", contentDescription = "رجوع") { onBack() }
+                CinemaxCircleButton(CinemaxBackChevron(), contentDescription = "رجوع") { onBack() }
                 Spacer(Modifier.weight(1f))
                 CinemaxCircleButton("↗", contentDescription = "مشاركة") { shareTitle() }
                 Spacer(Modifier.width(6.dp))
@@ -2086,7 +2086,9 @@ fun CinemaxSettingsScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (page != null) {
-                CinemaxCircleButton("‹") { page = null }
+                CinemaxCircleButton(CinemaxBackChevron(), contentDescription = "رجوع إلى الإعدادات") {
+                    page = null
+                }
                 Spacer(Modifier.width(12.dp))
             }
             Column(Modifier.weight(1f)) {
@@ -2513,7 +2515,7 @@ private fun SettingsEntry(title: String, summary: String, onClick: () -> Unit) {
             )
             Text(summary, color = CinemaxPalette.textMuted, fontSize = 12.sp, lineHeight = 17.sp)
         }
-        Text("‹", color = CinemaxPalette.textMuted, fontSize = 22.sp)
+        Text(CinemaxBackChevron(), color = CinemaxPalette.textMuted, fontSize = 22.sp)
     }
 }
 
