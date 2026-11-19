@@ -292,16 +292,19 @@ fun ProfileEditScreen(
                                 usesPrimaryAddons = usesPrimaryAddons,
                             )
                         } else {
-                            ProfileRepository.updateProfile(
-                                profileIndex = currentProfile!!.profileIndex,
-                                name = name,
-                                avatarColorHex = avatarColorHex,
-                                avatarId = if (customAvatarUrl == null) selectedAvatarId else null,
-                                avatarUrl = customAvatarUrl,
-                                profileBackgroundId = selectedBackgroundId,
-                                profileBackgroundUrl = selectedBackgroundUrl,
-                                usesPrimaryAddons = usesPrimaryAddons,
-                            )
+                            val profileIndex = currentProfile?.profileIndex
+                            if (profileIndex != null) {
+                                ProfileRepository.updateProfile(
+                                    profileIndex = profileIndex,
+                                    name = name,
+                                    avatarColorHex = avatarColorHex,
+                                    avatarId = if (customAvatarUrl == null) selectedAvatarId else null,
+                                    avatarUrl = customAvatarUrl,
+                                    profileBackgroundId = selectedBackgroundId,
+                                    profileBackgroundUrl = selectedBackgroundUrl,
+                                    usesPrimaryAddons = usesPrimaryAddons,
+                                )
+                            }
                         }
                         isSaving = false
                         onSaved()

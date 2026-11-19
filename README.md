@@ -17,9 +17,13 @@ The product name is the ASCII `Raif` because it feeds `CFBundleExecutable`; ever
 
 ## Bundled sources
 
-`composeApp/src/commonMain/kotlin/com/nuvio/app/features/addons/DefaultAddonSources.kt` mirrors `Raif 2/raif-sources.json` (42 manifests: 3 catalogs, 5 subtitle providers and 34 stream sources that were checked live and need no debrid key). They are installed once per profile on first launch, on top of nothing: a profile that already has sources keeps them, an entry the user removes is not reinstalled, and the seeded marker lives in `AddonStorage.areDefaultAddonsSeeded` / `markDefaultAddonsSeeded`.
+`composeApp/src/commonMain/kotlin/com/nuvio/app/features/addons/DefaultAddonSources.kt` mirrors `Raif 2/raif-sources.json` (41 manifests: 3 catalogs, 5 subtitle providers and 33 stream sources that were checked live and need no debrid key). They are installed once per profile on first launch, on top of nothing: a profile that already has sources keeps them, an entry the user removes is not reinstalled, and the seeded marker lives in `AddonStorage.areDefaultAddonsSeeded` / `markDefaultAddonsSeeded`.
 
 The provider repository `https://raw.githubusercontent.com/tapframe/nuvio-providers/main/manifest.json` is seeded the same way by `fullCommonMain/.../plugins/PluginRepository.kt`.
+
+## Add-on ecosystem
+
+`docs/Raif-Addon-Ecosystem-Review.md` compares four Stremio add-on repositories with what this app does, and is also rendered in the app (Settings → Content discovery → Add-ons → "Open the ecosystem review"). From that review the app now reads `addonCatalogs` and `config` from a manifest, lists availability sources apart from playable ones, opens an `externalUrl` only over HTTPS, and hides titles a profile marks as hidden along with sources that declare themselves adult. An installed source that declares `addon_catalog` can be browsed from the add-on screen and its entries installed in one tap, and a manifest that declares `config[]` gets an in-app form that installs a configured copy of the source.
 
 ## Build for the iOS Simulator
 

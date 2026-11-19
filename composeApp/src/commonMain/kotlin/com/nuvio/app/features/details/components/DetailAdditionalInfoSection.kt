@@ -51,21 +51,23 @@ fun DetailAdditionalInfoSection(
             add(stringResource(Res.string.details_original_language) to it.uppercase())
         }
     }
-    if (rows.isEmpty()) return
-
-    DetailSection(
-        title = title,
-        modifier = modifier,
-        showHeader = showHeader,
-    ) {
-        rows.forEachIndexed { index, (label, value) ->
-            DetailInfoRow(
-                label = label,
-                value = value,
-                showDivider = index < rows.lastIndex,
-            )
+    if (rows.isNotEmpty()) {
+        DetailSection(
+            title = title,
+            modifier = modifier,
+            showHeader = showHeader,
+        ) {
+            rows.forEachIndexed { index, (label, value) ->
+                DetailInfoRow(
+                    label = label,
+                    value = value,
+                    showDivider = index < rows.lastIndex,
+                )
+            }
         }
     }
+
+    WhereToWatchSection(meta = meta, showHeader = showHeader)
 }
 
 @Composable

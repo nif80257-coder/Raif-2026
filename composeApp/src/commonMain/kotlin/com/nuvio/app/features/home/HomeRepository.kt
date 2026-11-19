@@ -15,6 +15,7 @@ import com.nuvio.app.features.collection.CollectionSource
 import com.nuvio.app.features.collection.TmdbCollectionSourceResolver
 import com.nuvio.app.features.collection.catalogRouteKey
 import com.nuvio.app.features.collection.findCollectionCatalog
+import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.servers.ServerCatalog
 import com.nuvio.app.features.trakt.TraktPublicListSourceResolver
 import com.nuvio.app.features.watchprogress.CurrentDateProvider
@@ -50,7 +51,10 @@ object HomeRepository {
     private var lastErrorMessage: String? = null
 
     fun refresh(addons: List<ManagedAddon>, force: Boolean = false) {
-        val activeAddons = addons.enabledAddons()
+        // The adult switch is the source's own declaration, so it is applied before anything is
+        // fetched: a flagged source then costs neither a request nor a shelf.
+        val hideAdult = ContentFilterRepository.hidesAdultAddons(ProfileRepository.activeProfileId)
+        val activeAddons = addons.excludingAdultFlagged(hideAdult)
         val requests = buildHomeCatalogDefinitions(activeAddons)
         currentDefinitions = requests
         val requestCacheKeys = requests.mapTo(mutableSetOf(), HomeCatalogDefinition::cacheKey)
@@ -187,6 +191,8 @@ object HomeRepository {
     ) {
         val snapshot = HomeCatalogSettingsRepository.snapshot()
         val preferences = snapshot.preferences
+        // One read of the hidden list and the adult switch per publish, not per shelf.
+        val hiddenTitleKeys = ContentFilterRepository.hiddenTitleKeys(ProfileRepository.activeProfileId)
         val todayIsoDate = if (snapshot.hideUnreleasedContent) CurrentDateProvider.todayIsoDate() else null
         CustomPosterUrlRepository.ensureLoaded()
         val posterPattern = CustomPosterUrlRepository.patternForScreen(com.nuvio.app.core.poster.CustomPosterScreen.HOME)
@@ -194,6 +200,8 @@ object HomeRepository {
             if (todayIsoDate == null) this else filterReleasedItems(todayIsoDate)
         fun HomeCatalogSection.withPosterOverlay(): HomeCatalogSection =
             copy(items = items.reapplyCustomPosterUrls(posterPattern))
+        fun HomeCatalogSection.withHiddenFilter(): HomeCatalogSection =
+            copy(items = items.excludingHidden(hiddenTitleKeys))
 
         val sections = currentDefinitions
             .sortedBy { definition -> preferences[definition.key]?.order ?: Int.MAX_VALUE }
@@ -204,6 +212,7 @@ object HomeRepository {
                 val section = cachedSections[definition.cacheKey]
                     ?.withPosterOverlay()
                     ?.withReleaseFilter()
+                    ?.withHiddenFilter()
                     ?: return@mapNotNull null
                 if (section.items.isEmpty()) return@mapNotNull null
                 val customTitle = preference?.customTitle.orEmpty()
@@ -217,7 +226,7 @@ object HomeRepository {
             currentDefinitions
                 .filter { definition -> preferences[definition.key]?.heroSourceEnabled != false }
                 .mapNotNull { definition -> cachedSections[definition.cacheKey] }
-                .map { section -> section.withPosterOverlay().withReleaseFilter() }
+                .map { section -> section.withPosterOverlay().withReleaseFilter().withHiddenFilter() }
                 .flatMap { section -> section.items }
                 .distinctBy { item -> "${item.type}:${item.id}" }
                 .shuffled(heroRandom)

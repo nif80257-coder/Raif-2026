@@ -20,10 +20,14 @@ import com.nuvio.app.features.catalog.fetchCatalogPage
 import com.nuvio.app.features.catalog.mergeCatalogItems
 import com.nuvio.app.features.catalog.nextCatalogPaginationState
 import com.nuvio.app.features.catalog.supportsPagination
+import com.nuvio.app.features.home.ContentFilterRepository
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
 import com.nuvio.app.features.home.HomeCatalogSection
 import com.nuvio.app.features.home.MetaPreview
+import com.nuvio.app.features.home.excludingAdultFlagged
+import com.nuvio.app.features.home.excludingHidden
 import com.nuvio.app.features.home.filterReleasedItems
+import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.core.poster.withCustomPosterUrls
 import com.nuvio.app.features.watchprogress.CurrentDateProvider
 import kotlinx.coroutines.CancellationException
@@ -102,7 +106,8 @@ object SearchRepository {
             return
         }
 
-        val enabledAddons = addons.enabledAddons()
+        val hideAdult = ContentFilterRepository.hidesAdultAddons(ProfileRepository.activeProfileId)
+        val enabledAddons = addons.excludingAdultFlagged(hideAdult)
         val hasPendingAddonManifests = enabledAddons.hasPendingEnabledManifests()
         val addonManifestErrorMessage = enabledAddons.firstEnabledManifestError()
         val activeAddons = enabledAddons.filter { it.manifest != null }
@@ -265,7 +270,8 @@ object SearchRepository {
         addons: List<ManagedAddon>,
         forceRefresh: Boolean = false,
     ) {
-        val enabledAddons = addons.enabledAddons()
+        val hideAdult = ContentFilterRepository.hidesAdultAddons(ProfileRepository.activeProfileId)
+        val enabledAddons = addons.excludingAdultFlagged(hideAdult)
         val hasPendingAddonManifests = enabledAddons.hasPendingEnabledManifests()
         val addonManifestErrorMessage = enabledAddons.firstEnabledManifestError()
         val activeAddons = enabledAddons.filter { it.manifest != null }
@@ -616,7 +622,9 @@ object SearchRepository {
                             "sample=${page.items.previewNames()}"
                     }
                     _discoverUiState.value = latest.copy(
-                        items = mergedItems,
+                        items = mergedItems.excludingHidden(
+                            ContentFilterRepository.hiddenTitleKeys(ProfileRepository.activeProfileId),
+                        ),
                         isLoading = false,
                         nextSkip = paginationState.nextSkip,
                         consecutiveDuplicatePages = paginationState.consecutiveDuplicatePages,
@@ -662,8 +670,13 @@ private data class IndexedSearchResult(
     val error: Throwable? = null,
 )
 
-private fun Array<IndexedSearchResult?>.orderedSections(): List<HomeCatalogSection> =
-    mapNotNull { result -> result?.section }
+private fun Array<IndexedSearchResult?>.orderedSections(): List<HomeCatalogSection> {
+    // Titles the profile hid are dropped here, so every search path gets the same list.
+    val hiddenKeys = ContentFilterRepository.hiddenTitleKeys(ProfileRepository.activeProfileId)
+    return mapNotNull { result -> result?.section }
+        .map { section -> section.copy(items = section.items.excludingHidden(hiddenKeys)) }
+        .filter { section -> section.items.isNotEmpty() }
+}
 
 private fun CatalogPage.withUnreleasedFilter(): CatalogPage {
     if (!HomeCatalogSettingsRepository.snapshot().hideUnreleasedContent) return this

@@ -30,6 +30,9 @@ internal val RetiredDefaultAddonHosts: List<String> = listOf(
     "dexter.q-1208.fun",
     "rophim.q-1208.fun",
     "filmwhisper.dev",
+    // Carries an Orion API key that belongs to whoever built the URL, not to this app's user, so
+    // every Orion link is useless here and the key must not ship.
+    "orion.baby-beamup.club",
     // Anime only.
     "onepace.e6ip.com",
     "fedew04.github.io",
@@ -89,7 +92,6 @@ internal val DefaultAddonSources: List<DefaultAddonSource> = listOf(
     DefaultAddonSource("https://froststream.cloutteam.com/usr_04883ba4646b680a0315/manifest.json"),
     DefaultAddonSource("https://94c8cb9f702d-brazuca-torrents.baby-beamup.club/manifest.json"),
     DefaultAddonSource("https://cncverse.dpdns.org/u/p_ek8k6v7epbmc/manifest.json"),
-    DefaultAddonSource("https://5a0d1888fa64-orion.baby-beamup.club/eyJhcGkiOiJMRUo4S0ZKN01KRUc3V0c4MktQUkZHTUs5SFFERlRIQyIsImxpbmtMaW1pdCI6IjEwIiwic29ydFZhbHVlIjoiYmVzdCIsImF1ZGlvY2hhbm5lbHMiOiIxLDIsNiw4IiwidmlkZW9xdWFsaXR5IjoiaGQ0ayxoZDEwODAsaGQ3MjAsc2QiLCJsaXN0T3B0IjoidG9ycmVudCIsImRlYnJpZHNlcnZpY2VzIjpbXSwiYXVkaW9sYW5ndWFnZXMiOltdLCJhZGRpdGlvbmFsUGFyYW1ldGVycyI6IiJ9/manifest.json"),
     DefaultAddonSource("https://hdhub.thevolecitor.qzz.io/eyJ0b3Jib3giOiJ1bnNldCIsInF1YWxpdGllcyI6IjIxNjBwLDEwODBwLDcyMHAiLCJzb3J0IjoiZGVzYyIsImNhdGFsb2dzIjoiIn0/manifest.json"),
     DefaultAddonSource("https://onepace.e6ip.com/eyJkZWJyaWRTZXJ2aWNlcyI6W3sic2VydmljZSI6InAycCJ9XX0=/manifest.json"),
     DefaultAddonSource("https://addon.peerflix.mov/enc_BD0t3qdlF5yb_eu68KcvhS6t2irF3_xCkzy1cy7AtLr2DRsPVaGaTa3FGsLXwC0s0YYQwBnU-AYAt2_gPjAGeJ3o-ExsD2BwoMmdWZXwOjHbC7eSGaBrbPk6LX77YTYcNgpLwXt8tsX09-djaaqjAi4QvNDl8BFgNdAXuMzS/manifest.json"),

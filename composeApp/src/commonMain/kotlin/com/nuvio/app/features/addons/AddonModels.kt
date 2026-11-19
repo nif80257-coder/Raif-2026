@@ -11,13 +11,48 @@ data class AddonManifest(
     val description: String,
     val version: String,
     val logoUrl: String? = null,
+    /** The `background` image some manifests ship for their card, resolved against the manifest. */
+    val backgroundUrl: String? = null,
     val resources: List<AddonResource>,
     val types: List<String>,
     val idPrefixes: List<String> = emptyList(),
     val catalogs: List<AddonCatalog> = emptyList(),
     val behaviorHints: AddonBehaviorHints = AddonBehaviorHints(),
     val transportUrl: String,
+    /** Catalogs of other add-ons this source can list, from the `addon_catalog` resource. */
+    val addonCatalogs: List<AddonCatalogRef> = emptyList(),
+    /** Inputs a source declares so it can be configured without opening its website. */
+    val configFields: List<AddonConfigField> = emptyList(),
 )
+
+/** One entry of the manifest's `addonCatalogs`: an add-on directory this source serves. */
+data class AddonCatalogRef(
+    val type: String,
+    val id: String,
+    val name: String,
+)
+
+/**
+ * A field from the manifest's `config` array. Stremio's newer manifests use it to describe the
+ * settings a source needs; the app can then build the configured manifest URL itself.
+ */
+data class AddonConfigField(
+    val key: String,
+    val type: String? = null,
+    val title: String? = null,
+    val description: String? = null,
+    val default: String? = null,
+    val options: List<String> = emptyList(),
+    val required: Boolean = false,
+) {
+    val isChoice: Boolean
+        get() = options.isNotEmpty()
+}
+
+/** True when this source serves a directory of other add-ons through `addon_catalog`. */
+fun AddonManifest.servesAddonDirectory(): Boolean =
+    addonCatalogs.isNotEmpty() &&
+        resources.any { resource -> resource.name.equals("addon_catalog", ignoreCase = true) }
 
 data class AddonResource(
     val name: String,

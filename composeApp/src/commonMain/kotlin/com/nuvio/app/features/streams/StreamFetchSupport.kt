@@ -2,12 +2,14 @@ package com.nuvio.app.features.streams
 
 import com.nuvio.app.features.addons.AddonManifest
 import com.nuvio.app.features.addons.ManagedAddon
+import com.nuvio.app.features.addons.fetchAddonResponseText
 import com.nuvio.app.features.plugins.PluginRepositoryItem
 import com.nuvio.app.features.plugins.PluginRuntimeResult
 import com.nuvio.app.features.plugins.PluginScraper
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.streams_plugin_repository_fallback
@@ -15,6 +17,32 @@ import org.jetbrains.compose.resources.getString
 
 /** Upper bound on how many stream sources are being fetched at the same time. */
 internal val streamSourceFetchSemaphore = Semaphore(8)
+
+/**
+ * How long one source may take to answer a stream request.
+ *
+ * The HTTP client waits 60 seconds and retries transient failures, which is right for a manifest
+ * that may still arrive but wrong here: a scraper that needs more than fifteen seconds almost never
+ * returns a playable link, and while it holds a fetch slot every source behind it waits. Capping it
+ * is what keeps opening a title bounded instead of creeping towards minutes.
+ */
+internal const val STREAM_SOURCE_TIMEOUT_MS = 15_000L
+
+/** Named so the failure memory records it as a timeout rather than a generic failure. */
+internal class StreamSourceTimeoutException : IllegalStateException("Stream source timed out")
+
+/**
+ * Fetches one source's stream list inside [STREAM_SOURCE_TIMEOUT_MS]. A source that does not answer
+ * in time fails with [StreamSourceTimeoutException], which both frees its slot and is remembered as
+ * a timeout in the add-on failure memory.
+ */
+internal suspend fun fetchStreamSourcePayload(
+    url: String,
+    forceRefresh: Boolean = false,
+): String =
+    withTimeoutOrNull(STREAM_SOURCE_TIMEOUT_MS) {
+        fetchAddonResponseText(url = url, forceRefresh = forceRefresh)
+    } ?: throw StreamSourceTimeoutException()
 
 internal data class InstalledStreamAddonTarget(
     val addonName: String,

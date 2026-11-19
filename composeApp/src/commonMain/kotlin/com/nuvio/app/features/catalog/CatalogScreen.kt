@@ -331,7 +331,7 @@ private fun CatalogPosterTile(
                         coil3.request.ImageRequest.Builder(platformContext)
                             .data(item.poster)
                             .memoryCacheKeyExtras(
-                                mapOf(com.nuvio.app.core.poster.CustomPosterFallbackInterceptor.FALLBACK_URL_KEY to item.rawPosterUrl!!)
+                                mapOf(com.nuvio.app.core.poster.CustomPosterFallbackInterceptor.FALLBACK_URL_KEY to item.rawPosterUrl.orEmpty())
                             )
                             .build()
                     } else {

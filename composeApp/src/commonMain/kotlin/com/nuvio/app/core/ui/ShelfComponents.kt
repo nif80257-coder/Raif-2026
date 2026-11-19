@@ -188,7 +188,7 @@ fun NuvioPosterCard(
                         coil3.request.ImageRequest.Builder(platformContext)
                             .data(imageUrl)
                             .memoryCacheKeyExtras(
-                                mapOf(com.nuvio.app.core.poster.CustomPosterFallbackInterceptor.FALLBACK_URL_KEY to fallbackImageUrl!!)
+                                mapOf(com.nuvio.app.core.poster.CustomPosterFallbackInterceptor.FALLBACK_URL_KEY to fallbackImageUrl.orEmpty())
                             )
                             .build()
                     } else {

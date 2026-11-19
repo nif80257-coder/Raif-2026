@@ -51,10 +51,27 @@ data class StreamItem(
     val playableDirectUrl: String?
         get() = directPlaybackUrl?.takeIf { !it.isMagnetLink() && !it.isTorrentSchemeUrl() }
 
+    /**
+     * Where an availability source points: an official service page for the title.
+     *
+     * Only `https` is accepted. A plain `http` page or a non-web scheme would leave the app on an
+     * unverified destination, and the protocol only defines this field as an external webpage.
+     */
     val externalOpenUrl: String?
         get() = externalUrl
             ?.trim()
             ?.takeIf { it.isNotEmpty() && !it.isMagnetLink() && !it.isTorrentSchemeUrl() }
+            ?.takeIf { it.isHttpsUrl() }
+
+    /** The destination's host, shown before the app hands the user to another service. */
+    val externalOpenHost: String?
+        get() = externalOpenUrl
+            ?.removePrefix("https://")
+            ?.substringBefore('/')
+            ?.substringBefore('?')
+            ?.removePrefix("www.")
+            ?.lowercase()
+            ?.takeIf { it.isNotEmpty() }
 
     val shouldOpenExternally: Boolean
         get() = url.isNullOrBlank() &&
@@ -154,6 +171,13 @@ private fun String?.isMagnetLink(): Boolean =
 
 private fun String?.isTorrentSchemeUrl(): Boolean =
     this?.trimStart()?.startsWith("torrent://", ignoreCase = true) == true
+
+/**
+ * An `externalUrl` is handed to the system, which may open any app the page is linked to, so only
+ * `https` is accepted. Anything else is dropped rather than opened on trust.
+ */
+internal fun String?.isHttpsUrl(): Boolean =
+    this?.trimStart()?.startsWith("https://", ignoreCase = true) == true
 
 private fun String?.extractTorrentSchemeInfoHash(): String? {
     val raw = this?.trimStart()?.takeIf { it.isTorrentSchemeUrl() } ?: return null

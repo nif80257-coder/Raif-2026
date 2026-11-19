@@ -92,14 +92,6 @@
         },
         {
             "type": "addon",
-            "name": "Orion",
-            "url": "https://5a0d1888fa64-orion.baby-beamup.club/eyJhcGkiOiJMRUo4S0ZKN01KRUc3V0c4MktQUkZHTUs5SFFERlRIQyIsImxpbmtMaW1pdCI6IjEwIiwic29ydFZhbHVlIjoiYmVzdCIsImF1ZGlvY2hhbm5lbHMiOiIxLDIsNiw4IiwidmlkZW9xdWFsaXR5IjoiaGQ0ayxoZDEwODAsaGQ3MjAsc2QiLCJsaXN0T3B0IjoidG9ycmVudCIsImRlYnJpZHNlcnZpY2VzIjpbXSwiYXVkaW9sYW5ndWFnZXMiOltdLCJhZGRpdGlvbmFsUGFyYW1ldGVycyI6IiJ9/manifest.json",
-            "enabled": true,
-            "order": 11,
-            "transport": "direct"
-        },
-        {
-            "type": "addon",
             "name": "Absolute Cinema",
             "url": "https://cinema.debrid.in/sort=qualityseeders|limit=200|subtitleLanguages=ar|salanguages=ta,te,ml,kn,hi,gu|asiandrama=0|extraanime=0|minseeders=0|maxsize=0|streamingservices=netflix,prime,disney,hulu,max,apple,peacock,paramount|sacatalogs=0|bollywood=0|marvelcatalog=1|dccatalog=1|animecatalogs=0|anilistcatalogs=0|airingweek=1|advisories=1|horrorcatalogs=0|seedrlinks=25|uncachedlimit=10|subf2m=1|yify=1|profile=970d9cd3af6706d88733fe7ff57d3dbf|mode=mixed|httpsources=4khdhub,moviebox,vixsrc,be-vidsrc,be-rgshows,archiveorg,archiveorgdub|top10=1|yearpickers=1|curated=hidden,short,digital,awards,tonight/manifest.json",
             "enabled": true,

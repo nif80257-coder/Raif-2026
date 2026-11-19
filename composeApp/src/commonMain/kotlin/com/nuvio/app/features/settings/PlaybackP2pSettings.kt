@@ -94,7 +94,7 @@ internal fun PlaybackP2pSettings(
                             stringResource(Res.string.settings_p2p_clear_cache_failed)
                         p2pCacheClearResult != null -> stringResource(
                             Res.string.settings_p2p_clear_cache_done,
-                            formatP2pCacheBytes(p2pCacheClearResult!!.reclaimedBytes),
+                            formatP2pCacheBytes(p2pCacheClearResult?.reclaimedBytes ?: 0L),
                         )
                         !p2pCacheState.hasMeasurement ->
                             stringResource(Res.string.settings_p2p_clear_cache_usage_pending)

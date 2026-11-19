@@ -35,6 +35,9 @@ import com.nuvio.app.features.streams.supportsStream
 import com.nuvio.app.features.streams.toEmptyStateReason
 import com.nuvio.app.features.streams.toPluginProviderGroups
 import com.nuvio.app.features.streams.toStreamItem
+import com.nuvio.app.features.streams.AddonSpeedMemory
+import com.nuvio.app.features.streams.orderedByRecordedSpeed
+import com.nuvio.app.features.streams.fetchStreamSourcePayload
 import com.nuvio.app.features.streams.streamSourceFetchSemaphore
 import com.nuvio.app.features.streams.deduplicatedAcrossSources
 import kotlinx.coroutines.CoroutineScope
@@ -47,6 +50,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlin.time.TimeSource
 import kotlinx.coroutines.sync.withPermit
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
@@ -287,6 +291,11 @@ object PlayerStreamsRepository {
                     manifest = manifest,
                 )
             }
+            // Measured-fast sources are queued first, so the panel fills with playable streams
+            // before the slow scrapers have answered.
+            .orderedByRecordedSpeed(
+                AddonSpeedMemory.speedByManifestUrl(ProfileRepository.activeProfileId),
+            )
 
         if (streamAddons.isEmpty() && pluginProviderGroups.isEmpty() && serverSources.isEmpty()) {
             stateFlow.value = StreamsUiState(
@@ -453,29 +462,41 @@ object PlayerStreamsRepository {
                     )
 
                     val displayName = addon.addonName
+                    var sourceElapsedMs = 0L
                     val outcome = streamSourceFetchSemaphore.withPermit {
-                        runCatchingUnlessCancelled {
-                            val payload = fetchAddonResponseText(
-                                url = url,
-                                forceRefresh = forceRefresh,
-                            )
-                            StreamResponseCache.save(
-                                profileId = streamCacheProfileId,
-                                contentKey = streamContentKey,
-                                addonId = addon.addonId,
-                                payload = payload,
-                            )
-                            StreamParser.parse(
-                                payload = payload,
-                                addonName = displayName,
-                                addonId = addon.addonId,
-                                addonLogo = addon.manifest.logoUrl,
-                            )
+                        val requestStartedAt = TimeSource.Monotonic.markNow()
+                        try {
+                            runCatchingUnlessCancelled {
+                                val payload = fetchStreamSourcePayload(
+                                    url = url,
+                                    forceRefresh = forceRefresh,
+                                )
+                                StreamResponseCache.save(
+                                    profileId = streamCacheProfileId,
+                                    contentKey = streamContentKey,
+                                    addonId = addon.addonId,
+                                    payload = payload,
+                                )
+                                StreamParser.parse(
+                                    payload = payload,
+                                    addonName = displayName,
+                                    addonId = addon.addonId,
+                                    addonLogo = addon.manifest.logoUrl,
+                                )
+                            }
+                        } finally {
+                            sourceElapsedMs = requestStartedAt.elapsedNow().inWholeMilliseconds
                         }
                     }
                     if (outcome.isSuccess) {
+                        AddonSpeedMemory.recordSuccess(
+                            profileId = streamCacheProfileId,
+                            manifestUrl = addon.manifestUrl,
+                            elapsedMs = sourceElapsedMs,
+                        )
                         AddonFailureMemory.recordSuccess(addon.manifestUrl)
                     } else {
+                        AddonSpeedMemory.recordFailure(streamCacheProfileId, addon.manifestUrl)
                         AddonFailureMemory.recordFailure(addon.manifestUrl, outcome.exceptionOrNull())
                     }
                     val group = outcome.fold(

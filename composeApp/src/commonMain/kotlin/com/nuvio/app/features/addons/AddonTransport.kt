@@ -13,6 +13,12 @@ internal enum class AddonTransport {
     /** Direct HTTP links. */
     Direct,
 
+    /**
+     * Availability sources: instead of a media file they answer with the official page of a
+     * service that carries the title. Opening one leaves the app, so they are listed apart.
+     */
+    Official,
+
     /** No stream resource: catalogs, metadata or subtitles only. */
     Catalog,
 }
@@ -37,15 +43,26 @@ internal val TorrentSourceHosts: List<String> = listOf(
     "stremio.yukistreams.xyz",
 )
 
+/**
+ * Sources that answer with where a title can be watched officially rather than with a file.
+ *
+ * They are normal stream add-ons under the protocol: every result carries `externalUrl` and no
+ * playable link, so opening one hands the user to a subscription service.
+ */
+internal val OfficialSourceHosts: List<String> = listOf(
+    "watchhub.strem.io",
+    "official-sources",
+)
+
 internal fun ManagedAddon.transport(): AddonTransport {
     val resourceNames = manifest?.resources?.map { resource -> resource.name }?.toSet()
     if (resourceNames != null && "stream" !in resourceNames) {
         return AddonTransport.Catalog
     }
     val host = manifestUrl.substringAfter("://", manifestUrl).substringBefore('/')
-    return if (TorrentSourceHosts.any { host.contains(it, ignoreCase = true) }) {
-        AddonTransport.Torrent
-    } else {
-        AddonTransport.Direct
+    return when {
+        TorrentSourceHosts.any { host.contains(it, ignoreCase = true) } -> AddonTransport.Torrent
+        OfficialSourceHosts.any { host.contains(it, ignoreCase = true) } -> AddonTransport.Official
+        else -> AddonTransport.Direct
     }
 }

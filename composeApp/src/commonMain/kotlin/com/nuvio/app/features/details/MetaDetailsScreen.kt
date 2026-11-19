@@ -79,6 +79,7 @@ import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.build.TrailerPlaybackMode
 import com.nuvio.app.core.deeplink.buildMetaDeepLinkUrl
 import com.nuvio.app.core.share.PlatformShare
+import com.nuvio.app.features.home.ContentFilterRepository
 import com.nuvio.app.features.party.PartyMedia
 import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.NetworkStatusRepository
@@ -1200,6 +1201,18 @@ fun MetaDetailsScreen(
                                                                 buildMetaDeepLinkUrl(meta.type, meta.id),
                                                                 subject = meta.name,
                                                             )
+                                                        },
+                                                        onHideClick = {
+                                                            // Hiding is a per-profile preference; leaving the
+                                                            // screen shows the result at once.
+                                                            ContentFilterRepository.setHidden(
+                                                                profileId = ProfileRepository.activeProfileId,
+                                                                type = meta.type,
+                                                                id = meta.id,
+                                                                hidden = true,
+                                                            )
+                                                            ContentFilterRepository.notifyChanged()
+                                                            onBack()
                                                         },
                                                     )
                                                 }
@@ -2391,6 +2404,15 @@ private fun ConfiguredMetaSections(
                                 buildMetaDeepLinkUrl(meta.type, meta.id),
                                 subject = meta.name,
                             )
+                        },
+                        onHideClick = {
+                            ContentFilterRepository.setHidden(
+                                profileId = ProfileRepository.activeProfileId,
+                                type = meta.type,
+                                id = meta.id,
+                                hidden = true,
+                            )
+                            ContentFilterRepository.notifyChanged()
                         },
                         onWatchPartyClick = onWatchPartyClick?.let { openParty ->
                             {

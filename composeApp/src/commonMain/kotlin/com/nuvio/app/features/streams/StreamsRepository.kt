@@ -34,6 +34,7 @@ import kotlinx.coroutines.sync.withPermit
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
 import kotlinx.coroutines.launch
+import kotlin.time.TimeSource
 
 object StreamsRepository {
     private val log = Logger.withTag("StreamsRepo")
@@ -213,6 +214,11 @@ object StreamsRepository {
                     manifest = manifest,
                 )
             }
+            // The measured-fast sources take the first fetch slots, so real streams reach the
+            // sheet in a second or two instead of waiting behind the slowest scrapers.
+            .orderedByRecordedSpeed(
+                AddonSpeedMemory.speedByManifestUrl(ProfileRepository.activeProfileId),
+            )
 
         /**
          * The quality the user settled on for this source last time. When a source
@@ -538,29 +544,41 @@ object StreamsRepository {
                     log.d { "Fetching streams from: $url" }
 
                     val displayName = addon.addonName
+                    var sourceElapsedMs = 0L
                     val outcome = streamSourceFetchSemaphore.withPermit {
-                        runCatchingUnlessCancelled {
-                            val payload = fetchAddonResponseText(
-                                url = url,
-                                forceRefresh = forceRefresh,
-                            )
-                            StreamResponseCache.save(
-                                profileId = streamCacheProfileId,
-                                contentKey = streamContentKey,
-                                addonId = addon.addonId,
-                                payload = payload,
-                            )
-                            StreamParser.parse(
-                                payload = payload,
-                                addonName = displayName,
-                                addonId = addon.addonId,
-                                addonLogo = addon.manifest.logoUrl,
-                            )
+                        val requestStartedAt = TimeSource.Monotonic.markNow()
+                        try {
+                            runCatchingUnlessCancelled {
+                                val payload = fetchStreamSourcePayload(
+                                    url = url,
+                                    forceRefresh = forceRefresh,
+                                )
+                                StreamResponseCache.save(
+                                    profileId = streamCacheProfileId,
+                                    contentKey = streamContentKey,
+                                    addonId = addon.addonId,
+                                    payload = payload,
+                                )
+                                StreamParser.parse(
+                                    payload = payload,
+                                    addonName = displayName,
+                                    addonId = addon.addonId,
+                                    addonLogo = addon.manifest.logoUrl,
+                                )
+                            }
+                        } finally {
+                            sourceElapsedMs = requestStartedAt.elapsedNow().inWholeMilliseconds
                         }
                     }
                     if (outcome.isSuccess) {
+                        AddonSpeedMemory.recordSuccess(
+                            profileId = streamCacheProfileId,
+                            manifestUrl = addon.manifestUrl,
+                            elapsedMs = sourceElapsedMs,
+                        )
                         AddonFailureMemory.recordSuccess(addon.manifestUrl)
                     } else {
+                        AddonSpeedMemory.recordFailure(streamCacheProfileId, addon.manifestUrl)
                         AddonFailureMemory.recordFailure(addon.manifestUrl, outcome.exceptionOrNull())
                     }
                     val group = outcome.fold(

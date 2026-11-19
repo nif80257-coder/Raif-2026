@@ -59,7 +59,7 @@ internal object MetaDetailsParser {
             links = links,
             seasonPosters = meta.seasonPosters(videos),
             videos = videos,
-        )
+        ).withMetahubArtwork()
     }
 
     private fun JsonObject.requiredString(name: String): String =

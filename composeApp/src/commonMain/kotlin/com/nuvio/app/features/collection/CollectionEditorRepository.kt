@@ -624,10 +624,13 @@ object CollectionEditorRepository {
             it.tmdbId != null && it.tmdbType() in coverMetadataSourceTypes
         }
         if (metadataSource != null) {
+            val metadataId = metadataSource.tmdbId
             scope.launch {
                 val sourceType = metadataSource.tmdbType()
-                val metadata = runCatching { TmdbCollectionSourceResolver.importMetadata(sourceType, metadataSource.tmdbId!!) }
-                addTmdbSources(sources, metadata.getOrNull()?.coverImageUrl)
+                val metadata = metadataId?.let { id ->
+                    runCatching { TmdbCollectionSourceResolver.importMetadata(sourceType, id) }
+                }
+                addTmdbSources(sources, metadata?.getOrNull()?.coverImageUrl)
             }
             return
         }
@@ -683,7 +686,8 @@ object CollectionEditorRepository {
                 )
             }
             if (sourceType == TmdbCollectionSourceType.LIST || sourceType == TmdbCollectionSourceType.COLLECTION) {
-                val metadata = runCatching { TmdbCollectionSourceResolver.importMetadata(sourceType, id!!) }
+                val sourceId = id ?: return@launch
+                val metadata = runCatching { TmdbCollectionSourceResolver.importMetadata(sourceType, sourceId) }
                 val resolved = metadata.getOrNull()
                 if (metadata.isFailure) {
                     _uiState.value = _uiState.value.copy(

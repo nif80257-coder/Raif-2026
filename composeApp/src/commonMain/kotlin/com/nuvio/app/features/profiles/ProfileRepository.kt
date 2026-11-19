@@ -10,6 +10,7 @@ import com.nuvio.app.core.poster.CustomPosterUrlRepository
 import com.nuvio.app.core.sync.ProfileSettingsSync
 import com.nuvio.app.core.sync.putSyncOriginClientId
 import com.nuvio.app.core.tracking.ensureTrackingProvidersRegistered
+import com.nuvio.app.features.streams.AddonSpeedMemory
 import com.nuvio.app.features.addons.AddonPauseExceptions
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.collection.CollectionMobileSettingsRepository
@@ -144,8 +145,9 @@ object ProfileRepository {
                 activeProfile = profiles.find { it.profileIndex == activeProfileIndex }
                     ?: profiles.firstOrNull(),
             )
-            if (_state.value.activeProfile != null) {
-                activeProfileIndex = _state.value.activeProfile!!.profileIndex
+            val active = _state.value.activeProfile
+            if (active != null) {
+                activeProfileIndex = active.profileIndex
             }
             persist()
         } catch (e: Throwable) {
@@ -299,6 +301,8 @@ object ProfileRepository {
         // The exceptions belong to the profile's own add-on list; a profile that comes back with
         // the same index must not inherit pauses it never asked for.
         AddonPauseExceptions.clear(profileIndex)
+        // The measured source speeds belong to the profile's own add-on list as well.
+        AddonSpeedMemory.clear(profileIndex)
         if (AuthRepository.state.value.isAnonymous || !ServerConfigurationRepository.active.value.isCustom) {
             val remaining = _state.value.profiles.filter { it.profileIndex != profileIndex }
             ProfilePinCacheStorage.removePayload(profileIndex)
@@ -307,8 +311,9 @@ object ProfileRepository {
                 profiles = remaining,
                 activeProfile = if (_state.value.activeProfile?.profileIndex == profileIndex) remaining.firstOrNull() else _state.value.activeProfile,
             )
-            if (_state.value.activeProfile != null) {
-                activeProfileIndex = _state.value.activeProfile!!.profileIndex
+            val active = _state.value.activeProfile
+            if (active != null) {
+                activeProfileIndex = active.profileIndex
             }
             persist()
             return
@@ -492,8 +497,9 @@ object ProfileRepository {
             isLoaded = true,
             activeProfile = profiles.find { it.profileIndex == activeProfileIndex } ?: profiles.firstOrNull(),
         )
-        if (_state.value.activeProfile != null) {
-            activeProfileIndex = _state.value.activeProfile!!.profileIndex
+        val active = _state.value.activeProfile
+        if (active != null) {
+            activeProfileIndex = active.profileIndex
         }
         syncPinCache(profiles)
         persist()

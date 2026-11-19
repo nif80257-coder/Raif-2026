@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.CheckCircleOutline
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -49,6 +50,7 @@ import com.nuvio.app.core.ui.AppIconResource
 import com.nuvio.app.core.ui.appIconPainter
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_play
+import nuvio.composeapp.generated.resources.details_action_hide
 import nuvio.composeapp.generated.resources.details_action_share
 import nuvio.composeapp.generated.resources.details_actions_menu_label
 import nuvio.composeapp.generated.resources.hero_add_to_library
@@ -262,6 +264,7 @@ fun DetailActions(
     onSaveLongClick: (() -> Unit)?,
     onShareClick: (() -> Unit)? = null,
     onWatchPartyClick: (() -> Unit)? = null,
+    onHideClick: (() -> Unit)? = null,
 ) {
     val shuffleAction = onShuffleClick?.let { onClick ->
         DetailSecondaryAction(
@@ -308,6 +311,15 @@ fun DetailActions(
                     DetailSecondaryAction(
                         label = stringResource(Res.string.party_title),
                         icon = Icons.Rounded.Groups,
+                        onClick = onClick,
+                    ),
+                )
+            }
+            onHideClick?.let { onClick ->
+                add(
+                    DetailSecondaryAction(
+                        label = stringResource(Res.string.details_action_hide),
+                        icon = Icons.Default.VisibilityOff,
                         onClick = onClick,
                     ),
                 )

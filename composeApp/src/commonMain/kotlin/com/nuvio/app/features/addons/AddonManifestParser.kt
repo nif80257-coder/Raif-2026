@@ -32,14 +32,45 @@ internal object AddonManifestParser {
             description = root.optionalString("description").orEmpty(),
             version = root.requiredString("version"),
             logoUrl = root.optionalString("logo")?.resolveAgainstManifest(manifestUrl),
+            backgroundUrl = root.optionalString("background")?.resolveAgainstManifest(manifestUrl),
             resources = root.resources(defaultTypes, defaultPrefixes),
             types = defaultTypes,
             idPrefixes = defaultPrefixes,
             catalogs = root.catalogs(),
             behaviorHints = root.behaviorHints(),
             transportUrl = manifestUrl,
+            addonCatalogs = root.addonCatalogs(),
+            configFields = root.configFields(),
         )
     }
+
+    /** The `addonCatalogs` array: `{type, id, name}` entries the source serves a directory for. */
+    private fun JsonObject.addonCatalogs(): List<AddonCatalogRef> =
+        array("addonCatalogs").mapNotNull { element ->
+            val entry = element as? JsonObject ?: return@mapNotNull null
+            val id = entry.optionalString("id")?.takeIf(String::isNotBlank) ?: return@mapNotNull null
+            AddonCatalogRef(
+                type = entry.optionalString("type")?.takeIf(String::isNotBlank) ?: "all",
+                id = id,
+                name = entry.optionalString("name")?.takeIf(String::isNotBlank) ?: id,
+            )
+        }
+
+    /** The optional `config` array used by manifests that describe their own settings form. */
+    private fun JsonObject.configFields(): List<AddonConfigField> =
+        array("config").mapNotNull { element ->
+            val field = element as? JsonObject ?: return@mapNotNull null
+            val key = field.optionalString("key")?.takeIf(String::isNotBlank) ?: return@mapNotNull null
+            AddonConfigField(
+                key = key,
+                type = field.optionalString("type")?.takeIf(String::isNotBlank),
+                title = field.optionalString("title")?.takeIf(String::isNotBlank),
+                description = field.optionalString("description")?.takeIf(String::isNotBlank),
+                default = field.optionalString("default"),
+                options = field.stringList("options"),
+                required = field.boolean("required"),
+            )
+        }
 
     private fun JsonObject.resources(
         defaultTypes: List<String>,

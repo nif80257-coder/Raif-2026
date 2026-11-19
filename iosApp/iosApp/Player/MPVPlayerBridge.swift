@@ -560,6 +560,18 @@ final class MPVPlayerViewController: UIViewController {
         checkError(mpv_set_option_string(mpv, "tone-mapping", "auto"))
         checkError(mpv_set_option_string(mpv, "hdr-compute-peak", "yes"))
 
+        // Network playback. mpv's defaults are tuned for a LAN or a disk: a ten second read-ahead
+        // before it settles and a sixty second patience per connection. On a phone the read-ahead
+        // is most of the wait between tapping a source and seeing the first frame, and the long
+        // patience makes a host that stopped answering feel like a hang.
+        checkError(mpv_set_option_string(mpv, "cache", "yes"))
+        checkError(mpv_set_option_string(mpv, "cache-secs", "4"))
+        checkError(mpv_set_option_string(mpv, "demuxer-readahead-secs", "2"))
+        checkError(mpv_set_option_string(mpv, "demuxer-max-bytes", "64MiB"))
+        checkError(mpv_set_option_string(mpv, "demuxer-max-back-bytes", "16MiB"))
+        checkError(mpv_set_option_string(mpv, "network-timeout", "15"))
+
+
         checkError(mpv_initialize(mpv))
         applyAudioLanguagePreferences(preferredAudioLanguages)
 

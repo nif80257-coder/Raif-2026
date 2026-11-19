@@ -53,6 +53,16 @@ class AddonTransportTest {
     }
 
     @Test
+    fun `an availability host lands in the official group`() {
+        val addon = ManagedAddon(
+            manifestUrl = "https://watchhub.strem.io/manifest.json",
+            manifest = manifest("stream"),
+        )
+
+        assertEquals(AddonTransport.Official, addon.transport())
+    }
+
+    @Test
     fun `an add-on that never loaded and is not a torrent host is treated as direct`() {
         val addon = ManagedAddon(manifestUrl = "https://unknown.example/manifest.json")
 

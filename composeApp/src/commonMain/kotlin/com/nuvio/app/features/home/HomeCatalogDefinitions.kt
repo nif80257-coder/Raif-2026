@@ -10,6 +10,7 @@ import com.nuvio.app.features.servers.ServerCatalog
 import kotlinx.coroutines.runBlocking
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.home_catalog_default_title
+import nuvio.composeapp.generated.resources.home_catalog_free_and_legal
 import org.jetbrains.compose.resources.getString
 
 data class HomeCatalogDefinition(
@@ -66,6 +67,9 @@ fun buildHomeCatalogDefinitions(addons: List<ManagedAddon>): List<HomeCatalogDef
         manifest.catalogs
             .filter { catalog -> catalog.extra.none { it.isRequired } }
             .map { catalog ->
+                // The public-domain source is the app's one shelf that needs no key and carries no
+                // rights risk, so its catalogs say so instead of looking like any other source.
+                val isFreeAndLegal = manifest.transportUrl.contains("publicdomainmovies", ignoreCase = true)
                 HomeCatalogDefinition(
                     key = "${manifest.id}:${catalog.type}:${catalog.id}",
                     defaultTitle = runBlocking {
@@ -75,7 +79,13 @@ fun buildHomeCatalogDefinitions(addons: List<ManagedAddon>): List<HomeCatalogDef
                             localizedMediaTypeLabel(catalog.type),
                         )
                     },
-                    catalogName = catalog.name,
+                    catalogName = if (isFreeAndLegal) {
+                        runBlocking {
+                            getString(Res.string.home_catalog_free_and_legal, catalog.name)
+                        }
+                    } else {
+                        catalog.name
+                    },
                     addonName = addon.displayTitle,
                     manifestUrl = addon.manifestUrl,
                     type = catalog.type,
@@ -141,6 +151,17 @@ private class CatalogDescriptorSignature {
         add(manifest.behaviorHints.configurationRequired)
         add(manifest.behaviorHints.adult)
         add(manifest.behaviorHints.p2p)
+        manifest.addonCatalogs.forEach { catalog ->
+            add(catalog.type)
+            add(catalog.id)
+            add(catalog.name)
+        }
+        manifest.configFields.forEach { field ->
+            add(field.key)
+            add(field.type)
+            add(field.default)
+            add(field.options.size)
+        }
     }
 
     fun addCatalog(catalog: AddonCatalog) {

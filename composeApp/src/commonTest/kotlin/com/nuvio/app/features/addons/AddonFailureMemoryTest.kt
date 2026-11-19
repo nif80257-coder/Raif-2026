@@ -1,5 +1,6 @@
 package com.nuvio.app.features.addons
 
+import com.nuvio.app.features.streams.StreamSourceTimeoutException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -127,6 +128,8 @@ class AddonFailureMemoryTest {
     @Test
     fun `a request that waited out its timeout is reported as a timeout`() {
         assertEquals(AddonFailureReason.Timeout, addonFailureReason(SocketTimeoutException()))
+        // The stream fetch cap aborts a slow source with its own exception; it is a timeout too.
+        assertEquals(AddonFailureReason.Timeout, addonFailureReason(StreamSourceTimeoutException()))
         assertEquals(AddonFailureReason.Other, addonFailureReason(IllegalStateException("bad json")))
         assertEquals(AddonFailureReason.Other, addonFailureReason(null))
     }

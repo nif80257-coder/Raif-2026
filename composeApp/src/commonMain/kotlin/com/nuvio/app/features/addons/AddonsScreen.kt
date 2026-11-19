@@ -1,5 +1,6 @@
 package com.nuvio.app.features.addons
 
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
@@ -43,10 +45,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -61,8 +67,11 @@ import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioSectionLabel
 import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.NuvioSurfaceCard
+import com.nuvio.app.features.home.ContentFilterRepository
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.settings.SourcesTransferDialog
+import com.nuvio.app.features.streams.AddonSpeedMemory
+import com.nuvio.app.features.streams.formatSourceSpeedSeconds
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
@@ -106,6 +115,9 @@ internal fun AddonsSettingsPageContent(
     val enterAddonUrlMessage = stringResource(Res.string.addons_error_enter_url)
     val usePersonalMediaCopy = AppFeaturePolicy.personalMediaAddonCopyEnabled
     var sourcesTransferVisible by rememberSaveable { mutableStateOf(false) }
+    var addonReviewVisible by rememberSaveable { mutableStateOf(false) }
+    var addonDirectoryVisible by rememberSaveable { mutableStateOf(false) }
+    var configTarget by remember { mutableStateOf<ManagedAddon?>(null) }
 
     val overview = remember(uiState.addons) { uiState.addons.toOverview() }
 
@@ -116,12 +128,14 @@ internal fun AddonsSettingsPageContent(
     LaunchedEffect(pausedSourcesRefreshToken, uiState.addons.size) {
         // One storage read for both the paused set and the per-source streaks.
         val failures = AddonFailureMemory.snapshot()
+        val profileId = ProfileRepository.activeProfileId
         health = AddonsHealthUiState(
             pausedManifestUrls = failures.pausedManifestUrls,
-            neverPausedManifestUrls =
-                AddonPauseExceptions.neverPausedManifestUrls(ProfileRepository.activeProfileId),
+            neverPausedManifestUrls = AddonPauseExceptions.neverPausedManifestUrls(profileId),
             failureStreaks = failures.failureStreaks,
             failureReasons = failures.failureReasons,
+            sourceSpeeds = AddonSpeedMemory.speedByManifestUrl(profileId)
+                .mapValues { (_, ms) -> formatSourceSpeedSeconds(ms) },
         )
     }
 
@@ -169,6 +183,28 @@ internal fun AddonsSettingsPageContent(
             )
         }
 
+        SectionHeader(stringResource(Res.string.addon_review_title))
+        Button(
+            onClick = { addonReviewVisible = true },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                text = stringResource(Res.string.addon_review_button),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Text(
+            text = stringResource(Res.string.addon_review_button_subtitle),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        SectionHeader(stringResource(Res.string.addons_group_filters))
+        ContentFiltersCard(
+            profileId = ProfileRepository.activeProfileId,
+        )
+
         SectionHeader(stringResource(Res.string.addons_section_add_addon))
         AddAddonCard(
             addonUrl = addonUrl,
@@ -202,6 +238,23 @@ internal fun AddonsSettingsPageContent(
                 }
             },
         )
+
+        // Only a source that declares `addon_catalog` can be browsed; the rest install by URL.
+        val directorySources = remember(uiState.addons) {
+            uiState.addons.filter { addon ->
+                addon.enabled && addon.manifest?.servesAddonDirectory() == true
+            }
+        }
+        if (directorySources.isNotEmpty()) {
+            SectionHeader(stringResource(Res.string.addons_directory_section))
+            AddonDirectorySourcesCard(
+                sources = directorySources,
+                onDirectoryClick = { manifestUrl, catalog ->
+                    AddonDirectoryRepository.open(manifestUrl, catalog)
+                    addonDirectoryVisible = true
+                },
+            )
+        }
 
         SectionHeader(stringResource(Res.string.addons_section_installed))
         if (uiState.addons.isEmpty()) {
@@ -239,6 +292,7 @@ internal fun AddonsSettingsPageContent(
                         when (transport) {
                             AddonTransport.Torrent -> stringResource(Res.string.addons_group_torrent)
                             AddonTransport.Direct -> stringResource(Res.string.addons_group_direct)
+                            AddonTransport.Official -> stringResource(Res.string.addons_group_official)
                             AddonTransport.Catalog -> stringResource(Res.string.addons_group_catalog)
                         },
                     )
@@ -247,13 +301,17 @@ internal fun AddonsSettingsPageContent(
                 val index = indexByManifestUrl[addon.manifestUrl] ?: -1
                 val manifest = addon.manifest
                 val behaviorHints = manifest?.behaviorHints
-                val showConfigureAction = behaviorHints?.configurable == true || behaviorHints?.configurationRequired == true
+                val configFields = manifest?.configFields.orEmpty()
+                val showConfigureAction = configFields.isNotEmpty() ||
+                    behaviorHints?.configurable == true ||
+                    behaviorHints?.configurationRequired == true
                 val configureUrl = addon.manifestUrl.toConfigureUrl()
                 InstalledAddonCard(
                     addon = addon,
                     isPaused = addon.manifestUrl in health.pausedManifestUrls,
                     failureStreak = health.failureStreaks[addon.manifestUrl] ?: 0,
                     failureReason = health.failureReasons[addon.manifestUrl],
+                    measuredSpeed = health.sourceSpeeds[addon.manifestUrl],
                     isNeverPaused = addon.manifestUrl in health.neverPausedManifestUrls,
                     onToggleNeverPaused = {
                         AddonPauseExceptions.setNeverPaused(
@@ -283,6 +341,12 @@ internal fun AddonsSettingsPageContent(
                     } else {
                         null
                     },
+                    onDragStep = { step ->
+                        val target = index + step
+                        if (index >= 0 && target in uiState.addons.indices) {
+                            AddonRepository.moveAddon(index, target)
+                        }
+                    },
                     onRefreshClick = {
                         AddonRepository.refreshAddon(
                             manifestUrl = addon.manifestUrl,
@@ -292,14 +356,20 @@ internal fun AddonsSettingsPageContent(
                     onEnabledChange = { enabled ->
                         AddonRepository.setAddonEnabled(addon.manifestUrl, enabled)
                     },
-                    onConfigureClick = if (showConfigureAction && !configureUrl.isNullOrBlank()) {
-                        {
-                            runCatching {
-                                uriHandler.openUri(configureUrl)
+                    onConfigureClick = when {
+                        configFields.isNotEmpty() -> {
+                            { configTarget = addon }
+                        }
+
+                        showConfigureAction && !configureUrl.isNullOrBlank() -> {
+                            {
+                                runCatching {
+                                    uriHandler.openUri(configureUrl)
+                                }
                             }
                         }
-                    } else {
-                        null
+
+                        else -> null
                     },
                     onDeleteClick = { addonPendingDeletionUrl = addon.manifestUrl },
                 )
@@ -310,6 +380,32 @@ internal fun AddonsSettingsPageContent(
     val pendingDeletionUrl = addonPendingDeletionUrl
     if (sourcesTransferVisible) {
         SourcesTransferDialog(onDismiss = { sourcesTransferVisible = false })
+    }
+    if (addonReviewVisible) {
+        AddonEcosystemReviewDialog(onDismiss = { addonReviewVisible = false })
+    }
+    if (addonDirectoryVisible) {
+        AddonDirectoryDialog(
+            onDismiss = {
+                addonDirectoryVisible = false
+                AddonDirectoryRepository.close()
+            },
+        )
+    }
+    configTarget?.let { target ->
+        AddonConfigDialog(
+            addon = target,
+            onOpenWebsite = target.manifestUrl.toConfigureUrl()
+                ?.takeIf { it.isNotBlank() }
+                ?.let { url ->
+                    {
+                        runCatching {
+                            uriHandler.openUri(url)
+                        }
+                    }
+                },
+            onDismiss = { configTarget = null },
+        )
     }
     if (pendingDeletionUrl != null) {
         NuvioStatusModal(
@@ -365,6 +461,144 @@ internal fun AddonsSettingsPageContent(
 @Composable
 private fun SectionHeader(text: String) {
     NuvioSectionLabel(text = text)
+}
+
+/**
+ * The two content filters, beside the sources they act on: sources that declare themselves adult,
+ * and the titles the user hid one by one.
+ */
+@Composable
+private fun ContentFiltersCard(profileId: Int) {
+    val revision by ContentFilterRepository.revision.collectAsStateWithLifecycle()
+    val hidesAdult = remember(revision, profileId) {
+        ContentFilterRepository.hidesAdultAddons(profileId)
+    }
+    val hiddenCount = remember(revision, profileId) {
+        ContentFilterRepository.hiddenTitleCount(profileId)
+    }
+    var importVisible by remember { mutableStateOf(false) }
+    NuvioSurfaceCard {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(Res.string.addons_filter_hide_adult),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = stringResource(Res.string.addons_filter_hide_adult_description),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Switch(
+                checked = hidesAdult,
+                onCheckedChange = { hide ->
+                    ContentFilterRepository.setHideAdultAddons(profileId, hide)
+                    ContentFilterRepository.notifyChanged()
+                },
+            )
+        }
+        if (hiddenCount > 0) {
+            HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = stringResource(Res.string.addons_hidden_titles_count, hiddenCount),
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TextButton(
+                    onClick = {
+                        ContentFilterRepository.clearHidden(profileId)
+                        ContentFilterRepository.notifyChanged()
+                    },
+                ) {
+                    Text(text = stringResource(Res.string.addons_hidden_titles_clear))
+                }
+            }
+        }
+        HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
+        TextButton(onClick = { importVisible = true }) {
+            Text(text = stringResource(Res.string.addons_hidden_import))
+        }
+    }
+    if (importVisible) {
+        HiddenTitleImportDialog(profileId = profileId, onDismiss = { importVisible = false })
+    }
+}
+
+/** Pastes an exclusion list (`exclude/meta.json`) and hides every title it names. */
+@Composable
+private fun HiddenTitleImportDialog(
+    profileId: Int,
+    onDismiss: () -> Unit,
+) {
+    var payload by remember { mutableStateOf("") }
+    var importedCount by remember { mutableStateOf<Int?>(null) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = stringResource(Res.string.addons_hidden_import_title),
+                style = MaterialTheme.typography.titleLarge,
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = stringResource(Res.string.addons_hidden_import_description),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = payload,
+                    onValueChange = {
+                        payload = it
+                        importedCount = null
+                    },
+                    label = { Text(stringResource(Res.string.addons_hidden_import_field)) },
+                    minLines = 4,
+                    maxLines = 8,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                importedCount?.let { count ->
+                    Text(
+                        text = if (count > 0) {
+                            stringResource(Res.string.addons_hidden_import_added, count)
+                        } else {
+                            stringResource(Res.string.addons_hidden_import_nothing)
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = payload.isNotBlank(),
+                onClick = {
+                    importedCount = ContentFilterRepository.importHiddenTitles(profileId, payload)
+                },
+            ) {
+                Text(text = stringResource(Res.string.addons_hidden_import_action))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(text = stringResource(Res.string.action_close))
+            }
+        },
+    )
 }
 
 @Composable
@@ -508,6 +742,8 @@ private data class AddonsHealthUiState(
     val neverPausedManifestUrls: Set<String> = emptySet(),
     val failureStreaks: Map<String, Int> = emptyMap(),
     val failureReasons: Map<String, AddonFailureReason> = emptyMap(),
+    /** Average stream-request time per manifest URL, already written as seconds. */
+    val sourceSpeeds: Map<String, String> = emptyMap(),
 )
 
 /**
@@ -560,11 +796,13 @@ private fun InstalledAddonCard(
     isPaused: Boolean,
     failureStreak: Int,
     failureReason: AddonFailureReason?,
+    measuredSpeed: String?,
     isNeverPaused: Boolean,
     onToggleNeverPaused: () -> Unit,
     onResumeClick: (() -> Unit)?,
     onMoveUpClick: (() -> Unit)?,
     onMoveDownClick: (() -> Unit)?,
+    onDragStep: (Int) -> Unit,
     onRefreshClick: () -> Unit,
     onEnabledChange: (Boolean) -> Unit,
     onConfigureClick: (() -> Unit)?,
@@ -585,6 +823,35 @@ private fun InstalledAddonCard(
     }
 
     NuvioSurfaceCard {
+        // A manifest may ship a background; it draws as a soft header behind the card's title.
+        manifest?.backgroundUrl?.takeIf { it.isNotBlank() }?.let { background ->
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(92.dp)
+                    .clip(RoundedCornerShape(16.dp)),
+            ) {
+                AsyncImage(
+                    model = background,
+                    contentDescription = null,
+                    modifier = Modifier.matchParentSize(),
+                    contentScale = ContentScale.Crop,
+                )
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                                ),
+                            ),
+                        ),
+                )
+            }
+            Spacer(modifier = Modifier.height(14.dp))
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.Top,
@@ -632,6 +899,34 @@ private fun InstalledAddonCard(
             horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // Long-press and drag this handle to move the source one slot per 72 dp.
+            val dragStepPx = with(LocalDensity.current) { 72.dp.toPx() }
+            var dragAccumulator by remember(addon.manifestUrl) { mutableStateOf(0f) }
+            Icon(
+                imageVector = Icons.Rounded.DragHandle,
+                contentDescription = stringResource(Res.string.addons_drag_handle),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .size(40.dp)
+                    .padding(8.dp)
+                    .pointerInput(addon.manifestUrl) {
+                        detectDragGesturesAfterLongPress(
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                dragAccumulator += dragAmount.y
+                                if (dragAccumulator >= dragStepPx) {
+                                    dragAccumulator = 0f
+                                    onDragStep(1)
+                                } else if (dragAccumulator <= -dragStepPx) {
+                                    dragAccumulator = 0f
+                                    onDragStep(-1)
+                                }
+                            },
+                            onDragEnd = { dragAccumulator = 0f },
+                            onDragCancel = { dragAccumulator = 0f },
+                        )
+                    },
+            )
             onMoveUpClick?.let { onMoveUp ->
                 NuvioIconActionButton(
                     icon = Icons.Rounded.ArrowUpward,
@@ -696,6 +991,9 @@ private fun InstalledAddonCard(
             }
             if (isPaused) {
                 NuvioInfoBadge(text = stringResource(Res.string.addons_badge_paused))
+            }
+            measuredSpeed?.let { speed ->
+                NuvioInfoBadge(text = stringResource(Res.string.addons_badge_speed, speed))
             }
         }
 
@@ -1074,5 +1372,45 @@ private fun SelectableExtraChoice(
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurface,
         )
+    }
+}
+
+/**
+ * The installed sources that serve an add-on directory, each with the directories its manifest
+ * declares. One button per directory opens the list it serves.
+ */
+@Composable
+private fun AddonDirectorySourcesCard(
+    sources: List<ManagedAddon>,
+    onDirectoryClick: (String, AddonCatalogRef) -> Unit,
+) {
+    NuvioSurfaceCard {
+        Text(
+            text = stringResource(Res.string.addons_directory_subtitle),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        sources.forEach { addon ->
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = addon.displayTitle,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            addon.manifest?.addonCatalogs.orEmpty().forEach { catalog ->
+                Spacer(modifier = Modifier.height(6.dp))
+                Button(
+                    onClick = { onDirectoryClick(addon.manifestUrl, catalog) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = catalog.name,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
     }
 }

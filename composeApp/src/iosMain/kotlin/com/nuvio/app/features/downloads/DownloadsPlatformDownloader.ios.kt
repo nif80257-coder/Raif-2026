@@ -83,7 +83,9 @@ internal actual object DownloadsPlatformDownloader {
             val tempPath = "$downloadsDirectory/${request.destinationFileName}.part"
 
             try {
-                DownloadSubtitles.prepare(request.item, NSURL.fileURLWithPath(destinationPath).absoluteString!!)
+                val destinationUri = NSURL.fileURLWithPath(destinationPath).absoluteString
+                    ?: "file://$destinationPath"
+                DownloadSubtitles.prepare(request.item, destinationUri)
                 var resumeFromBytes = fileSizeOrNull(tempPath)?.coerceAtLeast(0L) ?: 0L
 
                 var attemptedRangeRequest = resumeFromBytes > 0L
@@ -166,7 +168,9 @@ internal actual object DownloadsPlatformDownloader {
 
     actual fun removePartialFile(destinationFileName: String): Boolean {
         val destinationPath = "${downloadsDirectoryPath()}/$destinationFileName"
-        DownloadSubtitleStorage(NSURL.fileURLWithPath(destinationPath).absoluteString!!).remove()
+        val fileUri = NSURL.fileURLWithPath(destinationPath).absoluteString
+            ?: "file://$destinationPath"
+        DownloadSubtitleStorage(fileUri).remove()
         return removePathIfExists("$destinationPath.part")
     }
 

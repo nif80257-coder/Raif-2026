@@ -7,14 +7,19 @@ import kotlin.test.assertTrue
 
 class DefaultAddonSourcesTest {
     @Test
-    fun `the shipped list is the checked forty-two`() {
-        assertEquals(42, DefaultAddonSources.size)
-        assertEquals(42, DefaultAddonSources.map { source -> source.manifestUrl }.toSet().size)
+    fun `the shipped list is the checked forty-one`() {
+        assertEquals(41, DefaultAddonSources.size)
+        assertEquals(41, DefaultAddonSources.map { source -> source.manifestUrl }.toSet().size)
     }
 
     @Test
     fun `no retired source is shipped`() {
         assertTrue(DefaultAddonSources.none { source -> isRetiredDefaultAddon(source.manifestUrl) })
+    }
+
+    @Test
+    fun `the orion source with its embedded key is retired`() {
+        assertTrue(isRetiredDefaultAddon("https://5a0d1888fa64-orion.baby-beamup.club/eyJhcGkiOiJMRUo4/manifest.json"))
     }
 
     @Test
