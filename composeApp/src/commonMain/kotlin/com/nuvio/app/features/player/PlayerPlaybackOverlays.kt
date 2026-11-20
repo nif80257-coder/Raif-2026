@@ -48,6 +48,9 @@ internal fun BoxScope.PlayerPlaybackOverlays(
     controlsVisible: Boolean,
     onSkipInterval: (SkipInterval) -> Unit,
     onDismissSkipInterval: () -> Unit,
+    showSubtitleQuickAction: Boolean,
+    subtitleQuickActionLoading: Boolean,
+    onSubtitleQuickAction: () -> Unit,
     sliderEdgePadding: Dp,
     overlayBottomPadding: Dp,
     isSeries: Boolean,
@@ -126,6 +129,17 @@ internal fun BoxScope.PlayerPlaybackOverlays(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .padding(start = sliderEdgePadding, bottom = overlayBottomPadding),
+        )
+    }
+
+    if (!playerControlsLocked) {
+        PlayerSubtitleQuickAction(
+            visible = showSubtitleQuickAction,
+            isLoading = subtitleQuickActionLoading,
+            onClick = onSubtitleQuickAction,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = sliderEdgePadding, bottom = overlayBottomPadding + 56.dp),
         )
     }
 

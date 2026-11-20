@@ -518,6 +518,16 @@ private fun BoxScope.RenderPlaybackOverlays(
     folded: Boolean,
 ) {
     runtime.run {
+        val hasActiveSubtitle = selectedSubtitleIndex >= 0 || selectedAddonSubtitleId != null
+        // Over the video, and only while nothing is chosen: a chip that says there is a way to get
+        // subtitles, shown while the controls are hidden so it never competes with them.
+        val subtitleQuickActionVisible = !playerControlsLocked &&
+            !folded &&
+            initialLoadCompleted &&
+            !pausedOverlayVisible &&
+            !controlsVisible &&
+            !hasActiveSubtitle &&
+            !isUserExplicitSubtitleSelection
         PlayerPlaybackOverlays(
             playerControlsLocked = playerControlsLocked,
             useLegacyLayout = playerSettingsUiState.useLegacyPlayerLayout,
@@ -569,6 +579,16 @@ private fun BoxScope.RenderPlaybackOverlays(
             }
         },
         onDismissSkipInterval = { skipIntervalDismissed = true },
+        showSubtitleQuickAction = subtitleQuickActionVisible,
+        subtitleQuickActionLoading = isLoadingAddonSubtitles,
+        onSubtitleQuickAction = {
+            if (!isLoadingAddonSubtitles && addonSubtitles.isEmpty()) {
+                fetchAddonSubtitlesForActiveItem()
+            }
+            refreshTracks()
+            showSubtitleModal = true
+            controlsVisible = true
+        },
         sliderEdgePadding = sliderEdgePadding,
         overlayBottomPadding = overlayBottomPadding,
         isSeries = isSeries,

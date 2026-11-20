@@ -1505,6 +1505,8 @@
     <string name="player_skip_intro">تخطي المقدمة</string>
     <string name="player_skip_outro">تخطي النهاية</string>
     <string name="player_skip_recap">تخطي الملخص</string>
+    <string name="player_subtitle_fetch">جلب الترجمة</string>
+    <string name="player_subtitle_fetching">جارٍ جلب الترجمة…</string>
     <string name="player_auto_skip_intro_notification">تم تخطي المقدمة إلى %1$s</string>
     <string name="player_auto_skip_recap_notification">تم تخطي الملخص إلى %1$s</string>
     <string name="player_auto_skip_outro_notification">تم تخطي الخاتمة إلى %1$s</string>
