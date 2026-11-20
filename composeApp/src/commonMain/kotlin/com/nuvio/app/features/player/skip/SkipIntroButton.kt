@@ -1,8 +1,6 @@
 package com.nuvio.app.features.player.skip
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -10,23 +8,15 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,6 +36,10 @@ import nuvio.composeapp.generated.resources.player_skip_movie_credits
 import nuvio.composeapp.generated.resources.player_skip_to_post_credits
 import org.jetbrains.compose.resources.stringResource
 
+/**
+ * The opening/recap/credits offer. It stays for as long as the segment plays, because skipping is
+ * the viewer's choice: the button is offered, never pressed for them.
+ */
 @Composable
 fun SkipIntroButton(
     interval: SkipInterval?,
@@ -65,94 +59,32 @@ fun SkipIntroButton(
     }
     val shouldShow = canSkip && (!dismissed || controlsVisible)
 
-    var autoHidden by remember { mutableStateOf(false) }
-    var manuallyDismissed by remember { mutableStateOf(false) }
-    val progress = remember { Animatable(0f) }
-
-    // Reset auto-hide and progress when interval category changes (opening/ending/recap),
-    // but not when the same category switches provider (e.g. op[aniskip] -> intro[chapters]).
-    val intervalCategory = interval?.type?.let { segmentCategory(it) }
-    LaunchedEffect(intervalCategory) {
-        autoHidden = false
-        manuallyDismissed = false
-        progress.snapTo(0f)
-    }
-
-    LaunchedEffect(dismissed) {
-        if (!dismissed) {
-            if (!manuallyDismissed) {
-                autoHidden = false
-                progress.snapTo(0f)
-            }
-        } else {
-            manuallyDismissed = true
-        }
-    }
-
-    LaunchedEffect(shouldShow, autoHidden, controlsVisible) {
-        if (shouldShow && !autoHidden && !controlsVisible) {
-            progress.animateTo(
-                1f,
-                animationSpec = tween(
-                    durationMillis = ((1f - progress.value) * 10000).toInt().coerceAtLeast(1),
-                    easing = LinearEasing,
-                ),
-            )
-            autoHidden = true
-        }
-    }
-
-    val isVisible = shouldShow && (!autoHidden || controlsVisible)
-
     AnimatedVisibility(
-        visible = isVisible,
+        visible = shouldShow,
         enter = fadeIn(tween(300)) + scaleIn(tween(300), initialScale = 0.8f),
         exit = fadeOut(tween(200)) + scaleOut(tween(200), targetScale = 0.8f),
         modifier = modifier,
     ) {
-        val shape = RoundedCornerShape(16.dp)
-        Column(
+        Row(
             modifier = Modifier
-                .width(IntrinsicSize.Max)
-                .clip(shape)
+                .clip(RoundedCornerShape(16.dp))
                 .background(Color(0xFF1E1E1E).copy(alpha = 0.85f))
-                .clickable(enabled = canSkip) { onSkip() },
+                .clickable(enabled = canSkip) { onSkip() }
+                .padding(horizontal = 18.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    imageVector = Icons.Default.SkipNext,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(20.dp),
-                )
-                Text(
-                    text = skipLabel(lastType, lastSkipsToPostCredits),
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    modifier = Modifier.padding(start = 8.dp),
-                )
-            }
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(3.dp)
-                    .clip(RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp))
-                    .background(Color.White.copy(alpha = if (controlsVisible || autoHidden || dismissed) 0f else 0.15f)),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(progress.value)
-                        .height(3.dp)
-                        .background(
-                            Color(0xFF1E1E1E).copy(
-                                alpha = if (controlsVisible || autoHidden || dismissed) 0f else 0.85f,
-                            ),
-                        ),
-                )
-            }
+            Icon(
+                imageVector = Icons.Default.SkipNext,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(20.dp),
+            )
+            Text(
+                text = skipLabel(lastType, lastSkipsToPostCredits),
+                color = Color.White,
+                fontSize = 14.sp,
+                modifier = Modifier.padding(start = 8.dp),
+            )
         }
     }
 }

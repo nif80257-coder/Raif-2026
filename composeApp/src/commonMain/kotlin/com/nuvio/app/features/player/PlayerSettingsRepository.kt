@@ -87,7 +87,7 @@ data class PlayerSettingsUiState(
     val streamAutoPlayRegex: String = "",
     val streamAutoPlayTimeoutSeconds: Int = 3,
     val skipIntroEnabled: Boolean = true,
-    val autoSkipSegmentTypes: Set<AutoSkipSegmentType> = setOf(AutoSkipSegmentType.INTRO),
+    val autoSkipSegmentTypes: Set<AutoSkipSegmentType> = emptySet(),
     val animeSkipEnabled: Boolean = false,
     val animeSkipClientId: String = "",
     val introDbApiKey: String = "",
@@ -180,7 +180,7 @@ object PlayerSettingsRepository {
     private var streamAutoPlayRegex = ""
     private var streamAutoPlayTimeoutSeconds = 3
     private var skipIntroEnabled = true
-    private var autoSkipSegmentTypes: Set<AutoSkipSegmentType> = setOf(AutoSkipSegmentType.INTRO)
+    private var autoSkipSegmentTypes: Set<AutoSkipSegmentType> = emptySet()
     private var animeSkipEnabled = false
     private var animeSkipClientId = ""
     private var introDbApiKey = ""
@@ -279,7 +279,7 @@ object PlayerSettingsRepository {
         streamAutoPlayRegex = ""
         streamAutoPlayTimeoutSeconds = 3
         skipIntroEnabled = true
-        autoSkipSegmentTypes = setOf(AutoSkipSegmentType.INTRO)
+        autoSkipSegmentTypes = emptySet()
         animeSkipEnabled = false
         animeSkipClientId = ""
         introDbApiKey = ""
@@ -442,11 +442,10 @@ object PlayerSettingsRepository {
             PlayerSettingsStorage.saveStreamAutoPlayTimeoutSeconds(streamAutoPlayTimeoutSeconds)
         }
         skipIntroEnabled = PlayerSettingsStorage.loadSkipIntroEnabled() ?: true
-        // The opening is skipped by default — it is the segment every viewer skips by hand — while
-        // outro and credits stay opt-in so a wrong interval never cuts into the episode.
+        // Nothing is skipped automatically unless it is chosen here: the viewer decides, and the
+        // player offers the button instead of taking the decision.
         autoSkipSegmentTypes = PlayerSettingsStorage.loadAutoSkipSegmentTypes()
             ?.mapNotNull(AutoSkipSegmentType::fromStoredValue)?.toSet() ?: buildSet {
-                add(AutoSkipSegmentType.INTRO)
                 if (PlayerSettingsStorage.loadAutoSkipMovieCredits() == true) add(AutoSkipSegmentType.MOVIE_CREDITS)
             }
         animeSkipEnabled = PlayerSettingsStorage.loadAnimeSkipEnabled() ?: false
