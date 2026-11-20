@@ -59,16 +59,25 @@ jobs:
         run: ./scripts/prepare-ios-dependencies.sh
 
       - name: Run commonTest on the iOS simulator
-        run: ./gradlew :composeApp:iosSimulatorArm64Test --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew :composeApp:iosSimulatorArm64Test --stacktrace 2>&1 | tee "$RUNNER_TEMP/gradle-test.log"
 
-      - name: Summarise failing tests
+      # Annotations are what a reader of the run page (and of the checks API) sees first, so the
+      # reason and the failing tests are lifted out of the log instead of scrolling in it.
+      - name: Summarise the failure
         if: failure()
         run: |
           {
-            echo '### Failing shared tests'
-            grep -rl '<failure' composeApp/build/test-results 2>/dev/null || echo 'no test-results XML with failures found'
-            echo '--- messages ---'
-            grep -rh -A8 '<failure' composeApp/build/test-results 2>/dev/null | head -300 || true
+            reason=$(sed -n '/What went wrong/,/^\* Try/p' "$RUNNER_TEMP/gradle-test.log" | head -15 | tr '\n' ' ')
+            echo "::error title=Gradle failure::${reason:0:900}"
+            for file in $(grep -rl '<failure' composeApp/build/test-results 2>/dev/null); do
+              tests=$(grep -o '<testcase name="[^"]*"' "$file" | head -8 | sed 's/<testcase name=//g' | tr '\n' ',')
+              echo "::error title=Failing tests in $(basename "$file")::${tests:0:900}"
+            done
+            if ! grep -rq '<failure' composeApp/build/test-results 2>/dev/null; then
+              echo "::error title=No test XML with failures::The task failed before any test ran; see the annotations above."
+            fi
           } || true
 
       - name: Upload test reports
