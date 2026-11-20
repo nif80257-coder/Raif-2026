@@ -854,6 +854,7 @@ struct HeroCarousel: View {
     var onToggleFavorite: (CinemaItem) -> Void = { _ in }
 
     @State private var index = 0
+    @State private var autoTimer: Timer?
 
     var body: some View {
         TabView(selection: $index) {
@@ -888,6 +889,24 @@ struct HeroCarousel: View {
             Task {
                 let colors = await PaletteSampler.colors(for: items[value].posterURL)
                 if !colors.isEmpty { onPalette(colors) }
+            }
+            scheduleAdvance()
+        }
+        .task { scheduleAdvance() }
+    }
+
+    /// Slides the hero onward by itself, so the top of the home screen is never
+    /// static; any swipe restarts the countdown.
+    private func scheduleAdvance() {
+        autoTimer?.invalidate()
+        guard items.count > 1 else { return }
+        autoTimer = Timer.scheduledTimer(withTimeInterval: 8, repeats: false) { _ in
+            Task { @MainActor in
+                let limit = min(items.count, 6)
+                guard limit > 1 else { return }
+                withAnimation(.easeInOut(duration: 0.55)) {
+                    index = (index + 1) % limit
+                }
             }
         }
     }
@@ -1386,6 +1405,10 @@ struct PlayerScreen: View {
     @State private var subtitleDelay: Double = 0
     @State private var volume: Double = 100
     @State private var aspect = ""
+    @State private var brightness: Double = 0.6
+    @State private var savedBrightness: Double = 0.6
+    @State private var showEpisodes = false
+    @State private var episodeError = false
     @State private var sleepMinutes: Int?
     /// The moment the sleep timer runs out, kept apart from the minutes so the
     /// countdown keeps running while the options panel is closed.
@@ -1455,6 +1478,12 @@ struct PlayerScreen: View {
                         }
                         .buttonStyle(.plain)
                     }
+                    if episodes.count > 1 {
+                        CircleButton(system: "list.bullet") {
+                            Haptics.tap()
+                            showEpisodes = true
+                        }
+                    }
                     CircleButton(system: "speedometer") {
                         Haptics.select()
                         let options: [Double] = [0.5, 0.75, 1, 1.25, 1.5, 2]
@@ -1474,27 +1503,24 @@ struct PlayerScreen: View {
 
                 Spacer()
 
-                if skipIntroEnabled, duration > 300, position > 5, position < 90 {
-                    HStack {
-                        Spacer()
-                        Button {
+                HStack(spacing: 8) {
+                    Spacer()
+                    if startMs > 30_000, position < 120 {
+                        chip("من البداية", system: "backward.end.fill") {
+                            Haptics.tap()
+                            position = 0
+                            player?.seekTo(0)
+                        }
+                    }
+                    if skipIntroEnabled, duration > 300, position > 5, position < 90 {
+                        chip("تخطي المقدمة", system: "forward.fill") {
                             Haptics.tap()
                             seek(by: 85)
-                        } label: {
-                            Label("تخطي المقدمة", systemImage: "forward.fill")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 9)
-                                .background(.ultraThinMaterial, in: Capsule())
-                                .overlay(Capsule().strokeBorder(CinemaTheme.hairline, lineWidth: 1))
                         }
-                        .buttonStyle(.plain)
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 10)
-                    .transition(.opacity)
                 }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 10)
 
                 VStack(spacing: 10) {
                     Slider(
@@ -1574,6 +1600,7 @@ struct PlayerScreen: View {
                     subtitlesOff: subtitlesOff,
                     subtitleDelay: subtitleDelay,
                     volume: volume,
+                    brightness: brightness,
                     aspect: aspect,
                     sleepMinutes: sleepMinutes,
                     sleepRemaining: sleepRemaining,
@@ -1607,6 +1634,10 @@ struct PlayerScreen: View {
                         volume = value
                         player?.setVolumeLevel(value)
                     },
+                    onBrightness: { value in
+                        brightness = value
+                        applyBrightness(value)
+                    },
                     onAspect: { value in
                         aspect = value
                         player?.setVideoAspect(value)
@@ -1628,12 +1659,29 @@ struct PlayerScreen: View {
             }
         }
         .preferredColorScheme(.dark)
+        .sheet(isPresented: $showEpisodes) {
+            PlayerEpisodeSheet(
+                episodes: episodes,
+                currentVideoId: currentVideoId,
+                onPick: { episode in
+                    showEpisodes = false
+                    play(episode: episode)
+                },
+                onClose: { showEpisodes = false }
+            )
+            .presentationDetents([.medium, .large])
+        }
+        .alert("تعذّر جلب مصدر لهذه الحلقة", isPresented: $episodeError) {
+            Button("حسنًا", role: .cancel) {}
+        }
         .task {
             currentURL = url
             currentTitle = title
             currentVideoId = videoId
             currentVideoLabel = videoLabel
             speed = CinemaxPrefs.defaultSpeed
+            savedBrightness = screenBrightness
+            brightness = savedBrightness
             if let item {
                 startMs = await CinemaAPI.shared.resume(itemId: item.id, videoId: videoId)
             }
@@ -1643,6 +1691,7 @@ struct PlayerScreen: View {
         .onDisappear {
             ticker?.invalidate()
             saveProgress()
+            applyBrightness(savedBrightness)
         }
         .onChange(of: duration) { value in
             // The track list is only reliable once the file is demuxed.
@@ -1708,6 +1757,13 @@ struct PlayerScreen: View {
     @discardableResult
     private func playNext() -> Bool {
         guard let next = upNext else { return false }
+        return play(episode: next, closeOnFailure: true)
+    }
+
+    /// Switches to any episode of this series, whether the viewer picked it from
+    /// the list or the player rolled on by itself.
+    @discardableResult
+    private func play(episode next: CinemaItem, closeOnFailure: Bool = false) -> Bool {
         saveProgress()
         switching = true
         ticker?.invalidate()
@@ -1715,7 +1771,7 @@ struct PlayerScreen: View {
             let streams = (try? await CinemaAPI.shared.streams(for: next.id, type: type)) ?? []
             guard let best = streams.first else {
                 switching = false
-                dismiss()
+                if closeOnFailure { dismiss() } else { episodeError = true }
                 return
             }
             position = 0
@@ -1731,6 +1787,31 @@ struct PlayerScreen: View {
             startTicker()
         }
         return true
+    }
+
+    /// The small action chips that float above the controls.
+    private func chip(_ title: String, system: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: system)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .background(.ultraThinMaterial, in: Capsule())
+                .overlay(Capsule().strokeBorder(CinemaTheme.hairline, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .transition(.opacity)
+    }
+
+    private var screenBrightness: Double {
+        guard let screen = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen else { return 0.6 }
+        return Double(screen.brightness)
+    }
+
+    /// Dims the whole screen for a dark room, and puts it back when the player closes.
+    private func applyBrightness(_ value: Double) {
+        (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen.brightness = CGFloat(value)
     }
 
     private func startTicker() {
@@ -1794,6 +1875,7 @@ struct PlayerOptionsPanel: View {
     let subtitlesOff: Bool
     let subtitleDelay: Double
     let volume: Double
+    let brightness: Double
     let aspect: String
     let sleepMinutes: Int?
     let sleepRemaining: Int
@@ -1804,6 +1886,7 @@ struct PlayerOptionsPanel: View {
     let onSpeed: (Double) -> Void
     let onSubtitleDelay: (Double) -> Void
     let onVolume: (Double) -> Void
+    let onBrightness: (Double) -> Void
     let onAspect: (String) -> Void
     let onSleep: (Int?) -> Void
 
@@ -1949,6 +2032,22 @@ struct PlayerOptionsPanel: View {
                             .frame(width: 40)
                     }
 
+                    label("سطوع الشاشة")
+                    HStack(spacing: 10) {
+                        Image(systemName: "sun.max.fill")
+                            .font(.system(size: 12))
+                            .foregroundStyle(CinemaTheme.muted)
+                        Slider(
+                            value: Binding(get: { brightness }, set: { onBrightness($0) }),
+                            in: 0.1...1
+                        )
+                        .tint(CinemaTheme.accent)
+                        Text("\(Int(brightness * 100))%")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.muted)
+                            .frame(width: 40)
+                    }
+
                     HStack(spacing: 6) {
                         label("مؤقت النوم")
                         Spacer()
@@ -2034,6 +2133,76 @@ struct PlayerOptionsPanel: View {
         .padding(.horizontal, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(CinemaTheme.elevated.opacity(0.6), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+/// The series' episodes inside the player, so a viewer can jump to another one
+/// without leaving playback for the detail page.
+struct PlayerEpisodeSheet: View {
+    let episodes: [CinemaItem]
+    let currentVideoId: String?
+    let onPick: (CinemaItem) -> Void
+    let onClose: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Text("الحلقات")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(.white)
+                Text("\(episodes.count)")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(CinemaTheme.muted)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color.white.opacity(0.08), in: Capsule())
+                Spacer()
+                CircleButton(system: "xmark") { onClose() }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 18)
+            .padding(.bottom, 12)
+
+            ScrollView(showsIndicators: false) {
+                LazyVStack(spacing: 8) {
+                    ForEach(episodes) { episode in
+                        Button {
+                            Haptics.select()
+                            onPick(episode)
+                        } label: {
+                            HStack(spacing: 10) {
+                                Text(episode.name)
+                                    .font(.system(
+                                        size: 14,
+                                        weight: episode.id == currentVideoId ? .bold : .regular
+                                    ))
+                                    .foregroundStyle(episode.id == currentVideoId ? CinemaTheme.accent : .white)
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.leading)
+                                Spacer(minLength: 8)
+                                if episode.id == currentVideoId {
+                                    Image(systemName: "play.fill")
+                                        .font(.system(size: 11, weight: .bold))
+                                        .foregroundStyle(CinemaTheme.accent)
+                                }
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(
+                                CinemaTheme.elevated.opacity(0.6),
+                                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 24)
+            }
+        }
+        .background(CinemaTheme.canvas.ignoresSafeArea())
+        .preferredColorScheme(.dark)
     }
 }
 
@@ -2872,8 +3041,23 @@ struct LibraryView: View {
             : model.favorites.filter { $0.name.localizedCaseInsensitiveContains(text) }
         switch sort {
         case "az": return filtered.sorted { $0.name < $1.name }
+        case "rating": return filtered.sorted { ratingValue($0) > ratingValue($1) }
         default: return filtered
         }
+    }
+
+    /// The sort button cycles newest → alphabetical → best rated.
+    private var sortLabel: String {
+        switch sort {
+        case "az": return "أبجدي"
+        case "rating": return "التقييم"
+        default: return "الأحدث"
+        }
+    }
+
+    private func ratingValue(_ item: CinemaItem) -> Double {
+        guard let raw = item.rating else { return 0 }
+        return Double(raw.replacingOccurrences(of: ",", with: ".")) ?? 0
     }
 
     private var progress: [ProgressItem] {
@@ -2906,9 +3090,15 @@ struct LibraryView: View {
                             .foregroundStyle(.white)
                         Button {
                             Haptics.select()
-                            withAnimation(.easeInOut(duration: 0.15)) { sort = sort == "az" ? "recent" : "az" }
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                switch sort {
+                                case "recent": sort = "az"
+                                case "az": sort = "rating"
+                                default: sort = "recent"
+                                }
+                            }
                         } label: {
-                            Text(sort == "az" ? "أبجدي" : "الأحدث")
+                            Text(sortLabel)
                                 .font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(CinemaTheme.accent)
                                 .padding(.horizontal, 10)
