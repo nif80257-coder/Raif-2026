@@ -128,6 +128,10 @@ object AddonRepository {
             )
         }
         CachedManifestStore.retainOnly(currentProfileId, storedUrls.toSet())
+
+        // Paused sources are skipped above; this is the once-a-day way back for a host that
+        // recovered, without making every launch pay for it.
+        scope.launch { recheckPausedSources(currentProfileId) }
     }
 
     /**

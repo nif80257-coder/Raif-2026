@@ -57,6 +57,7 @@
     <string name="addons_paused_title">بعض المصادر موقوفة مؤقتًا</string>
     <string name="addons_paused_message">فشلت %1$d مصادر عدة مرات متتالية، فتم استثناؤها لبضع ساعات حتى لا تُبطئ كل بحث. استأنفها لتجربتها الآن.</string>
     <string name="addons_paused_resume">جرّب هذه المصادر مجددًا</string>
+    <string name="addons_paused_recheck_note">المصدر الموقوف يُفحص تلقائيًا مرة واحدة يوميًا.</string>
     <string name="addons_badge_paused">موقوف مؤقتًا</string>
     <string name="addons_badge_speed">%1$s ث في المتوسط</string>
     <string name="addons_badge_results">%1$d نتيجة</string>

@@ -56,6 +56,7 @@
     <string name="addons_paused_title">Some sources are paused</string>
     <string name="addons_paused_message">%1$d sources failed several times in a row and are skipped for a few hours so they stop slowing down every search. Resume them to try again now.</string>
     <string name="addons_paused_resume">Try these sources again</string>
+    <string name="addons_paused_recheck_note">A paused source is checked again on its own once a day.</string>
     <string name="addons_badge_paused">Paused</string>
     <string name="addons_badge_speed">%1$s s average</string>
     <string name="addons_badge_results">%1$d results</string>

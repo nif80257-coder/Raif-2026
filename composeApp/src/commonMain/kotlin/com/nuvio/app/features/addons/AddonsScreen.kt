@@ -1397,6 +1397,12 @@ private fun PausedSourcesCard(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = stringResource(Res.string.addons_paused_recheck_note),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         Spacer(modifier = Modifier.height(10.dp))
         TextButton(onClick = onResume) {
             Text(text = stringResource(Res.string.addons_paused_resume))
