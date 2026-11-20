@@ -1157,6 +1157,9 @@ struct PlayerScreen: View {
     var item: CinemaItem? = nil
     var videoId: String? = nil
     var videoLabel: String? = nil
+    /// The whole episode list, so the player can roll into the next one.
+    var episodes: [CinemaItem] = []
+    var type: String = "series"
 
     @Environment(\.dismiss) private var dismiss
     @State private var player: MPVViewController?
@@ -1171,12 +1174,29 @@ struct PlayerScreen: View {
     @State private var audioTracks: [TrackInfo] = []
     @State private var speed: Double = 1
     @State private var subtitlesOff = false
+    @State private var currentURL = ""
+    @State private var currentTitle = ""
+    @State private var currentVideoId: String?
+    @State private var currentVideoLabel: String?
+    @State private var switching = false
+
+    private var upNext: CinemaItem? {
+        guard let currentVideoId,
+              let index = episodes.firstIndex(where: { $0.id == currentVideoId }),
+              index + 1 < episodes.count else { return nil }
+        return episodes[index + 1]
+    }
+
+    private var autoplayNext: Bool {
+        (UserDefaults.standard.object(forKey: "cinemax.autoplayNext") as? Bool) ?? true
+    }
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
             if ready {
-                MPVSurface(url: url, startMs: startMs, controller: $player)
+                MPVSurface(url: currentURL, startMs: startMs, controller: $player)
+                    .id(currentURL + "-" + String(startMs))
                     .ignoresSafeArea()
             } else {
                 ProgressView().tint(CinemaTheme.accent)
@@ -1184,11 +1204,27 @@ struct PlayerScreen: View {
             VStack {
                 HStack(spacing: 12) {
                     CircleButton(system: "xmark") { dismiss() }
-                    Text(title)
+                    Text(currentTitle.isEmpty ? title : currentTitle)
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                     Spacer()
+                    if switching {
+                        ProgressView().tint(CinemaTheme.accent)
+                    } else if upNext != nil {
+                        Button {
+                            Haptics.tap()
+                            playNext()
+                        } label: {
+                            Label("التالي", systemImage: "forward.end.fill")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                                .background(CinemaTheme.elevated, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
                     CircleButton(system: "captions.bubble") {
                         Haptics.tap()
                         loadTracks()
@@ -1266,6 +1302,10 @@ struct PlayerScreen: View {
         }
         .preferredColorScheme(.dark)
         .task {
+            currentURL = url
+            currentTitle = title
+            currentVideoId = videoId
+            currentVideoLabel = videoLabel
             if let item {
                 startMs = await CinemaAPI.shared.resume(itemId: item.id, videoId: videoId)
             }
@@ -1305,9 +1345,39 @@ struct PlayerScreen: View {
             item: item,
             positionMs: Int64(position * 1000),
             durationMs: Int64(duration * 1000),
-            videoId: videoId,
-            videoLabel: videoLabel
+            videoId: currentVideoId,
+            videoLabel: currentVideoLabel
         )
+    }
+
+    /// Rolls into the next episode: asks the addons for its best link and rebuilds
+    /// the surface with it. Returns false when there is nothing after this one.
+    @discardableResult
+    private func playNext() -> Bool {
+        guard let next = upNext, let item else { return false }
+        saveProgress()
+        switching = true
+        ticker?.invalidate()
+        Task {
+            let streams = (try? await CinemaAPI.shared.streams(for: next.id, type: type)) ?? []
+            guard let best = streams.first else {
+                switching = false
+                dismiss()
+                return
+            }
+            position = 0
+            duration = 0
+            startMs = 0
+            currentVideoId = next.id
+            currentVideoLabel = next.name
+            currentTitle = next.name
+            currentURL = best.url
+            ready = true
+            switching = false
+            player = nil
+            startTicker()
+        }
+        return true
     }
 
     private func startTicker() {
@@ -1320,6 +1390,7 @@ struct PlayerScreen: View {
                 duration = max(1, Double(player.durationMs) / 1000)
                 if player.ended {
                     saveProgress()
+                    if autoplayNext, playNext() { return }
                     dismiss()
                 }
             }
@@ -1542,7 +1613,9 @@ struct DetailView: View {
                 url: choice.url,
                 item: item,
                 videoId: episode?.id,
-                videoLabel: episode?.name
+                videoLabel: episode?.name,
+                episodes: model.detail?.episodes ?? [],
+                type: item.type
             )
         }
     }
@@ -2093,6 +2166,7 @@ struct SettingsView: View {
     @AppStorage("cinemax.accent") private var accent = "raif"
     @AppStorage("cinemax.oled") private var oled = false
     @AppStorage("cinemax.reduceMotion") private var reduceMotion = false
+    @AppStorage("cinemax.autoplayNext") private var autoplayNext = true
     @State private var addons: [InstalledAddonRow] = []
     @State private var suggested: [SuggestedAddonRow] = []
     @State private var addonURL = ""
@@ -2232,6 +2306,34 @@ struct SettingsView: View {
                                 }
                                 .buttonStyle(.plain)
                             }
+                        }
+                    }
+
+                    card(title: "التشغيل") {
+                        Toggle(isOn: $autoplayNext) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("تشغيل الحلقة التالية تلقائيًا")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundStyle(.white)
+                                Text("ينتقل المشغّل إلى الحلقة التالية حين تنتهي الحالية")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(CinemaTheme.muted)
+                            }
+                        }
+                        .tint(CinemaTheme.accent)
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("المشغّل")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundStyle(.white)
+                                Text("libmpv — يدعم MKV وAVI وHEVC والترجمة المدمجة")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(CinemaTheme.muted)
+                            }
+                            Spacer()
+                            Text("MPV")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(CinemaTheme.muted)
                         }
                     }
 
