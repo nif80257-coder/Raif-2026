@@ -93,6 +93,9 @@ class AddonModelsTest {
 
         assertTrue(token.isSecret)
         assertTrue(password.isSecret)
+        assertFalse(plain.isSecret)
+    }
+
     @Test
     fun `repository host groups the sources of one manifest host`() {
         assertEquals(

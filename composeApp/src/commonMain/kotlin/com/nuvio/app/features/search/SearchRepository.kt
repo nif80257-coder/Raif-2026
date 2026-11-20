@@ -676,6 +676,7 @@ private fun Array<IndexedSearchResult?>.orderedSections(): List<HomeCatalogSecti
     return mapNotNull { result -> result?.section }
         .map { section -> section.copy(items = section.items.excludingHidden(hiddenKeys)) }
         .filter { section -> section.items.isNotEmpty() }
+        .deduplicatedAcrossSections()
 }
 
 private fun CatalogPage.withUnreleasedFilter(): CatalogPage {

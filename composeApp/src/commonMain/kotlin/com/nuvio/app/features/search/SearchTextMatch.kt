@@ -1,5 +1,8 @@
 package com.nuvio.app.features.search
 
+import com.nuvio.app.features.home.HomeCatalogSection
+import com.nuvio.app.features.home.stableKey
+
 /**
  * Word-based title matching for the search screen.
  *
@@ -103,4 +106,20 @@ private fun wordsAppearInOrder(normalizedName: String, words: List<String>): Boo
         cursor = index + word.length
     }
     return true
+}
+
+/**
+ * Keeps one copy of each title across the sections a search returned.
+ *
+ * A query reaches every installed catalogue, and several of them describe the same film or series
+ * — Cinemeta and ArabCinemeta list the same IMDb id — so the same poster was drawn once per
+ * catalogue that answered. The first section to offer a title keeps it, and a section left with
+ * nothing drops out instead of leaving an empty header.
+ */
+internal fun List<HomeCatalogSection>.deduplicatedAcrossSections(): List<HomeCatalogSection> {
+    if (size < 2) return this
+    val seenKeys = mutableSetOf<String>()
+    return map { section ->
+        section.copy(items = section.items.filter { item -> seenKeys.add(item.stableKey()) })
+    }.filter { section -> section.items.isNotEmpty() }
 }

@@ -102,6 +102,16 @@ private fun AddonDirectoryContent(
             )
         }
 
+        if (!state.isLoading && state.entries.isNotEmpty()) {
+            item(key = "directory-count") {
+                Text(
+                    text = stringResource(Res.string.addons_directory_count, state.entries.size),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
         if (state.isLoading) {
             item {
                 Text(

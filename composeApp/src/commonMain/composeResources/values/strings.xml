@@ -2863,6 +2863,13 @@
     <string name="addons_repository_hide">Hide</string>
     <string name="addons_repository_sources_count">%1$d sources</string>
     <string name="addons_config_replace">Save to this source</string>
+    <string name="addons_directory_all_types">All types</string>
+    <string name="addons_directory_count">%1$d add-ons</string>
+    <string name="addons_edit_link">Edit source link</string>
+    <string name="addons_edit_link_title">Edit %1$s</string>
+    <string name="addons_edit_link_subtitle">Change the manifest link itself: search, quality and language tags live in the link. Saving keeps the source in its place instead of adding a second copy.</string>
+    <string name="addons_edit_link_placeholder">https://example.com/…/manifest.json</string>
+    <string name="addons_edit_link_save">Save link</string>
     <string name="addons_group_user">Your sources</string>
     <string name="addons_built_in_count">%1$d sources, in the order below</string>
     <string name="addons_reset">Reset</string>

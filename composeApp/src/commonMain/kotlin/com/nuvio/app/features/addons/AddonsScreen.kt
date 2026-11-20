@@ -18,8 +18,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DragHandle
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
@@ -118,6 +120,7 @@ internal fun AddonsSettingsPageContent(
     var addonReviewVisible by rememberSaveable { mutableStateOf(false) }
     var addonDirectoryVisible by rememberSaveable { mutableStateOf(false) }
     var configTarget by remember { mutableStateOf<ManagedAddon?>(null) }
+    var urlEditTarget by remember { mutableStateOf<ManagedAddon?>(null) }
     var resetBuiltInVisible by rememberSaveable { mutableStateOf(false) }
     var isResettingBuiltIns by remember { mutableStateOf(false) }
 
@@ -508,6 +511,7 @@ internal fun AddonsSettingsPageContent(
                             forceRefresh = true,
                         )
                     },
+                    onEditClick = { urlEditTarget = addon },
                     onEnabledChange = { enabled ->
                         AddonRepository.setAddonEnabled(addon.manifestUrl, enabled)
                     },
@@ -585,6 +589,12 @@ internal fun AddonsSettingsPageContent(
                     }
                 },
             onDismiss = { configTarget = null },
+        )
+    }
+    urlEditTarget?.let { target ->
+        AddonEditUrlDialog(
+            addon = target,
+            onDismiss = { urlEditTarget = null },
         )
     }
     if (pendingDeletionUrl != null) {
@@ -985,6 +995,7 @@ private fun InstalledAddonCard(
     onMoveUpClick: (() -> Unit)?,
     onMoveDownClick: (() -> Unit)?,
     onDragStep: (Int) -> Unit,
+    onEditClick: () -> Unit,
     onRefreshClick: () -> Unit,
     onEnabledChange: (Boolean) -> Unit,
     onConfigureClick: (() -> Unit)?,
@@ -1146,6 +1157,12 @@ private fun InstalledAddonCard(
                     onClick = onMoveDown,
                 )
             }
+            NuvioIconActionButton(
+                icon = Icons.Rounded.Edit,
+                contentDescription = stringResource(Res.string.addons_edit_link),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                onClick = onEditClick,
+            )
             NuvioIconActionButton(
                 icon = Icons.Rounded.Refresh,
                 contentDescription = stringResource(Res.string.addons_refresh),
@@ -1570,40 +1587,108 @@ private fun SelectableExtraChoice(
 
 /**
  * The installed sources that serve an add-on directory, each with the directories its manifest
- * declares. One button per directory opens the list it serves.
+ * declares. One row per directory opens the list it serves.
+ *
+ * Sources are listed by name and their directories by name — with the catch-all entry first — so
+ * the section reads the same every time instead of following the manifest's own order.
  */
 @Composable
 private fun AddonDirectorySourcesCard(
     sources: List<ManagedAddon>,
     onDirectoryClick: (String, AddonCatalogRef) -> Unit,
 ) {
+    val orderedSources = remember(sources) {
+        sources.sortedBy { addon -> addon.manifest?.name.orEmpty().lowercase() }
+    }
     NuvioSurfaceCard {
         Text(
             text = stringResource(Res.string.addons_directory_subtitle),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        sources.forEach { addon ->
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = addon.displayTitle,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
+        orderedSources.forEach { addon ->
+            Spacer(modifier = Modifier.height(14.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Rounded.Extension,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = addon.displayTitle,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            val catalogs = addon.manifest?.addonCatalogs.orEmpty().sortedWith(
+                compareBy<AddonCatalogRef> { catalog -> !catalog.type.equals("all", ignoreCase = true) }
+                    .thenBy { catalog -> catalog.name.lowercase() },
             )
-            addon.manifest?.addonCatalogs.orEmpty().forEach { catalog ->
-                Spacer(modifier = Modifier.height(6.dp))
-                Button(
+            catalogs.forEach { catalog ->
+                Spacer(modifier = Modifier.height(8.dp))
+                DirectorySourceRow(
+                    name = catalog.name,
+                    type = catalog.type,
                     onClick = { onDirectoryClick(addon.manifestUrl, catalog) },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(
-                        text = catalog.name,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+                )
             }
         }
+    }
+}
+
+/** One directory a source serves: its name, the type it covers, and a tap to open it. */
+@Composable
+private fun DirectorySourceRow(
+    name: String,
+    type: String,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = name,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = localizedDirectoryTypeLabel(type),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Icon(
+            imageVector = Icons.Rounded.ChevronRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(20.dp),
+        )
+    }
+}
+
+@Composable
+private fun localizedDirectoryTypeLabel(type: String): String = when (type.trim().lowercase()) {
+    "all" -> stringResource(Res.string.addons_directory_all_types)
+    "movie" -> stringResource(Res.string.media_movies)
+    "series" -> stringResource(Res.string.media_series)
+    "channel" -> stringResource(Res.string.media_channels)
+    "tv" -> stringResource(Res.string.media_tv)
+    "anime" -> stringResource(Res.string.media_anime)
+    else -> type.replaceFirstChar { character ->
+        if (character.isLowerCase()) character.titlecase() else character.toString()
     }
 }

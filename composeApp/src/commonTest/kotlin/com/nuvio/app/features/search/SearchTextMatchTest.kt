@@ -1,5 +1,8 @@
 package com.nuvio.app.features.search
 
+import com.nuvio.app.features.catalog.CatalogTarget
+import com.nuvio.app.features.home.HomeCatalogSection
+import com.nuvio.app.features.home.MetaPreview
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -46,4 +49,47 @@ class SearchTextMatchTest {
 
         assertEquals(listOf("message"), results.map { it.id })
     }
+
+    @Test
+    fun aTitleListedByTwoCataloguesIsDrawnOnce() {
+        val sections = listOf(
+            section(
+                key = "cinemeta",
+                items = listOf(meta("tt0372784", "Batman Begins"), meta("tt1877830", "The Batman")),
+            ),
+            section(
+                key = "arabcinemeta",
+                items = listOf(meta("tt0372784", "Batman Begins"), meta("tt0111161", "Shawshank")),
+            ),
+            section(key = "empty-after-dedupe", items = listOf(meta("tt0372784", "Batman Begins"))),
+        )
+
+        val deduped = sections.deduplicatedAcrossSections()
+
+        assertEquals(listOf("cinemeta", "arabcinemeta"), deduped.map { it.key })
+        assertEquals(
+            listOf("tt0372784", "tt1877830"),
+            deduped.first().items.map { it.id },
+        )
+        assertEquals(listOf("tt0111161"), deduped.last().items.map { it.id })
+    }
+
+    private fun section(key: String, items: List<MetaPreview>): HomeCatalogSection = HomeCatalogSection(
+        key = key,
+        title = key,
+        subtitle = "",
+        addonName = key,
+        target = CatalogTarget.Addon(
+            manifestUrl = "https://$key.example/manifest.json",
+            contentType = "movie",
+            catalogId = "search",
+        ),
+        items = items,
+    )
+
+    private fun meta(id: String, name: String): MetaPreview = MetaPreview(
+        id = id,
+        type = "movie",
+        name = name,
+    )
 }

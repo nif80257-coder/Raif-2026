@@ -2834,6 +2834,13 @@
     <string name="addons_repository_hide">إخفاء</string>
     <string name="addons_repository_sources_count">%1$d مصدر</string>
     <string name="addons_config_replace">حفظ على هذا المصدر</string>
+    <string name="addons_directory_all_types">كل الأنواع</string>
+    <string name="addons_directory_count">%1$d إضافة</string>
+    <string name="addons_edit_link">تعديل رابط المصدر</string>
+    <string name="addons_edit_link_title">تعديل %1$s</string>
+    <string name="addons_edit_link_subtitle">عدّل رابط المانيفست نفسه: وسوم البحث والجودة واللغة تُضبط من الرابط. الحفظ يُبقي المصدر في مكانه بدل إضافة نسخة ثانية.</string>
+    <string name="addons_edit_link_placeholder">https://example.com/…/manifest.json</string>
+    <string name="addons_edit_link_save">حفظ الرابط</string>
     <string name="addons_group_user">إضافاتك</string>
     <string name="addons_built_in_count">%1$d مصدرًا، بالترتيب أدناه</string>
     <string name="addons_reset">إعادة الضبط</string>
