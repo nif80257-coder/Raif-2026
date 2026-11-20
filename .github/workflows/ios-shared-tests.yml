@@ -64,21 +64,30 @@ jobs:
           ./gradlew :composeApp:iosSimulatorArm64Test --stacktrace 2>&1 | tee "$RUNNER_TEMP/gradle-test.log"
 
       # Annotations are what a reader of the run page (and of the checks API) sees first, so the
-      # reason and the failing tests are lifted out of the log instead of scrolling in it.
+      # reason and the first failure message are lifted out of the log instead of scrolling in it.
       - name: Summarise the failure
         if: failure()
         run: |
-          {
-            reason=$(sed -n '/What went wrong/,/^\* Try/p' "$RUNNER_TEMP/gradle-test.log" | head -15 | tr '\n' ' ')
-            echo "::error title=Gradle failure::${reason:0:900}"
-            for file in $(grep -rl '<failure' composeApp/build/test-results 2>/dev/null); do
-              tests=$(grep -o '<testcase name="[^"]*"' "$file" | head -8 | sed 's/<testcase name=//g' | tr '\n' ',')
-              echo "::error title=Failing tests in $(basename "$file")::${tests:0:900}"
-            done
-            if ! grep -rq '<failure' composeApp/build/test-results 2>/dev/null; then
-              echo "::error title=No test XML with failures::The task failed before any test ran; see the annotations above."
-            fi
-          } || true
+          set +e
+          results=composeApp/build/test-results
+          files=$(grep -rl '<failure' "$results" 2>/dev/null | sort)
+          if [ -z "$files" ]; then
+            reason=$(sed -n '/What went wrong/,/^\* Try/p' "$RUNNER_TEMP/gradle-test.log" | head -12 | tr '\n' ' ')
+            echo "::error title=Gradle failure (no test XML)::${reason:0:900}"
+            exit 0
+          fi
+          cases=$(grep -rho '<testcase ' "$results" | wc -l | tr -d ' ')
+          fails=$(grep -rho '<failure' "$results" | wc -l | tr -d ' ')
+          files_count=$(echo "$files" | wc -l | tr -d ' ')
+          echo "::error title=Shared tests summary::$cases cases, $fails failures across $files_count files"
+          while read -r file; do
+            message=$(grep -o '<failure message="[^"]*"' "$file" | head -1 | sed 's/<failure message="//; s/"$//' | cut -c1-600)
+            echo "::error title=$(basename "$file" .xml)::$message"
+          done <<< "$(echo "$files" | head -6)"
+          first=$(echo "$files" | head -1)
+          trace=$(grep -A5 '<failure' "$first" | sed -n '2,5p' | tr -s ' \t' ' ' | tr '\n' '|' | cut -c1-800)
+          echo "::error title=First stack trace from $(basename "$first" .xml)::${trace}"
+          exit 0
 
       - name: Upload test reports
         if: failure()
