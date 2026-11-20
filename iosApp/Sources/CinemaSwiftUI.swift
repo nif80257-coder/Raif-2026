@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import Network
 import UserNotifications
 import CinemaxKit
 
@@ -83,6 +84,27 @@ enum Haptics {
     static func select() {
         guard enabled else { return }
         UISelectionFeedbackGenerator().selectionChanged()
+    }
+}
+
+/// Watches the network so the interface can say plainly when it is offline.
+@MainActor
+final class ConnectivityMonitor: ObservableObject {
+    static let shared = ConnectivityMonitor()
+
+    @Published private(set) var online = true
+
+    private let monitor = NWPathMonitor()
+    private let queue = DispatchQueue(label: "cinemax.connectivity")
+
+    private init() {
+        monitor.pathUpdateHandler = { [weak self] path in
+            let reachable = path.status == .satisfied
+            Task { @MainActor in
+                self?.online = reachable
+            }
+        }
+        monitor.start(queue: queue)
     }
 }
 
@@ -336,6 +358,19 @@ final class CinemaAPI {
                 continuation.resume(returning: summary)
             }, onError: { message in
                 continuation.resume(throwing: CinemaError(message: message))
+            })
+        }
+    }
+
+    /// How many episodes are marked watched and how many addons are installed.
+    func extraCounts() async -> (watched: Int, addons: Int) {
+        await withCheckedContinuation { (continuation: CheckedContinuation<(Int, Int), Never>) in
+            bridge.extraCounts(onDone: { json in
+                let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
+                continuation.resume(returning: (
+                    object?["watched"] as? Int ?? 0,
+                    object?["addons"] as? Int ?? 0
+                ))
             })
         }
     }
@@ -995,6 +1030,15 @@ private struct HeroSlide: View {
                     .foregroundStyle(.white)
                     .lineLimit(2)
                     .shadow(color: .black.opacity(0.45), radius: 12, y: 4)
+
+                if let overview = item.overview, !overview.isEmpty {
+                    Text(overview)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.78))
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                        .shadow(color: .black.opacity(0.4), radius: 6, y: 2)
+                }
 
                 HStack(spacing: 10) {
                     Button(action: onOpen) {
@@ -2747,6 +2791,12 @@ struct DetailView: View {
                     .padding(.horizontal, 20)
                 }
             }
+            if let summary = seasonSummary {
+                Text(summary)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(CinemaTheme.muted)
+                    .padding(.horizontal, 20)
+            }
             if (model.detail?.episodes.count ?? 0) > 3 {
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
@@ -2822,6 +2872,23 @@ struct DetailView: View {
         LibraryModel.shared.progress.contains { entry in
             entry.item.id == item.id && entry.fraction >= 0.9 && entry.episodeLabel == episode.name
         }
+    }
+
+    /// The season on screen, so the summary line follows the chips.
+    private var currentSeason: Int? {
+        season ?? model.detail?.seasons.first
+    }
+
+    private var seasonSummary: String? {
+        guard let value = currentSeason, let detail = model.detail else { return nil }
+        let inSeason = detail.episodes.filter { entry in
+            let parts = entry.id.split(separator: ":")
+            guard parts.count >= 2, let number = Int(parts[parts.count - 2]) else { return false }
+            return number == value
+        }
+        guard !inSeason.isEmpty else { return nil }
+        let seen = inSeason.filter { watched($0) }.count
+        return "شوهدت \(seen) من \(inSeason.count) حلقة في هذا الموسم"
     }
 
     /// The addons that returned a source here, for the filter chips.
@@ -3356,6 +3423,7 @@ struct LibraryView: View {
         switch sort {
         case "az": return "أبجدي"
         case "rating": return "التقييم"
+        case "remaining": return "المتبقي"
         default: return "الأحدث"
         }
     }
@@ -3371,7 +3439,11 @@ struct LibraryView: View {
         let filtered = text.isEmpty
             ? scoped
             : scoped.filter { $0.item.name.localizedCaseInsensitiveContains(text) }
-        return sort == "az" ? filtered.sorted { $0.item.name < $1.item.name } : filtered
+        switch sort {
+        case "az": return filtered.sorted { $0.item.name < $1.item.name }
+        case "remaining": return filtered.sorted { $0.remainingMinutes < $1.remainingMinutes }
+        default: return filtered
+        }
     }
 
     /// Narrows the library to films or series, alongside the free-text search.
@@ -3422,6 +3494,7 @@ struct LibraryView: View {
                                 switch sort {
                                 case "recent": sort = "az"
                                 case "az": sort = "rating"
+                                case "rating": sort = "remaining"
                                 default: sort = "recent"
                                 }
                             }
@@ -4015,6 +4088,7 @@ struct CinemaRootView: View {
     @AppStorage("cinemax.accent") private var accent = "raif"
     @AppStorage("cinemax.oled") private var oled = false
     @AppStorage("cinemax.onboarded") private var onboarded = false
+    @ObservedObject private var network = ConnectivityMonitor.shared
     @State private var showOnboarding = false
 
     var body: some View {
@@ -4034,6 +4108,23 @@ struct CinemaRootView: View {
             .id(accent + (oled ? "-oled" : "-soft"))
             FloatingTabBar(selection: $selection, libraryBadge: LibraryModel.shared.progress.count)
         }
+        .overlay(alignment: .top) {
+            if !network.online {
+                HStack(spacing: 8) {
+                    Image(systemName: "wifi.slash")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text("لا يوجد اتصال — ما حفظته يبقى متاحًا")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(CinemaTheme.favourite.opacity(0.9), in: Capsule())
+                .padding(.top, 6)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: network.online)
         .preferredColorScheme(.dark)
         .environment(\.layoutDirection, .rightToLeft)
         .tint(CinemaTheme.accent)
@@ -5619,6 +5710,8 @@ struct AddonsSettings: View {
 struct StatsSettings: View {
     @ObservedObject private var library = LibraryModel.shared
     @ObservedObject private var downloads = DownloadManager.shared
+    @State private var watchedEpisodes = 0
+    @State private var addonCount = 0
 
     private var finished: [DownloadJob] { downloads.jobs.filter { $0.state == "done" } }
 
@@ -5648,6 +5741,10 @@ struct StatsSettings: View {
                     Divider().overlay(CinemaTheme.hairline)
                     row("تنزيلات جارية", "\(downloads.jobs.filter { $0.state == "running" }.count)")
                     Divider().overlay(CinemaTheme.hairline)
+                    row("حلقات معلّمة كمشاهدة", "\(watchedEpisodes)")
+                    Divider().overlay(CinemaTheme.hairline)
+                    row("إضافات مثبتة", "\(addonCount)")
+                    Divider().overlay(CinemaTheme.hairline)
                     row("ملفات التنزيل على الجهاز", storageSize)
                     Divider().overlay(CinemaTheme.hairline)
                     row("آخر تحديث للكتالوج", CinemaxPrefs.lastRefreshLabel)
@@ -5665,7 +5762,12 @@ struct StatsSettings: View {
         .background(CinemaTheme.canvas.ignoresSafeArea())
         .navigationTitle("الإحصاءات")
         .navigationBarTitleDisplayMode(.inline)
-        .task { await library.load() }
+        .task {
+            await library.load()
+            let extra = await CinemaAPI.shared.extraCounts()
+            watchedEpisodes = extra.watched
+            addonCount = extra.addons
+        }
     }
 
     private var remainingLabel: String {
@@ -6530,6 +6632,14 @@ struct DownloadsView: View {
                                 Button("إلغاء") { manager.cancel(job) }
                                     .font(.system(size: 11, weight: .semibold))
                                     .foregroundStyle(CinemaTheme.muted)
+                            }
+                            if job.state == "failed" || job.state == "cancelled" {
+                                Button("إعادة") {
+                                    Haptics.tap()
+                                    manager.start(title: job.title, urlString: job.url)
+                                }
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(CinemaTheme.accent)
                             }
                             if job.state == "done", let path = job.filePath {
                                 Button("تشغيل") {

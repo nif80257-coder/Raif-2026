@@ -630,6 +630,13 @@ class CinemaxAppleBridge {
         onDone("{\"progress\":${progressStore.load().size},\"favorites\":${favoritesStore.load().size}}")
     }
 
+    /** Another small snapshot, for the statistics screen. */
+    fun extraCounts(onDone: (String) -> Unit) {
+        val watched = runCatching { WatchedEpisodesStore().load().size }.getOrDefault(0)
+        val addons = runCatching { addonStore.load().size }.getOrDefault(0)
+        onDone("{\"watched\":$watched,\"addons\":$addons}")
+    }
+
     /** Drops one resume point, used by the history screen. */
     fun removeProgress(itemId: String, videoLabel: String?, onDone: (String) -> Unit) {
         val target = progressStore.load().firstOrNull { entry ->
