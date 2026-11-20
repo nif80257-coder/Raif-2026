@@ -955,6 +955,8 @@
     <string name="settings_stream_player_badges_same">مثل شارات البث</string>
     <string name="settings_stream_addon_logo_title">شعار الإضافة</string>
     <string name="settings_stream_addon_logo_description">إظهار شعار الإضافة واسمها بجانب مصادر البث.</string>
+    <string name="settings_stream_merge_duplicates_title">دمج الروابط المكررة بين المصادر</string>
+    <string name="settings_stream_merge_duplicates_description">عند التشغيل يظهر الملف الذي يقدّمه أكثر من مصدر مرة واحدة. عند الإيقاف يحتفظ كل مصدر بكل الروابط التي أرجعها.</string>
     <string name="settings_stream_display_section">العرض</string>
     <string name="settings_stream_background_title">الخلفية</string>
     <string name="settings_stream_background_description">اختر خلفية شاشة البث.</string>

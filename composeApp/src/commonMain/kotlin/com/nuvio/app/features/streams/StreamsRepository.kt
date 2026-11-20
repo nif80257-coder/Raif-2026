@@ -714,11 +714,18 @@ object StreamsRepository {
                 }
             }
 
-            // Every group has answered. The same file is often offered by several
-            // add-ons under different labels; keep one copy per source group so the
-            // list does not read as duplicates, preferring the stronger presentation.
+            // Every group has answered. Whether the same file offered by several add-ons is
+            // collapsed into one link is the user's choice: off by default, so each source keeps
+            // every link it returned.
+            val mergeDuplicates = StreamDisplayPreferences.mergeDuplicatesAcrossSources(streamCacheProfileId)
             _uiState.update { current ->
-                current.copy(groups = current.groups.deduplicatedAcrossSources())
+                current.copy(
+                    groups = if (mergeDuplicates) {
+                        current.groups.deduplicatedAcrossSources()
+                    } else {
+                        current.groups
+                    },
+                )
             }
 
             for (availabilityJob in debridAvailabilityJobs) {

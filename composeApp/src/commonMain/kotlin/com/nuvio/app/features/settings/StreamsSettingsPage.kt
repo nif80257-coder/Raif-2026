@@ -60,6 +60,8 @@ import com.nuvio.app.features.streams.StreamBadgePlacement
 import com.nuvio.app.features.streams.StreamBadgeRules
 import com.nuvio.app.features.streams.StreamBadgeSettingsRepository
 import com.nuvio.app.features.streams.StreamBackgroundMode
+import com.nuvio.app.features.streams.StreamDisplayPreferences
+import com.nuvio.app.features.profiles.ProfileRepository
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_cancel
@@ -97,6 +99,8 @@ import nuvio.composeapp.generated.resources.settings_stream_player_badges_title
 import nuvio.composeapp.generated.resources.settings_stream_size_badges_title
 import nuvio.composeapp.generated.resources.settings_stream_addon_logo_title
 import nuvio.composeapp.generated.resources.settings_stream_addon_logo_description
+import nuvio.composeapp.generated.resources.settings_stream_merge_duplicates_title
+import nuvio.composeapp.generated.resources.settings_stream_merge_duplicates_description
 import nuvio.composeapp.generated.resources.settings_stream_display_section
 import nuvio.composeapp.generated.resources.settings_stream_background_title
 import nuvio.composeapp.generated.resources.settings_stream_background_description
@@ -185,6 +189,20 @@ internal fun LazyListScope.streamsSettingsContent(isTablet: Boolean) {
                     checked = currentSettings.showAddonLogo,
                     isTablet = isTablet,
                     onCheckedChange = StreamBadgeSettingsRepository::setShowAddonLogo,
+                )
+                val profileId = ProfileRepository.activeProfileId
+                var mergeDuplicates by remember(profileId) {
+                    mutableStateOf(StreamDisplayPreferences.mergeDuplicatesAcrossSources(profileId))
+                }
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.settings_stream_merge_duplicates_title),
+                    description = stringResource(Res.string.settings_stream_merge_duplicates_description),
+                    checked = mergeDuplicates,
+                    isTablet = isTablet,
+                    onCheckedChange = { value ->
+                        mergeDuplicates = value
+                        StreamDisplayPreferences.setMergeDuplicatesAcrossSources(profileId, value)
+                    },
                 )
             }
         }

@@ -960,6 +960,8 @@
     <string name="settings_stream_player_badges_same">Same as stream badges</string>
     <string name="settings_stream_addon_logo_title">Addon logo</string>
     <string name="settings_stream_addon_logo_description">Show addon logo and name next to stream sources.</string>
+    <string name="settings_stream_merge_duplicates_title">Merge duplicate links across sources</string>
+    <string name="settings_stream_merge_duplicates_description">When on, a file offered by several sources is listed once. When off, every source keeps all the links it returned.</string>
     <string name="settings_stream_display_section">DISPLAY</string>
     <string name="settings_stream_background_title">Background</string>
     <string name="settings_stream_background_description">Choose the background for the streams screen.</string>

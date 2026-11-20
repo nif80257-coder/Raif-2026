@@ -23,6 +23,7 @@ import com.nuvio.app.features.streams.InstalledStreamAddonTarget
 import com.nuvio.app.features.streams.StreamAutoPlaySelector
 import com.nuvio.app.features.streams.StreamBadgePresentation
 import com.nuvio.app.features.streams.StreamBadgeSettingsRepository
+import com.nuvio.app.features.streams.StreamDisplayPreferences
 import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.streams.StreamLoadCompletion
 import com.nuvio.app.features.streams.StreamParser
@@ -623,10 +624,17 @@ object PlayerStreamsRepository {
                 }
             }
 
-            // All groups answered; collapse copies of the same file that different
-            // add-ons surfaced, keeping the strongest presentation in each group.
+            // All groups answered. Collapsing copies of the same file is the user's choice; off
+            // by default, so a source keeps every link it returned.
+            val mergeDuplicates = StreamDisplayPreferences.mergeDuplicatesAcrossSources(streamCacheProfileId)
             stateFlow.update { current ->
-                current.copy(groups = current.groups.deduplicatedAcrossSources())
+                current.copy(
+                    groups = if (mergeDuplicates) {
+                        current.groups.deduplicatedAcrossSources()
+                    } else {
+                        current.groups
+                    },
+                )
             }
 
             for (availabilityJob in debridAvailabilityJobs) {
