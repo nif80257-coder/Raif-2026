@@ -130,6 +130,10 @@ class CinemaxAppleBridge {
         imdbRating = item.rating
     )
 
+    /** The last successful catalogue, so the home never opens empty while it refreshes. */
+    fun cachedShelves(): String =
+        NSUserDefaults.standardUserDefaults.stringForKey(SHELVES_CACHE_KEY) ?: "[]"
+
     /** The first catalogue of every installed addon, one shelf each, in parallel. */
     fun loadShelves(onDone: (String) -> Unit, onError: (String) -> Unit) {
         scope.launch {
@@ -164,7 +168,11 @@ class CinemaxAppleBridge {
                 // With a TMDB key, four curated rows ride above the addon ones: the
                 // only free catalogue that answers with Arabic titles, Arabic
                 // overviews and a real vote average.
-                onDone(json.encodeToString(AppleShelves(tmdbRows() + shelves)))
+                val payload = json.encodeToString(AppleShelves(tmdbRows() + shelves))
+                if (shelves.isNotEmpty()) {
+                    NSUserDefaults.standardUserDefaults.setObject(payload, SHELVES_CACHE_KEY)
+                }
+                onDone(payload)
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
                 onError(error.message ?: "تعذر تحميل الكتالوج")
@@ -562,6 +570,24 @@ class CinemaxAppleBridge {
 
     fun isFavorite(itemId: String): Boolean = favoritesStore.load().any { it.id == itemId }
 
+    /** Empties the resume list; the answers are the counts after the change. */
+    fun clearWatchProgress(onDone: (String) -> Unit) {
+        progressStore.clear()
+        favoritesStore.load()
+        onDone("{\"progress\":${progressStore.load().size},\"favorites\":${favoritesStore.load().size}}")
+    }
+
+    /** Empties the watchlist and answers the counts after the change. */
+    fun clearFavorites(onDone: (String) -> Unit) {
+        favoritesStore.save(emptyList())
+        onDone("{\"progress\":${progressStore.load().size},\"favorites\":${favoritesStore.load().size}}")
+    }
+
+    /** How many titles and resume points are stored, for the data screen. */
+    fun libraryCounts(onDone: (String) -> Unit) {
+        onDone("{\"progress\":${progressStore.load().size},\"favorites\":${favoritesStore.load().size}}")
+    }
+
     /** Records where the SwiftUI player stopped, so "أكمل المشاهدة" stays right. */
     fun saveProgress(
         itemJson: String,
@@ -712,5 +738,6 @@ class CinemaxAppleBridge {
     private companion object {
         const val CLASSIC_INTERFACE_KEY = "cinemax.ui.classic"
         const val CN_SWITCH_NOTIFICATION = "CinemaxSwitchInterface"
+        const val SHELVES_CACHE_KEY = "cinemax.apple.shelves.v1"
     }
 }

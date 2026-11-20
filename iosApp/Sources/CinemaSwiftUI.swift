@@ -253,6 +253,42 @@ final class CinemaAPI {
 
     func isFavorite(_ id: String) -> Bool { bridge.isFavorite(itemId: id) }
 
+    func libraryCounts() async -> (progress: Int, favorites: Int) {
+        await withCheckedContinuation { (continuation: CheckedContinuation<(Int, Int), Never>) in
+            bridge.libraryCounts(onDone: { json in
+                let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
+                continuation.resume(returning: (
+                    (object?["progress"] as? NSNumber)?.intValue ?? 0,
+                    (object?["favorites"] as? NSNumber)?.intValue ?? 0
+                ))
+            })
+        }
+    }
+
+    func clearProgress() async -> (progress: Int, favorites: Int) {
+        await withCheckedContinuation { (continuation: CheckedContinuation<(Int, Int), Never>) in
+            bridge.clearWatchProgress(onDone: { json in
+                let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
+                continuation.resume(returning: (
+                    (object?["progress"] as? NSNumber)?.intValue ?? 0,
+                    (object?["favorites"] as? NSNumber)?.intValue ?? 0
+                ))
+            })
+        }
+    }
+
+    func clearFavorites() async -> (progress: Int, favorites: Int) {
+        await withCheckedContinuation { (continuation: CheckedContinuation<(Int, Int), Never>) in
+            bridge.clearFavorites(onDone: { json in
+                let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
+                continuation.resume(returning: (
+                    (object?["progress"] as? NSNumber)?.intValue ?? 0,
+                    (object?["favorites"] as? NSNumber)?.intValue ?? 0
+                ))
+            })
+        }
+    }
+
     func saveProgress(item: CinemaItem, positionMs: Int64, durationMs: Int64, videoId: String?, videoLabel: String?) {
         guard let data = try? JSONEncoder().encode(item), let json = String(data: data, encoding: .utf8) else { return }
         bridge.saveProgress(
@@ -3020,6 +3056,17 @@ struct SettingsView: View {
 
                     SettingsSection(title: "النظام") {
                         NavigationLink {
+                            DataSettings()
+                        } label: {
+                            SettingsRow(
+                                icon: "externaldrive.fill",
+                                title: "البيانات",
+                                detail: "مسح سجل المشاهدة والمفضلة وكاش الكتالوج"
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        NavigationLink {
                             AboutSettings()
                         } label: {
                             SettingsRow(
@@ -3252,38 +3299,54 @@ struct AddonsSettings: View {
     @State private var addons: [InstalledAddonRow] = []
     @State private var suggested: [SuggestedAddonRow] = []
     @State private var addonURL = ""
+    @State private var query = ""
     @State private var busy = false
     @State private var message: String?
+    @State private var installing: String?
+
+    private var visibleSuggested: [SuggestedAddonRow] {
+        let text = query.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return suggested }
+        return suggested.filter { $0.name.localizedCaseInsensitiveContains(text) }
+    }
+
+    private var missing: Int {
+        suggested.filter { source in addons.allSatisfy { $0.url != source.url } }.count
+    }
 
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 18) {
+                summary
+
                 Button {
                     Task { await installAll() }
                 } label: {
                     HStack(spacing: 8) {
                         if busy { ProgressView().tint(.black) }
-                        Text(busy ? "جارٍ التثبيت…" : "ثبّت المصادر الجاهزة (\(suggested.count))")
-                            .font(.system(size: 14, weight: .semibold))
+                        Text(busy ? "جارٍ التثبيت…" : "ثبّت الناقص (\(missing))")
+                            .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(.black)
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 13)
+                    .padding(.vertical, 14)
                     .background(CinemaTheme.accent, in: Capsule())
                 }
                 .buttonStyle(CinemaPressStyle())
-                .disabled(busy || suggested.isEmpty)
+                .disabled(busy || missing == 0)
 
                 HStack(spacing: 8) {
                     TextField("رابط manifest https://…", text: $addonURL)
                         .textFieldStyle(.plain)
                         .font(.system(size: 12))
                         .foregroundStyle(.white)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 11)
                         .background(CinemaTheme.surface, in: Capsule())
                     Button(busy ? "…" : "إضافة") {
-                        Task { await install() }
+                        Task { await install(addonURL) }
                     }
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.white)
@@ -3295,52 +3358,12 @@ struct AddonsSettings: View {
 
                 if let message {
                     Text(message)
-                        .font(.system(size: 11))
-                        .foregroundStyle(message.contains("تعذّر") ? CinemaTheme.favourite : CinemaTheme.muted)
+                        .font(.system(size: 12))
+                        .foregroundStyle(message.contains("تعذّر") ? CinemaTheme.favourite : CinemaTheme.accent)
                 }
 
-                if addons.isEmpty {
-                    Text("لا إضافة مثبتة بعد.")
-                        .font(.system(size: 12))
-                        .foregroundStyle(CinemaTheme.muted)
-                } else {
-                    VStack(spacing: 0) {
-                        ForEach(Array(addons.enumerated()), id: \.element.id) { index, addon in
-                            HStack(spacing: 10) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(addon.name)
-                                        .font(.system(size: 14, weight: .semibold))
-                                        .foregroundStyle(.white)
-                                        .lineLimit(1)
-                                    Text("الإصدار \(addon.version)")
-                                        .font(.system(size: 11))
-                                        .foregroundStyle(CinemaTheme.muted)
-                                }
-                                Spacer()
-                                Button {
-                                    Haptics.tap()
-                                    CinemaAPI.shared.removeAddon(addon.url)
-                                    addons.removeAll { $0.url == addon.url }
-                                    message = "أُزيلت \(addon.name)"
-                                    HomeModel.shared.resetCache()
-                                } label: {
-                                    Image(systemName: "trash")
-                                        .font(.system(size: 13, weight: .semibold))
-                                        .foregroundStyle(CinemaTheme.favourite)
-                                        .frame(width: 32, height: 32)
-                                        .background(CinemaTheme.elevated, in: Circle())
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            .padding(.vertical, 10)
-                            if index < addons.count - 1 {
-                                Divider().overlay(CinemaTheme.hairline)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 14)
-                    .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                }
+                installedSection
+                suggestedSection
             }
             .padding(20)
         }
@@ -3348,6 +3371,132 @@ struct AddonsSettings: View {
         .navigationTitle("الإضافات")
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
+        .refreshable { await load() }
+    }
+
+    private var summary: some View {
+        HStack(spacing: 12) {
+            counter("\(addons.count)", "مثبّتة")
+            counter("\(suggested.count)", "جاهزة")
+            counter("\(missing)", "ناقصة")
+        }
+    }
+
+    private func counter(_ value: String, _ title: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(value)
+                .font(.system(size: 20, weight: .heavy))
+                .foregroundStyle(CinemaTheme.accent)
+            Text(title)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(CinemaTheme.muted)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private var installedSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("المثبّتة")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(CinemaTheme.muted)
+            if addons.isEmpty {
+                Text("لا إضافة مثبتة بعد.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(CinemaTheme.muted)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(addons.enumerated()), id: \.element.id) { index, addon in
+                        HStack(spacing: 10) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(addon.name)
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .lineLimit(1)
+                                Text("الإصدار \(addon.version)")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(CinemaTheme.muted)
+                            }
+                            Spacer()
+                            Button {
+                                Haptics.tap()
+                                CinemaAPI.shared.removeAddon(addon.url)
+                                addons.removeAll { $0.url == addon.url }
+                                message = "أُزيلت \(addon.name)"
+                                HomeModel.shared.resetCache()
+                            } label: {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(CinemaTheme.favourite)
+                                    .frame(width: 32, height: 32)
+                                    .background(CinemaTheme.elevated, in: Circle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.vertical, 10)
+                        if index < addons.count - 1 {
+                            Divider().overlay(CinemaTheme.hairline)
+                        }
+                    }
+                }
+                .padding(.horizontal, 14)
+                .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+        }
+    }
+
+    private var suggestedSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("المصادر الجاهزة")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(CinemaTheme.muted)
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 12))
+                    .foregroundStyle(CinemaTheme.muted)
+                TextField("ابحث بين المصادر", text: $query)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(CinemaTheme.surface, in: Capsule())
+
+            VStack(spacing: 0) {
+                ForEach(Array(visibleSuggested.enumerated()), id: \.element.id) { index, source in
+                    let installed = addons.contains { $0.url == source.url }
+                    HStack(spacing: 10) {
+                        Text(source.name)
+                            .font(.system(size: 13))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                        Spacer()
+                        if installing == source.url {
+                            ProgressView().tint(CinemaTheme.accent)
+                        } else if installed {
+                            Text("مثبّت")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(CinemaTheme.accent)
+                        } else {
+                            Button("تثبيت") {
+                                Task { await install(source.url) }
+                            }
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.accent)
+                            .disabled(busy)
+                        }
+                    }
+                    .padding(.vertical, 9)
+                    if index < visibleSuggested.count - 1 {
+                        Divider().overlay(CinemaTheme.hairline)
+                    }
+                }
+            }
+            .padding(.horizontal, 14)
+            .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
     }
 
     private func load() async {
@@ -3355,20 +3504,22 @@ struct AddonsSettings: View {
         suggested = await CinemaAPI.shared.suggestedAddons()
     }
 
-    private func install() async {
-        let url = addonURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !url.isEmpty else { return }
+    private func install(_ url: String) async {
+        let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
         busy = true
+        installing = trimmed
         message = nil
         do {
-            let name = try await CinemaAPI.shared.installAddon(url)
-            addonURL = ""
+            let name = try await CinemaAPI.shared.installAddon(trimmed)
+            if trimmed == addonURL.trimmingCharacters(in: .whitespacesAndNewlines) { addonURL = "" }
             message = "تم تثبيت \(name)"
             HomeModel.shared.resetCache()
             await load()
         } catch {
             message = error.localizedDescription
         }
+        installing = nil
         busy = false
     }
 
@@ -3383,6 +3534,108 @@ struct AddonsSettings: View {
         HomeModel.shared.resetCache()
         await load()
         busy = false
+    }
+}
+
+/// Library data: what is stored and a way to empty it.
+struct DataSettings: View {
+    @State private var progress = 0
+    @State private var favorites = 0
+    @State private var message: String?
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(spacing: 12) {
+                    box("\(favorites)", "في المفضلة")
+                    box("\(progress)", "قيد المشاهدة")
+                }
+
+                VStack(spacing: 0) {
+                    action("مسح سجل المشاهدة", "لا يمس المفضلة", destructive: true) {
+                        let counts = await CinemaAPI.shared.clearProgress()
+                        progress = counts.progress
+                        favorites = counts.favorites
+                        HomeModel.shared.resetCache()
+                        message = "تم مسح سجل المشاهدة"
+                    }
+                    Divider().overlay(CinemaTheme.hairline)
+                    action("مسح المفضلة", "يزيل العناوين المحفوظة فقط", destructive: true) {
+                        let counts = await CinemaAPI.shared.clearFavorites()
+                        progress = counts.progress
+                        favorites = counts.favorites
+                        LibraryModel.shared.favorites = []
+                        message = "تم مسح المفضلة"
+                    }
+                    Divider().overlay(CinemaTheme.hairline)
+                    action("إعادة تحميل الكتالوج", "يمسح الكاش ويجلب الصفوف من جديد", destructive: false) {
+                        HomeModel.shared.resetCache()
+                        message = "جارٍ إعادة التحميل"
+                    }
+                }
+                .padding(.horizontal, 14)
+                .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+                if let message {
+                    Text(message)
+                        .font(.system(size: 12))
+                        .foregroundStyle(CinemaTheme.accent)
+                }
+            }
+            .padding(20)
+        }
+        .background(CinemaTheme.canvas.ignoresSafeArea())
+        .navigationTitle("البيانات")
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            let counts = await CinemaAPI.shared.libraryCounts()
+            progress = counts.progress
+            favorites = counts.favorites
+        }
+    }
+
+    private func box(_ value: String, _ title: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(value)
+                .font(.system(size: 24, weight: .heavy))
+                .foregroundStyle(CinemaTheme.accent)
+            Text(title)
+                .font(.system(size: 11))
+                .foregroundStyle(CinemaTheme.muted)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func action(
+        _ title: String,
+        _ subtitle: String,
+        destructive: Bool,
+        run: @escaping () async -> Void
+    ) -> some View {
+        Button {
+            Haptics.tap()
+            Task { await run() }
+        } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(destructive ? CinemaTheme.favourite : .white)
+                    Text(subtitle)
+                        .font(.system(size: 11))
+                        .foregroundStyle(CinemaTheme.muted)
+                }
+                Spacer()
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(CinemaTheme.muted.opacity(0.6))
+            }
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 
