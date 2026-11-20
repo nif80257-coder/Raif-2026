@@ -54,6 +54,10 @@ internal fun AddonConfigDialog(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val canInstall = fields.hasAllRequiredValues(values)
+    val configuredUrl = buildConfiguredManifestUrl(
+        manifestUrl = addon.manifestUrl,
+        values = fields.map { field -> field.key to values[field.key].orEmpty() },
+    )
 
     Dialog(
         onDismissRequest = { if (!isInstalling) onDismiss() },
@@ -114,10 +118,6 @@ internal fun AddonConfigDialog(
                             isInstalling = true
                             errorMessage = null
                             scope.launch {
-                                val configuredUrl = buildConfiguredManifestUrl(
-                                    manifestUrl = addon.manifestUrl,
-                                    values = fields.map { field -> field.key to values[field.key].orEmpty() },
-                                )
                                 when (val result = AddonRepository.addAddon(configuredUrl)) {
                                     is AddAddonResult.Success -> {
                                         isInstalling = false
@@ -133,6 +133,32 @@ internal fun AddonConfigDialog(
                             }
                         },
                     )
+                    if (configuredUrl != addon.manifestUrl) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        TextButton(
+                            enabled = !isInstalling && canInstall,
+                            onClick = {
+                                isInstalling = true
+                                errorMessage = null
+                                scope.launch {
+                                    when (val result = AddonRepository.replaceAddon(addon.manifestUrl, configuredUrl)) {
+                                        is AddAddonResult.Success -> {
+                                            isInstalling = false
+                                            AddonDirectoryRepository.markInstalled(configuredUrl)
+                                            onDismiss()
+                                        }
+
+                                        is AddAddonResult.Error -> {
+                                            isInstalling = false
+                                            errorMessage = result.message
+                                        }
+                                    }
+                                }
+                            },
+                        ) {
+                            Text(stringResource(Res.string.addons_config_replace))
+                        }
+                    }
                     onOpenWebsite?.let { openWebsite ->
                         Spacer(modifier = Modifier.height(8.dp))
                         TextButton(onClick = openWebsite) {

@@ -46,6 +46,12 @@ object AddonDirectoryRepository {
                         payload = payload,
                         installedManifestUrls = installed,
                     )
+                        // Alphabetical, with what is already installed at the end: the order a
+                        // server happens to list its directory in should not read as random.
+                        .sortedWith(
+                            compareBy<AddonDirectoryEntry> { entry -> entry.isInstalled }
+                                .thenBy { entry -> entry.name.lowercase() },
+                        )
                 }
             }
             if (result.isFailure) {

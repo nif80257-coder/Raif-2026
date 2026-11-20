@@ -65,6 +65,36 @@ class AddonManifestExtrasTest {
     }
 
     @Test
+    fun `a directory repeated once per type folds into one entry per id`() {
+        val repeated = """
+            {
+              "id": "com.linvo.cinemeta",
+              "version": "3.0.14",
+              "name": "Cinemeta",
+              "resources": ["catalog", "meta", "addon_catalog"],
+              "types": ["movie", "series"],
+              "addonCatalogs": [
+                {"type": "all", "id": "official", "name": "Official"},
+                {"type": "movie", "id": "official", "name": "Official"},
+                {"type": "series", "id": "official", "name": "Official"},
+                {"type": "channel", "id": "official", "name": "Official"},
+                {"type": "all", "id": "community", "name": "Community"},
+                {"type": "movie", "id": "community", "name": "Community"},
+                {"type": "other", "id": "community", "name": "Community"}
+              ]
+            }
+        """.trimIndent()
+
+        val manifest = AddonManifestParser.parse(
+            manifestUrl = "https://v3-cinemeta.strem.io/manifest.json",
+            payload = repeated,
+        )
+
+        assertEquals(listOf("official", "community"), manifest.addonCatalogs.map { it.id })
+        assertEquals("all", manifest.addonCatalogs.first().type)
+    }
+
+    @Test
     fun `config fields keep their key and default and options`() {
         val manifest = AddonManifestParser.parse(
             manifestUrl = "https://example.com/manifest.json",

@@ -44,9 +44,15 @@ internal object AddonManifestParser {
         )
     }
 
-    /** The `addonCatalogs` array: `{type, id, name}` entries the source serves a directory for. */
-    private fun JsonObject.addonCatalogs(): List<AddonCatalogRef> =
-        array("addonCatalogs").mapNotNull { element ->
+    /**
+     * The `addonCatalogs` array: `{type, id, name}` entries the source serves a directory for.
+     *
+     * A source repeats the same directory once per type it covers — Cinemeta lists "official" and
+     * "community" eleven times between them — which read as eleven identical entries. The `all`
+     * entry, when there is one, covers every type, so the repeats fold into one entry per `id`.
+     */
+    private fun JsonObject.addonCatalogs(): List<AddonCatalogRef> {
+        val catalogs = array("addonCatalogs").mapNotNull { element ->
             val entry = element as? JsonObject ?: return@mapNotNull null
             val id = entry.optionalString("id")?.takeIf(String::isNotBlank) ?: return@mapNotNull null
             AddonCatalogRef(
@@ -55,6 +61,10 @@ internal object AddonManifestParser {
                 name = entry.optionalString("name")?.takeIf(String::isNotBlank) ?: id,
             )
         }
+        val allTypes = catalogs.filter { catalog -> catalog.type.equals("all", ignoreCase = true) }
+        val perType = catalogs.filterNot { catalog -> catalog.type.equals("all", ignoreCase = true) }
+        return (allTypes + perType).distinctBy { catalog -> catalog.id.lowercase() }
+    }
 
     /** The optional `config` array used by manifests that describe their own settings form. */
     private fun JsonObject.configFields(): List<AddonConfigField> =

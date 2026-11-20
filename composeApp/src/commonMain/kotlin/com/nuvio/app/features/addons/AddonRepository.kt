@@ -326,6 +326,50 @@ object AddonRepository {
         return AddAddonResult.Success(manifest)
     }
 
+    /**
+     * Saves new settings onto an installed source instead of adding a second copy.
+     *
+     * The configured manifest URL replaces the current one in the same position, keeping the
+     * source's name and enabled state, so a token or a filter can be changed from the app without
+     * the list growing a near-identical twin.
+     */
+    suspend fun replaceAddon(currentManifestUrl: String, rawNewUrl: String): AddAddonResult {
+        if (isUsingPrimaryAddonsFromSecondaryProfile()) {
+            return AddAddonResult.Error(getString(Res.string.profile_primary_addons_required))
+        }
+        val before = _uiState.value.addons
+        val oldIndex = before.indexOfFirst { addon -> addon.manifestUrl == currentManifestUrl }
+        val oldAddon = before.getOrNull(oldIndex) ?: return addAddon(rawNewUrl)
+
+        val added = addAddon(rawNewUrl)
+        if (added !is AddAddonResult.Success) return added
+        val newUrl = added.manifest.transportUrl
+        if (newUrl == currentManifestUrl) return added
+
+        _uiState.update { current ->
+            val withoutOld = current.addons.filterNot { addon ->
+                addon.manifestUrl == currentManifestUrl
+            }
+            val editedAddon = withoutOld.firstOrNull { addon -> addon.manifestUrl == newUrl }
+                ?: return@update current
+            val edited = editedAddon.copy(
+                userSetName = editedAddon.userSetName ?: oldAddon.userSetName,
+                enabled = oldAddon.enabled,
+            )
+            val others = withoutOld.filterNot { addon -> addon.manifestUrl == newUrl }
+            val insertAt = oldIndex.coerceIn(0, others.size)
+            current.copy(addons = others.toMutableList().apply { add(insertAt, edited) })
+        }
+        CachedManifestStore.remove(currentProfileId, currentManifestUrl)
+        persist()
+        queueAddonChanges(
+            changedManifestUrls = setOf(newUrl),
+            deletedManifestUrls = setOf(currentManifestUrl),
+        )
+        pushToServer()
+        return added
+    }
+
     fun removeAddon(manifestUrl: String) {
         if (isUsingPrimaryAddonsFromSecondaryProfile()) return
         log.i { "removeAddon() — removing installed add-on" }

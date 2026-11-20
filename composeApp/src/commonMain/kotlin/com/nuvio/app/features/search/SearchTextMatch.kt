@@ -19,12 +19,17 @@ private val ARABIC_DIACRITICS = charArrayOf(
 internal fun normalizeSearchText(value: String): String {
     val builder = StringBuilder(value.length)
     for (character in value) {
-        when (character) {
-            in ARABIC_DIACRITICS, '\u0640' -> Unit
-            '\u0622', '\u0623', '\u0625', '\u0627' -> builder.append('\u0627')
-            '\u0649' -> builder.append('\u064A')
-            '\u0629' -> builder.append('\u0647')
-            else -> builder.append(character.lowercaseChar())
+        when {
+            character in ARABIC_DIACRITICS || character == '\u0640' -> Unit
+            character == '\u0622' || character == '\u0623' || character == '\u0625' || character == '\u0627' ->
+                builder.append('\u0627')
+
+            character == '\u0649' -> builder.append('\u064A')
+            character == '\u0629' -> builder.append('\u0647')
+            // Punctuation and separators are word breaks, so "Spider-Man" and "Spider Man" both
+            // reduce to the same words instead of one title keeping a hyphen in the middle.
+            character.isLetterOrDigit() -> builder.append(character.lowercaseChar())
+            else -> builder.append(' ')
         }
     }
     return builder.toString()
@@ -45,7 +50,14 @@ internal fun searchWordScore(name: String, normalizedQuery: String): Int? {
 
     val words = normalizedQuery.split(' ').filter { word -> word.isNotBlank() }
     if (words.isEmpty()) return 0
-    if (words.any { word -> !normalizedName.contains(word) }) return null
+    // A title can be written with or without the space ("Spider-Man" / "Spiderman"), so the
+    // compact forms are compared as well before the title is called unrelated.
+    val compactName = normalizedName.replace(" ", "")
+    val compactQuery = normalizedQuery.replace(" ", "")
+    val allWordsPresent = words.all { word ->
+        normalizedName.contains(word) || compactName.contains(word)
+    }
+    if (!allWordsPresent && !compactName.contains(compactQuery)) return null
 
     var score = words.size * 10
     score += when {

@@ -2833,6 +2833,7 @@
     <string name="addons_repository_show">إظهار</string>
     <string name="addons_repository_hide">إخفاء</string>
     <string name="addons_repository_sources_count">%1$d مصدر</string>
+    <string name="addons_config_replace">حفظ على هذا المصدر</string>
     <string name="addons_group_user">إضافاتك</string>
     <string name="addons_built_in_count">%1$d مصدرًا، بالترتيب أدناه</string>
     <string name="addons_reset">إعادة الضبط</string>

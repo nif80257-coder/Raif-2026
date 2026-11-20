@@ -2862,6 +2862,7 @@
     <string name="addons_repository_show">Show</string>
     <string name="addons_repository_hide">Hide</string>
     <string name="addons_repository_sources_count">%1$d sources</string>
+    <string name="addons_config_replace">Save to this source</string>
     <string name="addons_group_user">Your sources</string>
     <string name="addons_built_in_count">%1$d sources, in the order below</string>
     <string name="addons_reset">Reset</string>
