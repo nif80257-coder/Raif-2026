@@ -609,6 +609,7 @@ struct PosterCard: View {
     var width: CGFloat = 132
     var progress: Double = 0
     var saved: Bool = false
+    var onLongClick: (() -> Void)? = nil
     let onOpen: () -> Void
 
     var body: some View {
@@ -661,6 +662,11 @@ struct PosterCard: View {
             .frame(width: width)
         }
         .buttonStyle(CinemaPressStyle())
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.45).onEnded { _ in
+                onLongClick?()
+            }
+        )
     }
 }
 
@@ -778,6 +784,19 @@ struct HeroCarousel: View {
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
         .frame(height: 440)
+        .overlay(alignment: .bottom) {
+            if items.count > 1 {
+                HStack(spacing: 5) {
+                    ForEach(0..<min(items.count, 6), id: \.self) { dot in
+                        Capsule()
+                            .fill(dot == index ? CinemaTheme.accent : Color.white.opacity(0.28))
+                            .frame(width: dot == index ? 16 : 6, height: 4)
+                            .animation(.easeInOut(duration: 0.2), value: index)
+                    }
+                }
+                .padding(.bottom, 12)
+            }
+        }
         .onChange(of: index) { value in
             guard items.indices.contains(value) else { return }
             Task {
@@ -944,6 +963,7 @@ final class HomeModel: ObservableObject {
                 UserDefaults.standard.set(data, forKey: cacheKey)
             }
             lastLoaded = Date()
+            CinemaxPrefs.markRefreshed()
             if loaded.isEmpty {
                 error = "لا كتالوجات بعد. ثبّت المصادر الجاهزة من الإعدادات ← الإضافات."
             }
@@ -1070,6 +1090,9 @@ struct CinematicHomeView: View {
                 Text("الرئيسية")
                     .font(.system(size: 34, weight: .heavy))
                     .foregroundStyle(.white)
+                Text(CinemaxPrefs.lastRefreshLabel)
+                    .font(.system(size: 11))
+                    .foregroundStyle(CinemaTheme.muted)
             }
             Spacer()
             Text(CinemaAPI.shared.versionLabel)
@@ -1295,16 +1318,37 @@ struct PlayerScreen: View {
                     )
                     .tint(CinemaTheme.accent)
 
-                    HStack {
+                    HStack(spacing: 18) {
+                        Button {
+                            Haptics.tap()
+                            seek(by: -10)
+                        } label: {
+                            Image(systemName: "gobackward.10")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 44, height: 44)
+                        }
+
                         Button {
                             playing.toggle()
                             if playing { player?.playPlayback() } else { player?.pausePlayback() }
                         } label: {
                             Image(systemName: playing ? "pause.fill" : "play.fill")
+                                .font(.system(size: 22, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 48, height: 48)
+                        }
+
+                        Button {
+                            Haptics.tap()
+                            seek(by: 10)
+                        } label: {
+                            Image(systemName: "goforward.10")
                                 .font(.system(size: 20, weight: .semibold))
                                 .foregroundStyle(.white)
                                 .frame(width: 44, height: 44)
                         }
+
                         Spacer()
                         Text("\(clock(position)) / \(clock(duration))")
                             .font(.system(size: 12, weight: .medium))
@@ -1352,6 +1396,7 @@ struct PlayerScreen: View {
             currentTitle = title
             currentVideoId = videoId
             currentVideoLabel = videoLabel
+            speed = CinemaxPrefs.defaultSpeed
             if let item {
                 startMs = await CinemaAPI.shared.resume(itemId: item.id, videoId: videoId)
             }
@@ -1364,8 +1409,9 @@ struct PlayerScreen: View {
         }
         .onChange(of: duration) { value in
             // The track list is only reliable once the file is demuxed.
-            if value > 0, subtitleTracks.isEmpty, audioTracks.isEmpty {
-                loadTracks()
+            if value > 0 {
+                if subtitleTracks.isEmpty, audioTracks.isEmpty { loadTracks() }
+                if speed != 1 { player?.setSpeed(speed) }
             }
         }
     }
@@ -1400,7 +1446,7 @@ struct PlayerScreen: View {
     /// the surface with it. Returns false when there is nothing after this one.
     @discardableResult
     private func playNext() -> Bool {
-        guard let next = upNext, let item else { return false }
+        guard let next = upNext else { return false }
         saveProgress()
         switching = true
         ticker?.invalidate()
@@ -1443,8 +1489,13 @@ struct PlayerScreen: View {
         }
     }
 
-    private func clock(_ seconds: Double) -> String {
-        let total = Int(seconds.rounded())
+    private func seek(by seconds: Double) {
+        guard duration > 0 else { return }
+        position = min(max(0, position + seconds), max(0, duration - 0.5))
+        player?.seekTo(Int64(position * 1000))
+    }
+
+    private func clock(_ seconds: Double) -> String {        let total = Int(seconds.rounded())
         let hours = total / 3600
         let minutes = (total % 3600) / 60
         let secs = total % 60
@@ -1614,6 +1665,7 @@ struct DetailView: View {
     @State private var playing: StreamChoice?
     @State private var qualityFilter: String?
     @State private var speeds: [String: Double] = [:]
+    @State private var shared = false
 
     private var playlist: [CinemaItem] {
         guard let detail = model.detail, !detail.episodes.isEmpty else { return [] }
@@ -1644,6 +1696,15 @@ struct DetailView: View {
                 }
             }
             topBar
+            if shared {
+                Text("تم نسخ الرابط")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .padding(.top, 54)
+            }
         }
         .task { await model.load(item: item) }
         .onChange(of: model.streams) { streams in
@@ -1667,9 +1728,13 @@ struct DetailView: View {
     }
 
     private var topBar: some View {
-        HStack {
+        HStack(spacing: 10) {
             CircleButton(system: "chevron.down") { dismiss() }
             Spacer()
+            CircleButton(system: "square.and.arrow.up") {
+                Haptics.tap()
+                share()
+            }
             CircleButton(system: saved ? "heart.fill" : "heart", tint: saved ? CinemaTheme.favourite : .white) {
                 onFavorite()
                 saved.toggle()
@@ -1765,8 +1830,45 @@ struct DetailView: View {
                     .foregroundStyle(.white.opacity(0.9))
                     .lineLimit(6)
             }
+
+            HStack(spacing: 14) {
+                if let episodes = model.detail?.episodes, !episodes.isEmpty {
+                    Label("\(episodes.count) حلقة", systemImage: "rectangle.stack")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(CinemaTheme.muted)
+                }
+                if let imdb = imdbID {
+                    Link(destination: URL(string: "https://www.imdb.com/title/\(imdb)/")!) {
+                        Label("IMDb", systemImage: "arrow.up.right.square")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.accent)
+                    }
+                }
+                Spacer()
+            }
         }
         .padding(.horizontal, 20)
+    }
+
+    private var imdbID: String? {
+        let id = model.detail?.item.id ?? item.id
+        return id.hasPrefix("tt") ? String(id.split(separator: ":").first ?? "") : nil
+    }
+
+    private func share() {
+        let id = model.detail?.item.id ?? item.id
+        let link: String
+        if let imdb = imdbID {
+            link = "https://www.imdb.com/title/\(imdb)/"
+        } else {
+            link = id
+        }
+        UIPasteboard.general.string = link
+        shared = true
+        Task {
+            try? await Task.sleep(nanoseconds: 1_600_000_000)
+            shared = false
+        }
     }
 
     private var episodes: some View {
@@ -2060,8 +2162,20 @@ struct SearchView: View {
     @ObservedObject private var model = SearchModel.shared
     @State private var detailItem: CinemaItem?
     @State private var searchTask: Task<Void, Never>?
+    @State private var history: [String] = CinemaxPrefs.searchHistory
+    @State private var kind = "all"
 
-    private let columns = [GridItem(.adaptive(minimum: 112), spacing: 12)]
+    private var columns: [GridItem] {
+        [GridItem(.adaptive(minimum: CinemaxPrefs.posterMinWidth), spacing: 12)]
+    }
+
+    private var visible: [CinemaItem] {
+        switch kind {
+        case "movie": return model.results.filter { $0.type == "movie" }
+        case "series": return model.results.filter { $0.type == "series" }
+        default: return model.results
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -2074,6 +2188,17 @@ struct SearchView: View {
                             .textFieldStyle(.plain)
                             .foregroundStyle(.white)
                             .submitLabel(.search)
+                        if !query.isEmpty {
+                            Button {
+                                Haptics.tap()
+                                query = ""
+                                model.results = []
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(CinemaTheme.muted)
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
@@ -2081,26 +2206,35 @@ struct SearchView: View {
                     .overlay(Capsule().strokeBorder(CinemaTheme.hairline, lineWidth: 1))
                     .padding(.horizontal, 20)
 
+                    if !history.isEmpty && query.isEmpty {
+                        recentSearches
+                    }
+
+                    kindChips
+
                     if model.loading {
                         ProgressView().tint(CinemaTheme.accent).padding(30)
                     } else if let error = model.error {
                         Text(error).font(.system(size: 13)).foregroundStyle(CinemaTheme.muted).padding(20)
-                    } else if model.results.isEmpty {
-                        VStack(spacing: 10) {
-                            Image(systemName: "sparkle.magnifyingglass")
-                                .font(.system(size: 30, weight: .light))
-                                .foregroundStyle(CinemaTheme.accent)
-                            Text("اكتب حرفين على الأقل للبحث في كل إضافاتك")
-                                .font(.system(size: 14))
-                                .foregroundStyle(CinemaTheme.muted)
-                                .multilineTextAlignment(.center)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 60)
+                    } else if visible.isEmpty {
+                        emptyState
                     } else {
+                        Text("\(visible.count) نتيجة")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(CinemaTheme.muted)
+                            .padding(.horizontal, 20)
                         LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
-                            ForEach(model.results) { item in
-                                PosterCard(item: item, width: 112, onOpen: { detailItem = item })
+                            ForEach(visible) { item in
+                                PosterCard(
+                                    item: item,
+                                    width: CinemaxPrefs.posterMinWidth,
+                                    saved: HomeModel.shared.favorites.contains(item.id),
+                                    onLongClick: {
+                                        Haptics.tap()
+                                        HomeModel.shared.toggle(item)
+                                    },
+                                    onOpen: { detailItem = item }
+                                )
                             }
                         }
                         .padding(.horizontal, 20)
@@ -2117,10 +2251,89 @@ struct SearchView: View {
                     try? await Task.sleep(nanoseconds: 550_000_000)
                     guard !Task.isCancelled else { return }
                     await model.run(value)
+                    if value.trimmingCharacters(in: .whitespaces).count >= 2, !model.results.isEmpty {
+                        CinemaxPrefs.rememberSearch(value)
+                        history = CinemaxPrefs.searchHistory
+                    }
                 }
             }
         }
         .fullScreenCover(item: $detailItem) { DetailView(item: $0) }
+    }
+
+    private var recentSearches: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("آخر ما بحثت عنه")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(CinemaTheme.muted)
+                Spacer()
+                Button("مسح") {
+                    CinemaxPrefs.clearSearchHistory()
+                    history = []
+                }
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(CinemaTheme.muted)
+            }
+            .padding(.horizontal, 20)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(history, id: \.self) { entry in
+                        Button {
+                            Haptics.select()
+                            query = entry
+                        } label: {
+                            Text(entry)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(CinemaTheme.surface, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
+        }
+    }
+
+    private var kindChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach([("all", "الكل"), ("movie", "أفلام"), ("series", "مسلسلات")], id: \.0) { entry in
+                    Button {
+                        Haptics.select()
+                        withAnimation(.easeInOut(duration: 0.15)) { kind = entry.0 }
+                    } label: {
+                        Text(entry.1)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(kind == entry.0 ? .black : .white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 7)
+                            .background {
+                                Capsule().fill(kind == entry.0 ? CinemaTheme.accent : Color.white.opacity(0.08))
+                            }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 20)
+        }
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "sparkle.magnifyingglass")
+                .font(.system(size: 30, weight: .light))
+                .foregroundStyle(CinemaTheme.accent)
+            Text(query.isEmpty ? "اكتب حرفين على الأقل للبحث في كل إضافاتك" : "لا نتائج لهذا البحث")
+                .font(.system(size: 14))
+                .foregroundStyle(CinemaTheme.muted)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 60)
     }
 }
 
@@ -2145,8 +2358,31 @@ final class LibraryModel: ObservableObject {
 struct LibraryView: View {
     @ObservedObject private var model = LibraryModel.shared
     @State private var detailItem: CinemaItem?
+    @State private var sort = "recent"
+    @State private var query = ""
 
-    private let columns = [GridItem(.adaptive(minimum: 112), spacing: 12)]
+    private var columns: [GridItem] {
+        [GridItem(.adaptive(minimum: CinemaxPrefs.posterMinWidth), spacing: 12)]
+    }
+
+    private var favorites: [CinemaItem] {
+        let text = query.trimmingCharacters(in: .whitespaces)
+        let filtered = text.isEmpty
+            ? model.favorites
+            : model.favorites.filter { $0.name.localizedCaseInsensitiveContains(text) }
+        switch sort {
+        case "az": return filtered.sorted { $0.name < $1.name }
+        default: return filtered
+        }
+    }
+
+    private var progress: [ProgressItem] {
+        let text = query.trimmingCharacters(in: .whitespaces)
+        let filtered = text.isEmpty
+            ? model.progress
+            : model.progress.filter { $0.item.name.localizedCaseInsensitiveContains(text) }
+        return sort == "az" ? filtered.sorted { $0.item.name < $1.item.name } : filtered
+    }
 
     var body: some View {
         NavigationStack {
@@ -2159,23 +2395,58 @@ struct LibraryView: View {
                     .pickerStyle(.segmented)
                     .padding(.horizontal, 20)
 
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 12))
+                            .foregroundStyle(CinemaTheme.muted)
+                        TextField("ابحث في مكتبتك", text: $query)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white)
+                        Button {
+                            Haptics.select()
+                            withAnimation(.easeInOut(duration: 0.15)) { sort = sort == "az" ? "recent" : "az" }
+                        } label: {
+                            Text(sort == "az" ? "أبجدي" : "الأحدث")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(CinemaTheme.accent)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(CinemaTheme.accent.opacity(0.14), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(CinemaTheme.surface, in: Capsule())
+                    .padding(.horizontal, 20)
+
                     if model.segment == 0 {
-                        if model.favorites.isEmpty {
+                        if favorites.isEmpty {
                             empty("لا شيء محفوظ بعد", "اضغط ♥ على أي عنوان ليظهر هنا.")
                         } else {
                             LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
-                                ForEach(model.favorites) { item in
-                                    PosterCard(item: item, width: 112, saved: true, onOpen: { detailItem = item })
+                                ForEach(favorites) { item in
+                                    PosterCard(
+                                        item: item,
+                                        width: CinemaxPrefs.posterMinWidth,
+                                        saved: true,
+                                        onLongClick: {
+                                            Haptics.tap()
+                                            removeFavorite(item)
+                                        },
+                                        onOpen: { detailItem = item }
+                                    )
                                 }
                             }
                             .padding(.horizontal, 20)
                         }
                     } else {
-                        if model.progress.isEmpty {
+                        if progress.isEmpty {
                             empty("لا شيء قيد المشاهدة", "أي فيلم تبدأه يظهر هنا مع موضع التوقف.")
                         } else {
                             LazyVStack(spacing: 12) {
-                                ForEach(model.progress) { entry in
+                                ForEach(progress) { entry in
                                     ContinueCard(entry: entry) { detailItem = entry.item }
                                 }
                             }
@@ -2192,6 +2463,12 @@ struct LibraryView: View {
             .refreshable { await model.load() }
         }
         .fullScreenCover(item: $detailItem) { DetailView(item: $0) }
+    }
+
+    private func removeFavorite(_ item: CinemaItem) {
+        _ = CinemaAPI.shared.toggleFavorite(item)
+        model.favorites.removeAll { $0.id == item.id }
+        HomeModel.shared.favorites.remove(item.id)
     }
 
     private func empty(_ title: String, _ subtitle: String) -> some View {
@@ -3171,6 +3448,7 @@ struct AppearanceSettings: View {
 
 struct LayoutSettings: View {
     @AppStorage("cinemax.design") private var design = "cinematic"
+    @State private var posterWidth = Int(CinemaxPrefs.posterMinWidth)
 
     private let options: [(id: String, title: String, detail: String)] = [
         ("cinematic", "سينمائي زجاجي", "هيرو بعرض الشاشة ووهج بلون البوستر وصفوف بوسترات"),
@@ -3178,45 +3456,80 @@ struct LayoutSettings: View {
         ("panorama", "بانورامي", "خلفية واحدة غامرة ثم بطاقات عريضة 16:9")
     ]
 
+    private let densities: [(width: Int, title: String)] = [
+        (128, "كبيرة"), (112, "متوسطة"), (96, "صغيرة")
+    ]
+
     var body: some View {
         ScrollView(showsIndicators: false) {
-            VStack(spacing: 10) {
-                ForEach(options, id: \.id) { option in
-                    Button {
-                        Haptics.select()
-                        withAnimation(.easeInOut(duration: 0.2)) { design = option.id }
-                    } label: {
-                        HStack(spacing: 12) {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(option.title)
-                                    .font(.system(size: 15, weight: .semibold))
-                                    .foregroundStyle(.white)
-                                Text(option.detail)
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(CinemaTheme.muted)
-                                    .multilineTextAlignment(.leading)
+            VStack(alignment: .leading, spacing: 22) {
+                VStack(spacing: 10) {
+                    ForEach(options, id: \.id) { option in
+                        Button {
+                            Haptics.select()
+                            withAnimation(.easeInOut(duration: 0.2)) { design = option.id }
+                        } label: {
+                            HStack(spacing: 12) {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(option.title)
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundStyle(.white)
+                                    Text(option.detail)
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(CinemaTheme.muted)
+                                        .multilineTextAlignment(.leading)
+                                }
+                                Spacer()
+                                Image(systemName: design == option.id ? "checkmark.circle.fill" : "circle")
+                                    .font(.system(size: 20))
+                                    .foregroundStyle(design == option.id ? CinemaTheme.accent : CinemaTheme.muted)
                             }
-                            Spacer()
-                            Image(systemName: design == option.id ? "checkmark.circle.fill" : "circle")
-                                .font(.system(size: 20))
-                                .foregroundStyle(design == option.id ? CinemaTheme.accent : CinemaTheme.muted)
+                            .padding(14)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(
+                                design == option.id ? CinemaTheme.accent.opacity(0.14) : CinemaTheme.surface,
+                                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .strokeBorder(
+                                        design == option.id ? CinemaTheme.accent.opacity(0.6) : CinemaTheme.hairline,
+                                        lineWidth: 1
+                                    )
+                            )
                         }
-                        .padding(14)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(
-                            design == option.id ? CinemaTheme.accent.opacity(0.14) : CinemaTheme.surface,
-                            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .strokeBorder(
-                                    design == option.id ? CinemaTheme.accent.opacity(0.6) : CinemaTheme.hairline,
-                                    lineWidth: 1
-                                )
-                        )
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("حجم البوسترات في الشبكات")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.muted)
+                    HStack(spacing: 8) {
+                        ForEach(densities, id: \.width) { entry in
+                            Button {
+                                Haptics.select()
+                                posterWidth = entry.width
+                                CinemaxPrefs.setPosterWidth(entry.width)
+                            } label: {
+                                Text(entry.title)
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(posterWidth == entry.width ? .black : .white)
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 9)
+                                    .background {
+                                        Capsule().fill(
+                                            posterWidth == entry.width ? CinemaTheme.accent : Color.white.opacity(0.08)
+                                        )
+                                    }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .padding(16)
+                .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             }
             .padding(20)
         }
@@ -3228,6 +3541,9 @@ struct LayoutSettings: View {
 
 struct PlaybackSettings: View {
     @AppStorage("cinemax.autoplayNext") private var autoplayNext = true
+    @AppStorage("cinemax.defaultSpeed") private var defaultSpeed = 1.0
+
+    private let speeds: [Double] = [0.75, 1, 1.25, 1.5]
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -3243,6 +3559,34 @@ struct PlaybackSettings: View {
                     }
                 }
                 .tint(CinemaTheme.accent)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("سرعة التشغيل الافتراضية")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.muted)
+                    HStack(spacing: 8) {
+                        ForEach(speeds, id: \.self) { value in
+                            Button {
+                                Haptics.select()
+                                defaultSpeed = value
+                            } label: {
+                                Text(value == 1 ? "عادي" : String(format: "%g×", value))
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(abs(defaultSpeed - value) < 0.01 ? .black : .white)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 8)
+                                    .background {
+                                        Capsule().fill(
+                                            abs(defaultSpeed - value) < 0.01
+                                                ? CinemaTheme.accent
+                                                : Color.white.opacity(0.08)
+                                        )
+                                    }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
 
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
@@ -3283,6 +3627,19 @@ struct AboutSettings: View {
                 Text("التطبيق لا يستضيف أي وسائط؛ يعرض ما تجلبه إضافاتك.")
                     .font(.system(size: 11))
                     .foregroundStyle(CinemaTheme.muted)
+
+                Divider().overlay(CinemaTheme.hairline)
+
+                Text("البيانات الوصفية والصور من TMDB، وتُستخدم وفق شروط استخدامهم. المصادر من إضافات Stremio التي تضيفها بنفسك.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(CinemaTheme.muted)
+                    .lineSpacing(4)
+
+                Link(destination: URL(string: "https://www.themoviedb.org/")!) {
+                    Text("themoviedb.org")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.accent)
+                }
             }
             .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -3421,6 +3778,18 @@ struct AddonsSettings: View {
                             Spacer()
                             Button {
                                 Haptics.tap()
+                                UIPasteboard.general.string = addon.url
+                                message = "نُسخ رابط \(addon.name)"
+                            } label: {
+                                Image(systemName: "doc.on.doc")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(CinemaTheme.muted)
+                                    .frame(width: 32, height: 32)
+                                    .background(CinemaTheme.elevated, in: Circle())
+                            }
+                            .buttonStyle(.plain)
+                            Button {
+                                Haptics.tap()
                                 CinemaAPI.shared.removeAddon(addon.url)
                                 addons.removeAll { $0.url == addon.url }
                                 message = "أُزيلت \(addon.name)"
@@ -3500,8 +3869,12 @@ struct AddonsSettings: View {
     }
 
     private func load() async {
-        addons = await CinemaAPI.shared.installedAddons()
-        suggested = await CinemaAPI.shared.suggestedAddons()
+        addons = await CinemaAPI.shared.installedAddons().sorted {
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+        suggested = await CinemaAPI.shared.suggestedAddons().sorted {
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
     }
 
     private func install(_ url: String) async {
@@ -3542,6 +3915,7 @@ struct DataSettings: View {
     @State private var progress = 0
     @State private var favorites = 0
     @State private var message: String?
+    @AppStorage("cinemax.notifications") private var notifications = true
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -3575,6 +3949,37 @@ struct DataSettings: View {
                 }
                 .padding(.horizontal, 14)
                 .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+                VStack(spacing: 0) {
+                    Toggle(isOn: $notifications) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("تنبيهات الحلقات")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(.white)
+                            Text("تذكير بالحلقات الجديدة من عناوينك")
+                                .font(.system(size: 11))
+                                .foregroundStyle(CinemaTheme.muted)
+                        }
+                    }
+                    .tint(CinemaTheme.accent)
+                    .padding(.vertical, 12)
+                }
+                .padding(.horizontal, 14)
+                .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+                Button {
+                    Haptics.tap()
+                    CinemaxPrefs.resetAll()
+                    message = "أُعيدت إعدادات المظهر والتشغيل إلى الافتراضي"
+                } label: {
+                    Text("إعادة كل الإعدادات للافتراضي")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.favourite)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 13)
+                        .background(CinemaTheme.favourite.opacity(0.12), in: Capsule())
+                }
+                .buttonStyle(.plain)
 
                 if let message {
                     Text(message)
@@ -3695,5 +4100,78 @@ struct TmdbSettings: View {
         .navigationTitle("TMDB")
         .navigationBarTitleDisplayMode(.inline)
         .task { key = CinemaAPI.shared.tmdbKey }
+    }
+}
+
+
+// MARK: - Preferences shared by the screens
+
+/// The small preferences the interface keeps in UserDefaults, so the settings
+/// screens and the views that use them agree without extra plumbing.
+enum CinemaxPrefs {
+    private static let posterWidthKey = "cinemax.posterWidth"
+    private static let historyKey = "cinemax.search.history"
+    private static let lastRefreshKey = "cinemax.lastRefresh"
+
+    /// The width of a poster in grids, driven by the library density setting.
+    static var posterMinWidth: CGFloat {
+        let stored = UserDefaults.standard.integer(forKey: posterWidthKey)
+        return stored == 0 ? 112 : CGFloat(stored)
+    }
+
+    static func setPosterWidth(_ value: Int) {
+        UserDefaults.standard.set(value, forKey: posterWidthKey)
+    }
+
+    static var defaultSpeed: Double {
+        let stored = UserDefaults.standard.double(forKey: "cinemax.defaultSpeed")
+        return stored == 0 ? 1 : stored
+    }
+
+    static var notifications: Bool {
+        (UserDefaults.standard.object(forKey: "cinemax.notifications") as? Bool) ?? true
+    }
+
+    static var searchHistory: [String] {
+        UserDefaults.standard.stringArray(forKey: historyKey) ?? []
+    }
+
+    static func rememberSearch(_ query: String) {
+        let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text.count >= 2 else { return }
+        var items = searchHistory.filter { $0.caseInsensitiveCompare(text) != .orderedSame }
+        items.insert(text, at: 0)
+        UserDefaults.standard.set(Array(items.prefix(10)), forKey: historyKey)
+    }
+
+    static func clearSearchHistory() {
+        UserDefaults.standard.removeObject(forKey: historyKey)
+    }
+
+    static var lastRefresh: Date? {
+        UserDefaults.standard.object(forKey: lastRefreshKey) as? Date
+    }
+
+    static func markRefreshed() {
+        UserDefaults.standard.set(Date(), forKey: lastRefreshKey)
+    }
+
+    static var lastRefreshLabel: String {
+        guard let date = lastRefresh else { return "لم يُحدَّث بعد" }
+        let minutes = Int(Date().timeIntervalSince(date) / 60)
+        if minutes < 1 { return "حُدّث الآن" }
+        if minutes < 60 { return "حُدّث قبل \(minutes) د" }
+        let hours = minutes / 60
+        return hours < 24 ? "حُدّث قبل \(hours) س" : "حُدّث أمس"
+    }
+
+    static func resetAll() {
+        for key in [
+            "cinemax.accent", "cinemax.oled", "cinemax.reduceMotion", "cinemax.autoplayNext",
+            "cinemax.design", posterWidthKey, "cinemax.defaultSpeed", "cinemax.notifications",
+            historyKey, lastRefreshKey
+        ] {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
     }
 }
