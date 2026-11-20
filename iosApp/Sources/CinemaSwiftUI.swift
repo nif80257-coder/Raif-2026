@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import Network
+import SafariServices
 import UserNotifications
 import CinemaxKit
 
@@ -1524,6 +1525,8 @@ struct PlayerScreen: View {
     var videoLabel: String? = nil
     /// The addon and quality this link came from, shown under the title.
     var sourceNote: String? = nil
+    /// Every source the detail page found, so a dead link can be replaced in place.
+    var sources: [StreamChoice] = []
     /// The whole episode list, so the player can roll into the next one.
     var episodes: [CinemaItem] = []
     var type: String = "series"
@@ -1559,6 +1562,11 @@ struct PlayerScreen: View {
     /// Tapping the picture hides every control, for a clean full-screen frame.
     @State private var controlsVisible = true
     @State private var showRemaining = false
+    @State private var pool: [StreamChoice] = []
+    @State private var poolIndex = 0
+    @State private var playToken = 0
+    @State private var autoTries = 0
+    @State private var playerError: String?
     @State private var currentURL = ""
     @State private var currentTitle = ""
     @State private var currentVideoId: String?
@@ -1588,7 +1596,7 @@ struct PlayerScreen: View {
             Color.black.ignoresSafeArea()
             if ready {
                 MPVSurface(url: currentURL, startMs: startMs, controller: $player)
-                    .id(currentURL + "-" + String(startMs))
+                    .id(currentURL + "-" + String(startMs) + "-" + String(playToken))
                     .ignoresSafeArea()
                     .contentShape(Rectangle())
                     .onTapGesture {
@@ -1761,15 +1769,60 @@ struct PlayerScreen: View {
             }
             .opacity(controlsVisible ? 1 : 0)
             .allowsHitTesting(controlsVisible)
+            if let message = playerError, duration <= 1 {
+                VStack(spacing: 14) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 26, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.favourite)
+                    Text("تعذّر تشغيل هذا المصدر")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(.white)
+                    Text(message)
+                        .font(.system(size: 11))
+                        .foregroundStyle(CinemaTheme.muted)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(3)
+                    HStack(spacing: 10) {
+                        Button("أعد المحاولة") { retryPlayback() }
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            .background(CinemaTheme.accent, in: Capsule())
+                            .buttonStyle(.plain)
+                        if pool.count > 1 {
+                            Button("مصدر آخر") { playNextSource() }
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 10)
+                                .background(Color.white.opacity(0.12), in: Capsule())
+                                .buttonStyle(.plain)
+                        }
+                        Button("إغلاق") { dismiss() }
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.muted)
+                            .buttonStyle(.plain)
+                    }
+                }
+                .padding(22)
+                .frame(maxWidth: 330)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .strokeBorder(CinemaTheme.hairline, lineWidth: 1)
+                )
+            }
             if showOptions {
                 PlayerOptionsPanel(
-                    subtitleTracks: subtitleTracks,
-                    audioTracks: audioTracks,
+                    subtitleTracks: subtitleTracks,                    audioTracks: audioTracks,
                     speed: speed,
                     subtitlesOff: subtitlesOff,
                     subtitleDelay: subtitleDelay,
                     subtitleSize: subtitleSize,
                     externalSubtitle: externalSubtitle,
+                    sourceLabel: currentSourceLabel,
+                    canSwitchSource: pool.count > 1,
                     volume: volume,
                     brightness: brightness,
                     aspect: aspect,
@@ -1835,7 +1888,8 @@ struct PlayerScreen: View {
                     },
                     onSubtitleLink: { value in
                         applySubtitleLink(value)
-                    }
+                    },
+                    onNextSource: { playNextSource() }
                 )
             }
         }
@@ -1862,7 +1916,13 @@ struct PlayerScreen: View {
         }
         .task {
             UIApplication.shared.isIdleTimerDisabled = true
-            currentURL = url
+            if sources.isEmpty {
+                currentURL = url
+            } else {
+                pool = sources
+                poolIndex = sources.firstIndex { $0.url == url } ?? 0
+                currentURL = sources[poolIndex].url
+            }
             currentTitle = title
             currentVideoId = videoId
             currentVideoLabel = videoLabel
@@ -2016,6 +2076,17 @@ struct PlayerScreen: View {
                 tickSleepTimer()
                 guard let player else { return }
                 player.refreshState()
+                // A link that never produced a duration is the one case worth
+                // reporting: the next source is tried on its own a couple of times
+                // first, then the viewer gets the error and the choice.
+                if player.durationMs == 0, !player.errorMessage.isEmpty {
+                    if pool.count > 1, autoTries < min(pool.count - 1, 3) {
+                        autoTries += 1
+                        playNextSource()
+                        return
+                    }
+                    playerError = player.errorMessage
+                }
                 position = Double(player.positionMs) / 1000
                 duration = max(1, Double(player.durationMs) / 1000)
                 if player.ended {
@@ -2025,6 +2096,38 @@ struct PlayerScreen: View {
                 }
             }
         }
+    }
+
+    private var currentSourceLabel: String? {
+        guard pool.indices.contains(poolIndex) else { return sourceNote }
+        let choice = pool[poolIndex]
+        let parts = [choice.addon, choice.quality].compactMap { $0 }
+        return parts.isEmpty ? sourceNote : parts.joined(separator: " · ")
+    }
+
+    /// Rebuilds the surface for the same link, for a stream that stalled on open.
+    private func retryPlayback() {
+        playerError = nil
+        autoTries = 0
+        playToken += 1
+        Haptics.tap()
+    }
+
+    /// Steps to the next source in the same list, the quickest cure for a dead link.
+    private func playNextSource() {
+        guard pool.count > 1 else { return }
+        saveProgress()
+        poolIndex = (poolIndex + 1) % pool.count
+        playerError = nil
+        autoTries = 0
+        position = 0
+        duration = 0
+        startMs = 0
+        currentURL = pool[poolIndex].url
+        playToken += 1
+        ticker?.invalidate()
+        startTicker()
+        Haptics.tap()
     }
 
     /// Loads a subtitle the viewer found elsewhere. libmpv fetches http links itself,
@@ -2091,6 +2194,8 @@ struct PlayerOptionsPanel: View {
     let subtitleDelay: Double
     let subtitleSize: String
     let externalSubtitle: String?
+    let sourceLabel: String?
+    let canSwitchSource: Bool
     let volume: Double
     let brightness: Double
     let aspect: String
@@ -2108,6 +2213,7 @@ struct PlayerOptionsPanel: View {
     let onAspect: (String) -> Void
     let onSleep: (Int?) -> Void
     let onSubtitleLink: (String) -> Void
+    let onNextSource: () -> Void
 
     private let speeds: [Double] = [0.5, 0.75, 1, 1.25, 1.5, 2]
     @State private var subtitleLink = ""
@@ -2338,6 +2444,27 @@ struct PlayerOptionsPanel: View {
                             .frame(width: 40)
                     }
 
+                    if let sourceLabel {
+                        HStack(spacing: 8) {
+                            Image(systemName: "antenna.radiowaves.left.and.right")
+                                .font(.system(size: 11))
+                                .foregroundStyle(CinemaTheme.muted)
+                            Text(sourceLabel)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(CinemaTheme.muted)
+                                .lineLimit(1)
+                            Spacer()
+                            if canSwitchSource {
+                                Button("مصدر آخر") { onNextSource() }
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(CinemaTheme.accent)
+                                    .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                    }
+
                     HStack(spacing: 6) {
                         label("مؤقت النوم")
                         Spacer()
@@ -2536,6 +2663,7 @@ struct DetailView: View {
     @State private var playing: StreamChoice?
     @State private var qualityFilter: String?
     @State private var addonFilter: String?
+    @AppStorage("cinemax.sourcesCollapsed") private var sourcesCollapsed = false
     @State private var speeds: [String: Double] = [:]
     @State private var shared = false
     @State private var marked = false
@@ -2616,6 +2744,7 @@ struct DetailView: View {
                 videoId: episode?.id,
                 videoLabel: episode?.name,
                 sourceNote: [choice.addon, choice.quality].compactMap { $0 }.joined(separator: " · "),
+                sources: filteredStreams,
                 episodes: model.detail?.episodes ?? [],
                 type: item.type
             )
@@ -3116,12 +3245,35 @@ struct DetailView: View {
 
     private var sources: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(
-                title: episode == nil
-                    ? "مصادر المشاهدة (\(model.streams.count))"
-                    : "مصادر \(episode?.name ?? "") (\(model.streams.count))"
-            )
-            if model.loadingStreams {
+            Button {
+                Haptics.select()
+                withAnimation(.easeInOut(duration: 0.2)) { sourcesCollapsed.toggle() }
+            } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(
+                        episode == nil
+                            ? "مصادر المشاهدة (\(model.streams.count))"
+                            : "مصادر \(episode?.name ?? "") (\(model.streams.count))"
+                    )
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(.white)
+                    Image(systemName: sourcesCollapsed ? "chevron.left" : "chevron.up")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(CinemaTheme.muted)
+                    Spacer()
+                    Text(sourcesCollapsed ? "إظهار" : "إخفاء")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.accent)
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 18)
+                .padding(.bottom, 2)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if sourcesCollapsed {
+                EmptyView()
+            } else if model.loadingStreams {
                 HStack(spacing: 8) {
                     ProgressView().tint(CinemaTheme.accent)
                     Text("جارٍ جلب المصادر…")
@@ -3301,6 +3453,7 @@ struct SearchView: View {
     @State private var searchTask: Task<Void, Never>?
     @State private var history: [String] = CinemaxPrefs.searchHistory
     @State private var kind = "all"
+    @State private var sort = "best"
 
     private var columns: [GridItem] {
         [GridItem(.adaptive(minimum: CinemaxPrefs.posterMinWidth), spacing: 12)]
@@ -3313,6 +3466,41 @@ struct SearchView: View {
         case "channel": return model.results.filter { $0.type == "channel" || $0.type == "tv" }
         default: return model.results
         }
+    }
+
+    /// Best match first: prefix, then contained, then word matches, then rating.
+    private var ranked: [CinemaItem] {
+        let list = visible
+        switch sort {
+        case "az":
+            return list.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+        case "new":
+            return list.sorted { yearValue($0) > yearValue($1) }
+        default:
+            return list.sorted { score($0) > score($1) }
+        }
+    }
+
+    private func yearValue(_ item: CinemaItem) -> Int {
+        guard let raw = item.releaseInfo else { return 0 }
+        return Int(raw.prefix(4)) ?? 0
+    }
+
+    private func score(_ item: CinemaItem) -> Double {
+        let text = query.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !text.isEmpty else { return 0 }
+        let name = item.name.lowercased()
+        var value = 0.0
+        if name.hasPrefix(text) { value += 6 }
+        if name.contains(text) { value += 4 }
+        for token in text.split(separator: " ") where name.contains(token) {
+            value += 1.5
+        }
+        if let rating = item.rating,
+           let number = Double(rating.replacingOccurrences(of: ",", with: ".")) {
+            value += number / 10
+        }
+        return value
     }
 
     var body: some View {
@@ -3362,19 +3550,21 @@ struct SearchView: View {
 
                     kindChips
 
+                    sortChips
+
                     if model.loading {
                         ProgressView().tint(CinemaTheme.accent).padding(30)
                     } else if let error = model.error {
                         Text(error).font(.system(size: 13)).foregroundStyle(CinemaTheme.muted).padding(20)
-                    } else if visible.isEmpty {
+                    } else if ranked.isEmpty {
                         emptyState
                     } else {
-                        Text("\(visible.count) نتيجة")
+                        Text("\(ranked.count) نتيجة")
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(CinemaTheme.muted)
                             .padding(.horizontal, 20)
                         LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
-                            ForEach(visible) { item in
+                            ForEach(ranked) { item in
                                 PosterCard(
                                     item: item,
                                     width: CinemaxPrefs.posterMinWidth,
@@ -3463,6 +3653,32 @@ struct SearchView: View {
                             .padding(.vertical, 7)
                             .background {
                                 Capsule().fill(kind == entry.0 ? CinemaTheme.accent : Color.white.opacity(0.08))
+                            }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 20)
+        }
+    }
+
+    private var sortChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach([("best", "الأفضل"), ("new", "الأحدث"), ("az", "أبجدي")], id: \.0) { entry in
+                    Button {
+                        Haptics.select()
+                        withAnimation(.easeInOut(duration: 0.15)) { sort = entry.0 }
+                    } label: {
+                        Text(entry.1)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(sort == entry.0 ? .black : .white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background {
+                                Capsule().fill(
+                                    sort == entry.0 ? CinemaTheme.accent : Color.white.opacity(0.08)
+                                )
                             }
                     }
                     .buttonStyle(.plain)
@@ -5463,6 +5679,39 @@ struct AboutSettings: View {
     }
 }
 
+/// A web page the app shows in place, for an addon's own settings screen.
+struct SafariTarget: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
+struct SafariView: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> SFSafariViewController {
+        let controller = SFSafariViewController(url: url)
+        controller.preferredControlTintColor = UIColor(CinemaTheme.accent)
+        controller.dismissButtonStyle = .close
+        return controller
+    }
+
+    func updateUIViewController(_ controller: SFSafariViewController, context: Context) {}
+}
+
+/// Stremio addons serve their settings at /configure beside their manifest.
+func addonConfigureURL(_ manifest: String) -> URL? {
+    guard var components = URLComponents(string: manifest) else { return nil }
+    var path = components.path
+    if path.hasSuffix("/") { path.removeLast() }
+    if path.hasSuffix("manifest.json") {
+        path = String(path.dropLast("manifest.json".count))
+    }
+    components.path = path + "configure"
+    components.query = nil
+    components.fragment = nil
+    return components.url
+}
+
 struct AddonsSettings: View {
     @State private var addons: [InstalledAddonRow] = []
     @State private var suggested: [SuggestedAddonRow] = []
@@ -5475,6 +5724,7 @@ struct AddonsSettings: View {
     @State private var checks: [String: AddonCheckRow] = [:]
     @State private var checking = false
     @State private var updating: String?
+    @State private var configTarget: SafariTarget?
 
     private var visibleSuggested: [SuggestedAddonRow] {
         let text = query.trimmingCharacters(in: .whitespaces)
@@ -5575,6 +5825,15 @@ struct AddonsSettings: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
         .refreshable { await load() }
+        .sheet(item: $configTarget) { target in
+            SafariView(url: target.url)
+                .ignoresSafeArea()
+                .onDisappear {
+                    // The addon may have rewritten its manifest, so start over.
+                    HomeModel.shared.resetCache()
+                    Task { await load() }
+                }
+        }
     }
 
     private var summary: some View {
@@ -5666,14 +5925,18 @@ struct AddonsSettings: View {
                                     .background(CinemaTheme.elevated, in: Circle())
                             }
                             .buttonStyle(.plain)
-                            if let page = URL(string: addon.url) {
-                                Link(destination: page) {
-                                    Image(systemName: "safari")
+                            if let configure = addonConfigureURL(addon.url) {
+                                Button {
+                                    Haptics.tap()
+                                    configTarget = SafariTarget(url: configure)
+                                } label: {
+                                    Image(systemName: "gearshape")
                                         .font(.system(size: 12, weight: .semibold))
-                                        .foregroundStyle(CinemaTheme.muted)
+                                        .foregroundStyle(CinemaTheme.accent)
                                         .frame(width: 32, height: 32)
                                         .background(CinemaTheme.elevated, in: Circle())
                                 }
+                                .buttonStyle(.plain)
                             }
                             Button {
                                 Haptics.tap()

@@ -384,6 +384,13 @@ final class MPVViewController: UIViewController {
         setOption(ctx, "stream-lavf-o", "reconnect=1,reconnect_streamed=1,reconnect_delay_max=5")
         setOption(ctx, "vd-lavc-threads", "4")
         setOption(ctx, "audio-buffer", "0.3")
+        // Pausing until the cache is healthy stops the picture from stalling on a
+        // source that starts fast and then crawls, and a seekable cache lets the
+        // viewer scrub a file served over plain HTTP.
+        setOption(ctx, "cache-pause", "yes")
+        setOption(ctx, "cache-pause-wait", "2")
+        setOption(ctx, "force-seekable", "yes")
+        setOption(ctx, "demuxer-seekable-cache", "yes")
 
         if mpv_initialize(ctx) < 0 {
             errorText = "تعذر تشغيل مشغل MPV"
