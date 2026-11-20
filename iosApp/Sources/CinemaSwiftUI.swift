@@ -917,6 +917,16 @@ final class HomeModel: ObservableObject {
         loading = false
     }
 
+    /// Forgets the cached catalogues and forces the next visit to refetch, used
+    /// after an addon is installed or removed.
+    func resetCache() {
+        UserDefaults.standard.removeObject(forKey: cacheKey)
+        lastLoaded = nil
+        shelves = []
+        loading = true
+        Task { await load(force: true) }
+    }
+
     private func refreshPersonal() async {
         async let progressTask = CinemaAPI.shared.progress()
         async let favoritesTask = CinemaAPI.shared.favorites()
@@ -2161,7 +2171,9 @@ struct LibraryView: View {
 
 // MARK: - Settings
 
-struct SettingsView: View {
+/// The previous single-scroll settings page, kept as the source of the cards the
+/// new grouped screens reuse. The live settings screen is `SettingsView` below.
+struct LegacySettingsPage: View {
     @AppStorage("cinemax.design") private var design = "cinematic"
     @AppStorage("cinemax.accent") private var accent = "raif"
     @AppStorage("cinemax.oled") private var oled = false
@@ -2836,5 +2848,599 @@ struct PanoramaHomeView: View {
             let colors = await PaletteSampler.colors(for: url)
             if !colors.isEmpty { glow = colors }
         }
+    }
+}
+
+
+// MARK: - Settings hub
+
+/// A grouped settings row: icon, title, one line of context, and a chevron.
+struct SettingsRow: View {
+    let icon: String
+    let title: String
+    let detail: String
+    var value: String?
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(CinemaTheme.accent)
+                .frame(width: 34, height: 34)
+                .background(CinemaTheme.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+                Text(detail)
+                    .font(.system(size: 11))
+                    .foregroundStyle(CinemaTheme.muted)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+            }
+            Spacer(minLength: 8)
+            if let value {
+                Text(value)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(CinemaTheme.muted)
+            }
+            Image(systemName: "chevron.left")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(CinemaTheme.muted.opacity(0.7))
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(CinemaTheme.hairline, lineWidth: 1)
+        )
+    }
+}
+
+/// One titled group of rows.
+struct SettingsSection<Content: View>: View {
+    let title: String
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(CinemaTheme.muted)
+                .padding(.leading, 4)
+            VStack(spacing: 10) { content() }
+        }
+    }
+}
+
+struct SettingsView: View {
+    @AppStorage("cinemax.design") private var design = "cinematic"
+    @AppStorage("cinemax.accent") private var accent = "raif"
+    @AppStorage("cinemax.oled") private var oled = false
+    @AppStorage("cinemax.autoplayNext") private var autoplayNext = true
+
+    private var designName: String {
+        switch design {
+        case "wall": return "جدار بوسترات"
+        case "panorama": return "بانورامي"
+        default: return "سينمائي"
+        }
+    }
+
+    private var accentName: String {
+        AccentPalette.entries.first { $0.id == accent }?.name ?? "Raif"
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 22) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("CINEMAX")
+                            .font(.system(size: 11, weight: .semibold))
+                            .tracking(3)
+                            .foregroundStyle(CinemaTheme.muted)
+                        Text("الإعدادات")
+                            .font(.system(size: 34, weight: .heavy))
+                            .foregroundStyle(.white)
+                        Text("الإصدار \(CinemaAPI.shared.versionLabel)")
+                            .font(.system(size: 12))
+                            .foregroundStyle(CinemaTheme.muted)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
+
+                    SettingsSection(title: "المظهر") {
+                        NavigationLink {
+                            AppearanceSettings()
+                        } label: {
+                            SettingsRow(
+                                icon: "paintpalette.fill",
+                                title: "المظهر واللغة",
+                                detail: "لون الواجهة، أسود AMOLED، تقليل الحركة",
+                                value: accentName
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        NavigationLink {
+                            LayoutSettings()
+                        } label: {
+                            SettingsRow(
+                                icon: "rectangle.3.group.fill",
+                                title: "التخطيط",
+                                detail: "شكل الصفحة الرئيسية: هيرو أو شبكة أو بانوراما",
+                                value: designName
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 20)
+
+                    SettingsSection(title: "المحتوى") {
+                        NavigationLink {
+                            AddonsSettings()
+                        } label: {
+                            SettingsRow(
+                                icon: "puzzlepiece.extension.fill",
+                                title: "الإضافات",
+                                detail: "ثبّت المصادر الجاهزة، أضف رابطًا، أو أزل إضافة"
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        NavigationLink {
+                            TmdbSettings()
+                        } label: {
+                            SettingsRow(
+                                icon: "star.bubble.fill",
+                                title: "TMDB",
+                                detail: "صفوف عربية بوصف وتقييمات — يحتاج مفتاحًا مجانيًا"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 20)
+
+                    SettingsSection(title: "التشغيل") {
+                        NavigationLink {
+                            PlaybackSettings()
+                        } label: {
+                            SettingsRow(
+                                icon: "play.rectangle.fill",
+                                title: "التشغيل",
+                                detail: "المشغّل، الحلقة التالية تلقائيًا",
+                                value: autoplayNext ? "تلقائي" : "يدوي"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 20)
+
+                    SettingsSection(title: "النظام") {
+                        NavigationLink {
+                            AboutSettings()
+                        } label: {
+                            SettingsRow(
+                                icon: "info.circle.fill",
+                                title: "عن التطبيق",
+                                detail: "ما يدعمه المحرك، والإصدار الحالي",
+                                value: CinemaAPI.shared.versionLabel
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 20)
+
+                    Spacer(minLength: 140)
+                }
+                .padding(.bottom, 20)
+            }
+            .background(CinemaTheme.canvas.ignoresSafeArea())
+        }
+    }
+}
+
+// MARK: - Settings sub-screens
+
+struct AppearanceSettings: View {
+    @AppStorage("cinemax.accent") private var accent = "raif"
+    @AppStorage("cinemax.oled") private var oled = false
+    @AppStorage("cinemax.reduceMotion") private var reduceMotion = false
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 22) {
+                Text("لون الواجهة")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(CinemaTheme.muted)
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 62), spacing: 12)], spacing: 16) {
+                    ForEach(AccentPalette.entries, id: \.id) { entry in
+                        Button {
+                            Haptics.select()
+                            accent = entry.id
+                        } label: {
+                            VStack(spacing: 7) {
+                                ZStack {
+                                    Circle()
+                                        .fill(AccentPalette.color(entry.id))
+                                        .frame(width: 44, height: 44)
+                                    if accent == entry.id {
+                                        Circle()
+                                            .strokeBorder(Color.white, lineWidth: 2)
+                                            .frame(width: 54, height: 54)
+                                        Image(systemName: "checkmark")
+                                            .font(.system(size: 14, weight: .bold))
+                                            .foregroundStyle(.black)
+                                    }
+                                }
+                                .frame(height: 56)
+                                Text(entry.name)
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(accent == entry.id ? .white : CinemaTheme.muted)
+                                    .lineLimit(1)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                VStack(spacing: 12) {
+                    Toggle(isOn: $oled) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("أسود AMOLED")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(.white)
+                            Text("خلفية سوداء خالصة بدل الأسود الناعم")
+                                .font(.system(size: 11))
+                                .foregroundStyle(CinemaTheme.muted)
+                        }
+                    }
+                    .tint(CinemaTheme.accent)
+
+                    Toggle(isOn: $reduceMotion) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("تقليل الحركة")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(.white)
+                            Text("يوقف الحركات التلقائية وانتقالات البطاقات")
+                                .font(.system(size: 11))
+                                .foregroundStyle(CinemaTheme.muted)
+                        }
+                    }
+                    .tint(CinemaTheme.accent)
+                }
+                .padding(16)
+                .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            }
+            .padding(20)
+        }
+        .background(CinemaTheme.canvas.ignoresSafeArea())
+        .navigationTitle("المظهر واللغة")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+struct LayoutSettings: View {
+    @AppStorage("cinemax.design") private var design = "cinematic"
+
+    private let options: [(id: String, title: String, detail: String)] = [
+        ("cinematic", "سينمائي زجاجي", "هيرو بعرض الشاشة ووهج بلون البوستر وصفوف بوسترات"),
+        ("wall", "جدار بوسترات", "بحث أولًا وشبكات كثيفة وعدّادات، بلا هيرو"),
+        ("panorama", "بانورامي", "خلفية واحدة غامرة ثم بطاقات عريضة 16:9")
+    ]
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 10) {
+                ForEach(options, id: \.id) { option in
+                    Button {
+                        Haptics.select()
+                        withAnimation(.easeInOut(duration: 0.2)) { design = option.id }
+                    } label: {
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(option.title)
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                Text(option.detail)
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(CinemaTheme.muted)
+                                    .multilineTextAlignment(.leading)
+                            }
+                            Spacer()
+                            Image(systemName: design == option.id ? "checkmark.circle.fill" : "circle")
+                                .font(.system(size: 20))
+                                .foregroundStyle(design == option.id ? CinemaTheme.accent : CinemaTheme.muted)
+                        }
+                        .padding(14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            design == option.id ? CinemaTheme.accent.opacity(0.14) : CinemaTheme.surface,
+                            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .strokeBorder(
+                                    design == option.id ? CinemaTheme.accent.opacity(0.6) : CinemaTheme.hairline,
+                                    lineWidth: 1
+                                )
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(20)
+        }
+        .background(CinemaTheme.canvas.ignoresSafeArea())
+        .navigationTitle("التخطيط")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+struct PlaybackSettings: View {
+    @AppStorage("cinemax.autoplayNext") private var autoplayNext = true
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 16) {
+                Toggle(isOn: $autoplayNext) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("تشغيل الحلقة التالية تلقائيًا")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.white)
+                        Text("ينتقل المشغّل إلى الحلقة التالية حين تنتهي الحالية")
+                            .font(.system(size: 11))
+                            .foregroundStyle(CinemaTheme.muted)
+                    }
+                }
+                .tint(CinemaTheme.accent)
+
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("المشغّل")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.white)
+                        Text("libmpv — MKV، AVI، HEVC، ترجمة وصوت مدمج، سرعة تشغيل")
+                            .font(.system(size: 11))
+                            .foregroundStyle(CinemaTheme.muted)
+                    }
+                    Spacer()
+                    Text("MPV")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.accent)
+                }
+            }
+            .padding(16)
+            .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .padding(20)
+        }
+        .background(CinemaTheme.canvas.ignoresSafeArea())
+        .navigationTitle("التشغيل")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+struct AboutSettings: View {
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("CINEMAX \(CinemaAPI.shared.versionLabel)")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(.white)
+                Text("واجهة SwiftUI فوق محرك واحد: إضافات Stremio، مشغّل libmpv للـMKV مع الترجمة المدمجة، مصادِر متوازية مرتّبة بالجودة والسرعة، متابعة مشاهدة محلية، وكتالوج TMDB عربي اختياري.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(CinemaTheme.muted)
+                    .lineSpacing(5)
+                Text("التطبيق لا يستضيف أي وسائط؛ يعرض ما تجلبه إضافاتك.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(CinemaTheme.muted)
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .padding(20)
+        }
+        .background(CinemaTheme.canvas.ignoresSafeArea())
+        .navigationTitle("عن التطبيق")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+struct AddonsSettings: View {
+    @State private var addons: [InstalledAddonRow] = []
+    @State private var suggested: [SuggestedAddonRow] = []
+    @State private var addonURL = ""
+    @State private var busy = false
+    @State private var message: String?
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 18) {
+                Button {
+                    Task { await installAll() }
+                } label: {
+                    HStack(spacing: 8) {
+                        if busy { ProgressView().tint(.black) }
+                        Text(busy ? "جارٍ التثبيت…" : "ثبّت المصادر الجاهزة (\(suggested.count))")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.black)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 13)
+                    .background(CinemaTheme.accent, in: Capsule())
+                }
+                .buttonStyle(CinemaPressStyle())
+                .disabled(busy || suggested.isEmpty)
+
+                HStack(spacing: 8) {
+                    TextField("رابط manifest https://…", text: $addonURL)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 11)
+                        .background(CinemaTheme.surface, in: Capsule())
+                    Button(busy ? "…" : "إضافة") {
+                        Task { await install() }
+                    }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 11)
+                    .background(Color.white.opacity(0.12), in: Capsule())
+                    .disabled(busy || addonURL.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+
+                if let message {
+                    Text(message)
+                        .font(.system(size: 11))
+                        .foregroundStyle(message.contains("تعذّر") ? CinemaTheme.favourite : CinemaTheme.muted)
+                }
+
+                if addons.isEmpty {
+                    Text("لا إضافة مثبتة بعد.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(CinemaTheme.muted)
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(Array(addons.enumerated()), id: \.element.id) { index, addon in
+                            HStack(spacing: 10) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(addon.name)
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .foregroundStyle(.white)
+                                        .lineLimit(1)
+                                    Text("الإصدار \(addon.version)")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(CinemaTheme.muted)
+                                }
+                                Spacer()
+                                Button {
+                                    Haptics.tap()
+                                    CinemaAPI.shared.removeAddon(addon.url)
+                                    addons.removeAll { $0.url == addon.url }
+                                    message = "أُزيلت \(addon.name)"
+                                    HomeModel.shared.resetCache()
+                                } label: {
+                                    Image(systemName: "trash")
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(CinemaTheme.favourite)
+                                        .frame(width: 32, height: 32)
+                                        .background(CinemaTheme.elevated, in: Circle())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .padding(.vertical, 10)
+                            if index < addons.count - 1 {
+                                Divider().overlay(CinemaTheme.hairline)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                }
+            }
+            .padding(20)
+        }
+        .background(CinemaTheme.canvas.ignoresSafeArea())
+        .navigationTitle("الإضافات")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await load() }
+    }
+
+    private func load() async {
+        addons = await CinemaAPI.shared.installedAddons()
+        suggested = await CinemaAPI.shared.suggestedAddons()
+    }
+
+    private func install() async {
+        let url = addonURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !url.isEmpty else { return }
+        busy = true
+        message = nil
+        do {
+            let name = try await CinemaAPI.shared.installAddon(url)
+            addonURL = ""
+            message = "تم تثبيت \(name)"
+            HomeModel.shared.resetCache()
+            await load()
+        } catch {
+            message = error.localizedDescription
+        }
+        busy = false
+    }
+
+    private func installAll() async {
+        busy = true
+        message = nil
+        let json = await CinemaAPI.shared.installAllSuggested()
+        let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
+        let added = (object?["added"] as? NSNumber)?.intValue ?? 0
+        let failed = (object?["failed"] as? NSNumber)?.intValue ?? 0
+        message = failed > 0 ? "تم تثبيت \(added) وتعذّر \(failed)" : "تم تثبيت \(added) مصدرًا"
+        HomeModel.shared.resetCache()
+        await load()
+        busy = false
+    }
+}
+
+struct TmdbSettings: View {
+    @State private var key = ""
+    @State private var saved = false
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("TMDB هو الكتالوج المجاني الوحيد الذي يعطي عنوانًا ووصفًا عربيًا وتقييمًا حقيقيًا. بعد حفظ المفتاح تظهر أربعة صفوف فوق صفوف إضافاتك: الأكثر تداولًا، أفلام شائعة، مسلسلات شائعة، وأعلى تقييمًا.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(CinemaTheme.muted)
+                    .lineSpacing(5)
+
+                HStack(spacing: 8) {
+                    TextField("مفتاح TMDB", text: $key)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 11)
+                        .background(CinemaTheme.elevated, in: Capsule())
+                    Button("حفظ") {
+                        CinemaAPI.shared.saveTmdbKey(key.trimmingCharacters(in: .whitespacesAndNewlines))
+                        HomeModel.shared.resetCache()
+                        saved = true
+                        Haptics.tap()
+                    }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 11)
+                    .background(CinemaTheme.accent, in: Capsule())
+                }
+
+                if saved {
+                    Text("تم الحفظ — حدّث الرئيسية بالسحب لرؤية الصفوف.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(CinemaTheme.accent)
+                }
+
+                Link(destination: URL(string: "https://www.themoviedb.org/settings/api")!) {
+                    Text("كيف أحصل على مفتاح مجاني؟")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.accent)
+                }
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .padding(20)
+        }
+        .background(CinemaTheme.canvas.ignoresSafeArea())
+        .navigationTitle("TMDB")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { key = CinemaAPI.shared.tmdbKey }
     }
 }
