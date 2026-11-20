@@ -146,6 +146,7 @@ internal fun AddonsSettingsPageContent(
             lastFailureAtMs = failures.lastFailureAtMs,
             sourceSpeeds = AddonSpeedMemory.speedByManifestUrl(profileId)
                 .mapValues { (_, ms) -> formatSourceSpeedSeconds(ms) },
+            sourceResults = AddonSpeedMemory.resultsByManifestUrl(profileId),
         )
     }
 
@@ -473,6 +474,7 @@ internal fun AddonsSettingsPageContent(
                     failureReason = health.failureReasons[addon.manifestUrl],
                     lastFailureAtMs = health.lastFailureAtMs[addon.manifestUrl],
                     measuredSpeed = health.sourceSpeeds[addon.manifestUrl],
+                    measuredResults = health.sourceResults[addon.manifestUrl],
                     isNeverPaused = addon.manifestUrl in health.neverPausedManifestUrls,
                     onToggleNeverPaused = {
                         AddonPauseExceptions.setNeverPaused(
@@ -956,6 +958,8 @@ private data class AddonsHealthUiState(
     val lastFailureAtMs: Map<String, Long> = emptyMap(),
     /** Average stream-request time per manifest URL, already written as seconds. */
     val sourceSpeeds: Map<String, String> = emptyMap(),
+    /** Streams each source returned the last time it answered. */
+    val sourceResults: Map<String, Int> = emptyMap(),
 )
 
 /**
@@ -1012,6 +1016,7 @@ private fun InstalledAddonCard(
     failureReason: AddonFailureReason?,
     lastFailureAtMs: Long?,
     measuredSpeed: String?,
+    measuredResults: Int?,
     isNeverPaused: Boolean,
     onToggleNeverPaused: () -> Unit,
     onResumeClick: (() -> Unit)?,
@@ -1237,6 +1242,9 @@ private fun InstalledAddonCard(
             }
             measuredSpeed?.let { speed ->
                 NuvioInfoBadge(text = stringResource(Res.string.addons_badge_speed, speed))
+            }
+            measuredResults?.let { results ->
+                NuvioInfoBadge(text = stringResource(Res.string.addons_badge_results, results))
             }
         }
 

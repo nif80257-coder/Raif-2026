@@ -59,6 +59,7 @@
     <string name="addons_paused_resume">جرّب هذه المصادر مجددًا</string>
     <string name="addons_badge_paused">موقوف مؤقتًا</string>
     <string name="addons_badge_speed">%1$s ث في المتوسط</string>
+    <string name="addons_badge_results">%1$d نتيجة</string>
     <string name="addons_resume">جرّب هذا المصدر مجددًا</string>
     <string name="addons_never_pause">لا توقف هذا المصدر أبدًا</string>
     <string name="addons_allow_pause">اسمح بإيقاف هذا المصدر مجددًا</string>

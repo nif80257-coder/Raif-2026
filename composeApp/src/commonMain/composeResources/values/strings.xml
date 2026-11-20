@@ -58,6 +58,7 @@
     <string name="addons_paused_resume">Try these sources again</string>
     <string name="addons_badge_paused">Paused</string>
     <string name="addons_badge_speed">%1$s s average</string>
+    <string name="addons_badge_results">%1$d results</string>
     <string name="addons_resume">Try this source again</string>
     <string name="addons_never_pause">Never pause this source</string>
     <string name="addons_allow_pause">Allow pausing this source again</string>

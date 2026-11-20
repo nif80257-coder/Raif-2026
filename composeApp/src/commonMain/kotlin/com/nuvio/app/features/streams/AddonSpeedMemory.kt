@@ -48,16 +48,36 @@ internal object AddonSpeedMemory {
             encoded.substringBefore('|').toLongOrNull() ?: UnknownMs
         }
 
-    fun recordSuccess(profileId: Int, manifestUrl: String, elapsedMs: Long) {
+    /**
+     * How many streams each source returned the last time it answered.
+     *
+     * A source can be fast and still return nothing, and a slow one can return everything; this is
+     * what tells the two apart on the add-ons screen. Sources measured before the count was stored
+     * simply have no entry.
+     */
+    fun resultsByManifestUrl(profileId: Int): Map<String, Int> =
+        entries(profileId).mapNotNull { (manifestUrl, encoded) ->
+            parseResultCount(encoded)?.let { count -> manifestUrl to count }
+        }.toMap()
+
+    fun recordSuccess(
+        profileId: Int,
+        manifestUrl: String,
+        elapsedMs: Long,
+        resultCount: Int? = null,
+    ) {
         if (manifestUrl.isBlank()) return
         val entries = entries(profileId)
-        val previous = entries[manifestUrl]?.substringBefore('|')?.toLongOrNull()
+        val previousEncoded = entries[manifestUrl]
+        val previous = previousEncoded?.substringBefore('|')?.toLongOrNull()
         val next = if (previous == null) {
             elapsedMs
         } else {
             (previous + (elapsedMs - previous) * Smoothing).toLong()
         }
-        entries[manifestUrl] = "$next|${EpisodeReleaseDatePlatform.nowEpochMs()}"
+        val count = resultCount ?: parseResultCount(previousEncoded)
+        val suffix = count?.let { value -> "|$value" }.orEmpty()
+        entries[manifestUrl] = "$next|${EpisodeReleaseDatePlatform.nowEpochMs()}$suffix"
         persistIfDue(profileId)
     }
 
@@ -135,3 +155,7 @@ internal fun formatSourceSpeedSeconds(ms: Long): String {
     val tenths = (clamped + 50) / 100
     return "${tenths / 10}.${tenths % 10}"
 }
+
+/** The result count stored as the third field of a speed record, or null for older records. */
+internal fun parseResultCount(encoded: String?): Int? =
+    encoded?.split('|')?.getOrNull(2)?.toIntOrNull()?.takeIf { count -> count >= 0 }

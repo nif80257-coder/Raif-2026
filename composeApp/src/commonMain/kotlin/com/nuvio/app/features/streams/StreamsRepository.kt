@@ -575,6 +575,7 @@ object StreamsRepository {
                             profileId = streamCacheProfileId,
                             manifestUrl = addon.manifestUrl,
                             elapsedMs = sourceElapsedMs,
+                            resultCount = outcome.getOrNull()?.size,
                         )
                         AddonFailureMemory.recordSuccess(addon.manifestUrl)
                     } else {
