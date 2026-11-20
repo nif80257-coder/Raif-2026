@@ -340,6 +340,16 @@ final class CinemaAPI {
         }
     }
 
+    /// Moves an addon in the priority order and answers the new list.
+    func moveAddon(url: String, delta: Int) async -> [InstalledAddonRow] {
+        let payload = await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+            bridge.moveAddon(url: url, delta: Int32(delta), onDone: { text in
+                continuation.resume(returning: text)
+            })
+        }
+        return (try? JSONDecoder().decode([InstalledAddonRow].self, from: Data(payload.utf8))) ?? []
+    }
+
     /// Titles TMDB lists as close to this one, for the bottom of the detail page.
     func similar(item: CinemaItem) async -> [CinemaItem] {
         let payload = await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
@@ -1581,6 +1591,12 @@ struct PlayerScreen: View {
                             seek(by: 85)
                         }
                     }
+                    if let next = upNext, duration > 0, position > duration - 60 {
+                        chip("الحلقة التالية", system: "forward.end.fill") {
+                            Haptics.tap()
+                            playNext()
+                        }
+                    }
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 10)
@@ -2362,6 +2378,7 @@ struct DetailView: View {
     @State private var episode: CinemaItem?
     @State private var playing: StreamChoice?
     @State private var qualityFilter: String?
+    @State private var addonFilter: String?
     @State private var speeds: [String: Double] = [:]
     @State private var shared = false
     @State private var marked = false
@@ -2807,6 +2824,30 @@ struct DetailView: View {
         }
     }
 
+    /// The addons that returned a source here, for the filter chips.
+    private var addonNames: [String] {
+        Array(Set(model.streams.map(\.addon))).sorted()
+    }
+
+    private func addonChip(_ title: String, _ value: String?) -> some View {
+        Button {
+            Haptics.select()
+            withAnimation(.easeInOut(duration: 0.15)) { addonFilter = value }
+        } label: {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(addonFilter == value ? .black : .white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background {
+                    Capsule().fill(
+                        addonFilter == value ? CinemaTheme.accent : Color.white.opacity(0.08)
+                    )
+                }
+        }
+        .buttonStyle(.plain)
+    }
+
     private var qualityOrder: [String] {
         let known = ["4K", "1080p", "720p", "480p"]
         let present = Set(model.streams.map { stream -> String in
@@ -2856,6 +2897,7 @@ struct DetailView: View {
     private var filteredStreams: [StreamChoice] {
         let known = ["4K", "1080p", "720p", "480p"]
         let list = model.streams.filter { stream in
+            if let addonFilter, stream.addon != addonFilter { return false }
             guard let qualityFilter else { return true }
             let tier = stream.quality.flatMap { known.contains($0) ? $0 : nil } ?? "أخرى"
             return tier == qualityFilter
@@ -2936,6 +2978,17 @@ struct DetailView: View {
                         }
                     }
                     .padding(.horizontal, 20)
+                }
+                if addonNames.count > 1 {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            addonChip("كل الإضافات", nil)
+                            ForEach(addonNames, id: \.self) { name in
+                                addonChip(name, name)
+                            }
+                        }
+                        .padding(.horizontal, 20)
+                    }
                 }
                 ForEach(groupedStreams) { group in
                     VStack(alignment: .leading, spacing: 8) {
@@ -3852,10 +3905,117 @@ struct LegacySettingsPage: View {
 
 // MARK: - Root
 
+/// First launch: what the app needs before it can play anything, on one screen.
+struct OnboardingView: View {
+    var onAddons: () -> Void
+    var onClose: () -> Void
+
+    private let points: [(icon: String, title: String, detail: String)] = [
+        (
+            "puzzlepiece.extension.fill",
+            "ثبّت إضافاتك",
+            "المصادر الجاهزة تُثبَّت من الإعدادات ← الإضافات، أو الصق رابط manifest لأي إضافة Stremio."
+        ),
+        (
+            "star.bubble.fill",
+            "مفتاح TMDB المجاني",
+            "يعطيك صفوفًا عربية بوصف وتقييم، و«أعمال مشابهة» في أسفل كل صفحة."
+        ),
+        (
+            "play.rectangle.fill",
+            "أي صيغة تعمل",
+            "مشغّل libmpv يفتح MKV و HEVC مع الترجمة والصوت المدمج، وسرعة وتأخير ونسبة عرض."
+        ),
+        (
+            "arrow.down.circle.fill",
+            "نزّل للمشاهدة بلا شبكة",
+            "تنزيل متوازٍ يُخبرك عند اكتماله، وتجده في مكتبتك ← التنزيلات."
+        )
+    ]
+
+    var body: some View {
+        ZStack {
+            CinemaTheme.canvas.ignoresSafeArea()
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    Text("CINEMAX")
+                        .font(.system(size: 11, weight: .semibold))
+                        .tracking(4)
+                        .foregroundStyle(CinemaTheme.muted)
+                    Text("قبل أول مشاهدة")
+                        .font(.system(size: 30, weight: .heavy))
+                        .foregroundStyle(.white)
+                    Text("خطوات صغيرة، وبعدها كل شيء يعمل من داخل التطبيق.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(CinemaTheme.muted)
+
+                    VStack(spacing: 10) {
+                        ForEach(points, id: \.title) { point in
+                            HStack(alignment: .top, spacing: 12) {
+                                Image(systemName: point.icon)
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundStyle(CinemaTheme.accent)
+                                    .frame(width: 34, height: 34)
+                                    .background(
+                                        CinemaTheme.accent.opacity(0.14),
+                                        in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    )
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(point.title)
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .foregroundStyle(.white)
+                                    Text(point.detail)
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(CinemaTheme.muted)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                Spacer(minLength: 0)
+                            }
+                            .padding(12)
+                            .background(
+                                CinemaTheme.surface,
+                                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            )
+                        }
+                    }
+
+                    Button {
+                        Haptics.tap()
+                        onAddons()
+                    } label: {
+                        Text("افتح الإضافات")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(.black)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(CinemaTheme.accent, in: Capsule())
+                    }
+                    .buttonStyle(CinemaPressStyle())
+
+                    Button {
+                        Haptics.tap()
+                        onClose()
+                    } label: {
+                        Text("لاحقًا")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.muted)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(22)
+            }
+        }
+        .preferredColorScheme(.dark)
+    }
+}
+
 struct CinemaRootView: View {
     @State private var selection = 0
     @AppStorage("cinemax.accent") private var accent = "raif"
     @AppStorage("cinemax.oled") private var oled = false
+    @AppStorage("cinemax.onboarded") private var onboarded = false
+    @State private var showOnboarding = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -3877,6 +4037,22 @@ struct CinemaRootView: View {
         .preferredColorScheme(.dark)
         .environment(\.layoutDirection, .rightToLeft)
         .tint(CinemaTheme.accent)
+        .task {
+            if !onboarded { showOnboarding = true }
+        }
+        .sheet(isPresented: $showOnboarding) {
+            OnboardingView(
+                onAddons: {
+                    onboarded = true
+                    showOnboarding = false
+                    selection = 3
+                },
+                onClose: {
+                    onboarded = true
+                    showOnboarding = false
+                }
+            )
+        }
     }
 }
 
@@ -5265,6 +5441,18 @@ struct AddonsSettings: View {
                             }
                             .buttonStyle(.plain)
                         }
+                        .contextMenu {
+                            Button {
+                                Task { await move(addon, -1) }
+                            } label: {
+                                Label("نقل للأعلى", systemImage: "arrow.up")
+                            }
+                            Button {
+                                Task { await move(addon, 1) }
+                            } label: {
+                                Label("نقل للأسفل", systemImage: "arrow.down")
+                            }
+                        }
                         .padding(.vertical, 10)
                         if index < addons.count - 1 {
                             Divider().overlay(CinemaTheme.hairline)
@@ -5275,6 +5463,14 @@ struct AddonsSettings: View {
                 .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
         }
+    }
+
+    /// Promotes or demotes an addon; its catalogues then come earlier or later.
+    private func move(_ addon: InstalledAddonRow, _ delta: Int) async {
+        Haptics.select()
+        let updated = await CinemaAPI.shared.moveAddon(url: addon.url, delta: delta)
+        if !updated.isEmpty { addons = updated }
+        HomeModel.shared.resetCache()
     }
 
     private var suggestedSection: some View {
@@ -5968,7 +6164,7 @@ enum CinemaxPrefs {
             "cinemax.design", posterWidthKey, "cinemax.defaultSpeed", "cinemax.notifications",
             "cinemax.seekSeconds", "cinemax.autoHideControls", "cinemax.autoResume",
             "cinemax.heroAuto", "cinemax.skipIntro", "cinemax.prefQuality",
-            "cinemax.subtitleLang",
+            "cinemax.subtitleLang", "cinemax.onboarded",
             "cinemax.subtitleSize", "cinemax.subtitleAuto",
             historyKey, lastRefreshKey
         ] {

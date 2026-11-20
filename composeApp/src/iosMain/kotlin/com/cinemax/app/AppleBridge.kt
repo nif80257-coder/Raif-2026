@@ -755,6 +755,25 @@ class CinemaxAppleBridge {
         repository.clearCaches()
     }
 
+    /**
+     * Moves an installed addon up or down the list. The order decides which addon's
+     * catalogues are asked first, so this is how a viewer promotes a source.
+     */
+    fun moveAddon(url: String, delta: Int, onDone: (String) -> Unit) {
+        val list = addonStore.load().toMutableList()
+        val index = list.indexOfFirst { it.manifestUrl == url }
+        if (index >= 0 && list.isNotEmpty()) {
+            val target = (index + delta).coerceIn(0, list.lastIndex)
+            if (target != index) {
+                val moved = list.removeAt(index)
+                list.add(target, moved)
+                addonStore.save(list)
+                repository.clearCaches()
+            }
+        }
+        onDone(json.encodeToString(list.map { AppleAddon(it.id, it.name, it.manifestUrl, it.version) }))
+    }
+
     @Serializable
     data class AppleAddonHealth(
         val id: String,
