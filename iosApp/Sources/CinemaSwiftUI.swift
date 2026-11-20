@@ -69,10 +69,18 @@ struct CinemaPressStyle: ButtonStyle {
 }
 
 enum Haptics {
+    /// Honours the "الاهتزاز" switch in settings.
+    private static var enabled: Bool {
+        (UserDefaults.standard.object(forKey: "cinemax.haptics") as? Bool) ?? true
+    }
+
     static func tap() {
+        guard enabled else { return }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
+
     static func select() {
+        guard enabled else { return }
         UISelectionFeedbackGenerator().selectionChanged()
     }
 }
@@ -716,6 +724,7 @@ struct ContinueCard: View {
                             }
                             Spacer()
                             CinemaPill(text: "بقي \(entry.remainingMinutes) د")
+                            CinemaPill(text: "\(Int(entry.fraction * 100))٪", tint: CinemaTheme.accent)
                         }
                         GeometryReader { proxy in
                             ZStack(alignment: .leading) {
@@ -1151,6 +1160,18 @@ struct CinematicHomeView: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
                 .background(.ultraThinMaterial, in: Capsule())
+            Button {
+                Haptics.tap()
+                if let pick = model.heroItems.randomElement() { detailItem = pick }
+            } label: {
+                Image(systemName: "dice")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(CinemaTheme.accent)
+                    .frame(width: 34, height: 34)
+                    .background(CinemaTheme.accent.opacity(0.14), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .disabled(model.heroItems.isEmpty)
         }
         .padding(.horizontal, 20)
         .padding(.top, 8)
@@ -1346,6 +1367,14 @@ struct PlayerScreen: View {
                                 .background(CinemaTheme.elevated, in: Capsule())
                         }
                         .buttonStyle(.plain)
+                    }
+                    CircleButton(system: "speedometer") {
+                        Haptics.select()
+                        let options: [Double] = [0.5, 0.75, 1, 1.25, 1.5, 2]
+                        let current = options.firstIndex { abs($0 - speed) < 0.01 } ?? 2
+                        let next = options[(current + 1) % options.count]
+                        speed = next
+                        player?.setSpeed(next)
                     }
                     CircleButton(system: "captions.bubble") {
                         Haptics.tap()
@@ -1814,13 +1843,19 @@ struct DetailView: View {
     @State private var qualityFilter: String?
     @State private var speeds: [String: Double] = [:]
     @State private var shared = false
+    @State private var episodeQuery = ""
 
     private var playlist: [CinemaItem] {
         guard let detail = model.detail, !detail.episodes.isEmpty else { return [] }
-        guard let season else { return detail.episodes }
+        let text = episodeQuery.trimmingCharacters(in: .whitespaces)
+        let base = detail.episodes.filter { entry in
+            guard !text.isEmpty else { return true }
+            return entry.name.localizedCaseInsensitiveContains(text)
+        }
+        guard let season else { return base }
         // Episode ids end with ":season:episode" both for addons ("tt1:1:2") and for
         // TMDB ("tmdb:123:series:1:2"), so the season is the second-to-last piece.
-        return detail.episodes.filter { episode in
+        return base.filter { episode in
             let parts = episode.id.split(separator: ":")
             guard parts.count >= 2, let value = Int(parts[parts.count - 2]) else { return false }
             return value == season
@@ -1879,6 +1914,15 @@ struct DetailView: View {
         HStack(spacing: 10) {
             CircleButton(system: "chevron.down") { dismiss() }
             Spacer()
+            CircleButton(system: "textformat") {
+                Haptics.tap()
+                UIPasteboard.general.string = model.detail?.item.name ?? item.name
+                shared = true
+                Task {
+                    try? await Task.sleep(nanoseconds: 1_600_000_000)
+                    shared = false
+                }
+            }
             CircleButton(system: "square.and.arrow.up") {
                 Haptics.tap()
                 share()
@@ -2065,6 +2109,31 @@ struct DetailView: View {
                     }
                     .padding(.horizontal, 20)
                 }
+            }
+            if (model.detail?.episodes.count ?? 0) > 3 {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 12))
+                        .foregroundStyle(CinemaTheme.muted)
+                    TextField("ابحث عن حلقة", text: $episodeQuery)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white)
+                    if !episodeQuery.isEmpty {
+                        Button {
+                            episodeQuery = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 12))
+                                .foregroundStyle(CinemaTheme.muted)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(CinemaTheme.surface, in: Capsule())
+                .padding(.horizontal, 20)
             }
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 12) {
@@ -3554,6 +3623,7 @@ struct AppearanceSettings: View {
     @AppStorage("cinemax.accent") private var accent = "raif"
     @AppStorage("cinemax.oled") private var oled = false
     @AppStorage("cinemax.reduceMotion") private var reduceMotion = false
+    @AppStorage("cinemax.haptics") private var haptics = true
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -3611,6 +3681,18 @@ struct AppearanceSettings: View {
                                 .font(.system(size: 14, weight: .medium))
                                 .foregroundStyle(.white)
                             Text("يوقف الحركات التلقائية وانتقالات البطاقات")
+                                .font(.system(size: 11))
+                                .foregroundStyle(CinemaTheme.muted)
+                        }
+                    }
+                    .tint(CinemaTheme.accent)
+
+                    Toggle(isOn: $haptics) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("الاهتزاز عند اللمس")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(.white)
+                            Text("رد فعل لمسي خفيف على الأزرار والبطاقات")
                                 .font(.system(size: 11))
                                 .foregroundStyle(CinemaTheme.muted)
                         }
@@ -3838,6 +3920,29 @@ struct AboutSettings: View {
                         .foregroundStyle(.white)
                 }
 
+                Divider().overlay(CinemaTheme.hairline)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("ما الجديد في هذا الإصدار")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white)
+                    ForEach([
+                        "ثلاثة تصاميم للرئيسية تُبدَّل من الإعدادات",
+                        "مصادر مرتّبة بالجودة والصيغة والسرعة المقيسة",
+                        "لوحة مشغّل: ترجمة وصوت وسرعة وتأخير ونسبة عرض",
+                        "الحلقة التالية تلقائيًا ومتابعة المشاهدة",
+                        "إدارة الإضافات وكتالوج TMDB العربي من داخل التطبيق"
+                    ], id: \.self) { line in
+                        HStack(alignment: .top, spacing: 6) {
+                            Text("•").foregroundStyle(CinemaTheme.accent)
+                            Text(line)
+                                .font(.system(size: 11))
+                                .foregroundStyle(CinemaTheme.muted)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+
                 Link(destination: URL(string: "https://www.themoviedb.org/")!) {
                     Text("themoviedb.org")
                         .font(.system(size: 11, weight: .semibold))
@@ -3863,6 +3968,7 @@ struct AddonsSettings: View {
     @State private var busy = false
     @State private var message: String?
     @State private var installing: String?
+    @State private var ascending = true
 
     private var visibleSuggested: [SuggestedAddonRow] {
         let text = query.trimmingCharacters(in: .whitespaces)
@@ -3958,9 +4064,22 @@ struct AddonsSettings: View {
 
     private var installedSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("المثبّتة")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(CinemaTheme.muted)
+            HStack {
+                Text("المثبّتة")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(CinemaTheme.muted)
+                Spacer()
+                Button {
+                    Haptics.select()
+                    ascending.toggle()
+                    Task { await load() }
+                } label: {
+                    Label(ascending ? "أ–ي" : "ي–أ", systemImage: "arrow.up.arrow.down")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.accent)
+                }
+                .buttonStyle(.plain)
+            }
             if addons.isEmpty {
                 Text("لا إضافة مثبتة بعد.")
                     .font(.system(size: 12))
@@ -4081,11 +4200,15 @@ struct AddonsSettings: View {
     }
 
     private func load() async {
-        addons = await CinemaAPI.shared.installedAddons().sorted {
-            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        let installed = await CinemaAPI.shared.installedAddons()
+        let available = await CinemaAPI.shared.suggestedAddons()
+        addons = installed.sorted {
+            let result = $0.name.localizedCaseInsensitiveCompare($1.name)
+            return ascending ? result == .orderedAscending : result == .orderedDescending
         }
-        suggested = await CinemaAPI.shared.suggestedAddons().sorted {
-            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        suggested = available.sorted {
+            let result = $0.name.localizedCaseInsensitiveCompare($1.name)
+            return ascending ? result == .orderedAscending : result == .orderedDescending
         }
     }
 
@@ -4128,6 +4251,7 @@ struct DataSettings: View {
     @State private var favorites = 0
     @State private var message: String?
     @AppStorage("cinemax.notifications") private var notifications = true
+    @State private var confirming: String?
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -4139,19 +4263,11 @@ struct DataSettings: View {
 
                 VStack(spacing: 0) {
                     action("مسح سجل المشاهدة", "لا يمس المفضلة", destructive: true) {
-                        let counts = await CinemaAPI.shared.clearProgress()
-                        progress = counts.progress
-                        favorites = counts.favorites
-                        HomeModel.shared.resetCache()
-                        message = "تم مسح سجل المشاهدة"
+                        confirming = "progress"
                     }
                     Divider().overlay(CinemaTheme.hairline)
                     action("مسح المفضلة", "يزيل العناوين المحفوظة فقط", destructive: true) {
-                        let counts = await CinemaAPI.shared.clearFavorites()
-                        progress = counts.progress
-                        favorites = counts.favorites
-                        LibraryModel.shared.favorites = []
-                        message = "تم مسح المفضلة"
+                        confirming = "favorites"
                     }
                     Divider().overlay(CinemaTheme.hairline)
                     action("إعادة تحميل الكتالوج", "يمسح الكاش ويجلب الصفوف من جديد", destructive: false) {
@@ -4233,6 +4349,20 @@ struct DataSettings: View {
                 }
                 .buttonStyle(.plain)
 
+                Button {
+                    Haptics.tap()
+                    UIPasteboard.general.string = CinemaxPrefs.exportSettings()
+                    message = "نُسخت إعداداتك إلى الحافظة"
+                } label: {
+                    Text("نسخ إعداداتي")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 13)
+                        .background(Color.white.opacity(0.1), in: Capsule())
+                }
+                .buttonStyle(.plain)
+
                 if let message {
                     Text(message)
                         .font(.system(size: 12))
@@ -4244,10 +4374,42 @@ struct DataSettings: View {
         .background(CinemaTheme.canvas.ignoresSafeArea())
         .navigationTitle("البيانات")
         .navigationBarTitleDisplayMode(.inline)
+        .confirmationDialog(
+            confirming == "progress" ? "مسح سجل المشاهدة؟" : "مسح المفضلة؟",
+            isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("مسح", role: .destructive) {
+                let target = confirming
+                confirming = nil
+                Task { await confirm(target) }
+            }
+            Button("إلغاء", role: .cancel) { confirming = nil }
+        } message: {
+            Text("لا يمكن التراجع عن هذه الخطوة.")
+        }
         .task {
             let counts = await CinemaAPI.shared.libraryCounts()
             progress = counts.progress
             favorites = counts.favorites
+        }
+    }
+
+    private func confirm(_ target: String?) async {
+        guard let target else { return }
+        if target == "progress" {
+            let counts = await CinemaAPI.shared.clearProgress()
+            progress = counts.progress
+            favorites = counts.favorites
+            HomeModel.shared.resetCache()
+            message = "تم مسح سجل المشاهدة"
+        } else {
+            let counts = await CinemaAPI.shared.clearFavorites()
+            progress = counts.progress
+            favorites = counts.favorites
+            LibraryModel.shared.favorites = []
+            HomeModel.shared.favorites = []
+            message = "تم مسح المفضلة"
         }
     }
 
@@ -4425,8 +4587,22 @@ enum CinemaxPrefs {
         return hours < 24 ? "حُدّث قبل \(hours) س" : "حُدّث أمس"
     }
 
-    static func resetAll() {
-        for key in [
+    /// A readable snapshot of the interface preferences, for the copy action.
+    @MainActor
+    static func exportSettings() -> String {
+        let defaults = UserDefaults.standard
+        let keys = [
+            "cinemax.accent", "cinemax.oled", "cinemax.reduceMotion", "cinemax.haptics",
+            "cinemax.autoplayNext", "cinemax.design", "cinemax.defaultSpeed",
+            "cinemax.notifications", posterWidthKey
+        ]
+        let lines = keys.map { key in
+            "\(key) = \(defaults.object(forKey: key).map { "\($0)" } ?? "—")"
+        }
+        return (["CINEMAX \(CinemaAPI.shared.versionLabel)"] + lines).joined(separator: "\n")
+    }
+
+    static func resetAll() {        for key in [
             "cinemax.accent", "cinemax.oled", "cinemax.reduceMotion", "cinemax.autoplayNext",
             "cinemax.design", posterWidthKey, "cinemax.defaultSpeed", "cinemax.notifications",
             historyKey, lastRefreshKey
