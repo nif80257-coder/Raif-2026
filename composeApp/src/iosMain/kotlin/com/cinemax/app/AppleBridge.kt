@@ -12,6 +12,7 @@ import com.cinemax.app.core.streamBadges
 import com.cinemax.app.nuvio.NuvioProviderStore
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.encodeURLParameter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -234,6 +235,47 @@ class CinemaxAppleBridge {
                 overview = overview?.takeIf { it.isNotBlank() }
             )
         }
+    }
+
+    /**
+     * Titles TMDB considers close to this one, so a finished film leads somewhere.
+     * An addon entry carries an IMDb id, so its TMDB id comes from a title search.
+     */
+    fun loadSimilar(itemId: String, type: String, name: String, onDone: (String) -> Unit) {
+        scope.launch {
+            val items = try {
+                withTimeoutOrNull(12_000) { fetchSimilar(itemId, type, name) } ?: emptyList()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Throwable) {
+                emptyList()
+            }
+            val shelf = AppleShelf("similar", "أعمال مشابهة", items)
+            onDone(json.encodeToString(AppleShelves(listOf(shelf))))
+        }
+    }
+
+    private suspend fun fetchSimilar(itemId: String, type: String, name: String): List<AppleItem> {
+        val key = nuvioStore.loadTmdbApiKey()
+        if (key.isBlank()) return emptyList()
+        val kind = if (type == "series") "tv" else "movie"
+        val tmdbId = when {
+            itemId.startsWith("tmdb:") -> itemId.split(":").getOrNull(1)
+            else -> resolveTmdbIdByTitle(name, kind, key)
+        } ?: return emptyList()
+        if (tmdbId.isBlank()) return emptyList()
+        return fetchTmdbList(key, "$kind/$tmdbId/similar")
+    }
+
+    /** Finds the TMDB id of an addon title by searching for its name. */
+    private suspend fun resolveTmdbIdByTitle(name: String, kind: String, key: String): String? {
+        if (name.isBlank()) return null
+        val query = name.encodeURLParameter()
+        val body = tmdbHttp.get(
+            "https://api.themoviedb.org/3/search/$kind?language=ar&api_key=$key&query=$query"
+        ).bodyAsText()
+        val results = Json.parseToJsonElement(body).jsonObject["results"] as? JsonArray ?: return null
+        return (results.firstOrNull()?.jsonObject?.get("id") as? JsonPrimitive)?.content
     }
 
     /** Full TMDB detail, including Arabic episodes, for a row that came from TMDB. */

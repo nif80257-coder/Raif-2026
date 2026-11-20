@@ -340,6 +340,17 @@ final class CinemaAPI {
         }
     }
 
+    /// Titles TMDB lists as close to this one, for the bottom of the detail page.
+    func similar(item: CinemaItem) async -> [CinemaItem] {
+        let payload = await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+            bridge.loadSimilar(itemId: item.id, type: item.type, name: item.name, onDone: { text in
+                continuation.resume(returning: text)
+            })
+        }
+        let decoded = try? JSONDecoder().decode(ShelvesPayload.self, from: Data(payload.utf8))
+        return (decoded?.shelves.first?.items ?? []).filter { $0.id != item.id }
+    }
+
     func saveProgress(item: CinemaItem, positionMs: Int64, durationMs: Int64, videoId: String?, videoLabel: String?) {
         guard let data = try? JSONEncoder().encode(item), let json = String(data: data, encoding: .utf8) else { return }
         bridge.saveProgress(
@@ -725,6 +736,16 @@ struct PosterCard: View {
                         .frame(height: 3)
                         .padding(.horizontal, 8)
                         .padding(.bottom, 7)
+                    }
+                    if let rating = item.rating, !rating.isEmpty {
+                        Text("★ \(rating)")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(Color.black.opacity(0.55), in: Capsule())
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                            .padding(7)
                     }
                     if saved {
                         Image(systemName: "heart.fill")
@@ -1144,6 +1165,17 @@ final class HomeModel: ObservableObject {
         }
     }
 
+    /// Forgets one stop position, called from the "أكمل المشاهدة" row.
+    func removeResume(_ entry: ProgressItem) {
+        continueWatching.removeAll { $0.id == entry.id }
+        Task {
+            _ = await CinemaAPI.shared.removeProgress(
+                itemId: entry.item.id,
+                videoLabel: entry.episodeLabel
+            )
+        }
+    }
+
     var heroItems: [CinemaItem] {
         let all = shelves.flatMap(\.items)
         switch filter {
@@ -1203,6 +1235,14 @@ struct CinematicHomeView: View {
                             LazyHStack(spacing: 12) {
                                 ForEach(model.continueWatching) { entry in
                                     ContinueCard(entry: entry) { detailItem = entry.item }
+                                        .contextMenu {
+                                            Button(role: .destructive) {
+                                                Haptics.tap()
+                                                model.removeResume(entry)
+                                            } label: {
+                                                Label("إزالة من قيد المشاهدة", systemImage: "trash")
+                                            }
+                                        }
                                 }
                             }
                             .padding(.horizontal, 20)
@@ -1421,6 +1461,7 @@ struct PlayerScreen: View {
     @State private var speed: Double = 1
     @State private var subtitlesOff = false
     @State private var subtitleDelay: Double = 0
+    @State private var subtitleSize = UserDefaults.standard.string(forKey: "cinemax.subtitleSize") ?? "medium"
     @State private var volume: Double = 100
     @State private var aspect = ""
     @State private var brightness: Double = 0.6
@@ -1630,6 +1671,7 @@ struct PlayerScreen: View {
                     speed: speed,
                     subtitlesOff: subtitlesOff,
                     subtitleDelay: subtitleDelay,
+                    subtitleSize: subtitleSize,
                     volume: volume,
                     brightness: brightness,
                     aspect: aspect,
@@ -1659,6 +1701,13 @@ struct PlayerScreen: View {
                     onSubtitleDelay: { value in
                         subtitleDelay = value
                         player?.setSubtitleDelay(value)
+                        Haptics.select()
+                    },
+                    onSubtitleSize: { value in
+                        subtitleSize = value
+                        UserDefaults.standard.set(value, forKey: "cinemax.subtitleSize")
+                        let points = value == "small" ? 42 : (value == "large" ? 66 : 54)
+                        player?.setSubtitleFontSize(points)
                         Haptics.select()
                     },
                     onVolume: { value in
@@ -1706,6 +1755,7 @@ struct PlayerScreen: View {
             Button("حسنًا", role: .cancel) {}
         }
         .task {
+            UIApplication.shared.isIdleTimerDisabled = true
             currentURL = url
             currentTitle = title
             currentVideoId = videoId
@@ -1723,6 +1773,7 @@ struct PlayerScreen: View {
             ticker?.invalidate()
             saveProgress()
             applyBrightness(savedBrightness)
+            UIApplication.shared.isIdleTimerDisabled = false
         }
         .onChange(of: duration) { value in
             // The track list is only reliable once the file is demuxed.
@@ -1912,6 +1963,7 @@ struct PlayerOptionsPanel: View {
     let speed: Double
     let subtitlesOff: Bool
     let subtitleDelay: Double
+    let subtitleSize: String
     let volume: Double
     let brightness: Double
     let aspect: String
@@ -1923,12 +1975,16 @@ struct PlayerOptionsPanel: View {
     let onAudio: (TrackInfo) -> Void
     let onSpeed: (Double) -> Void
     let onSubtitleDelay: (Double) -> Void
+    let onSubtitleSize: (String) -> Void
     let onVolume: (Double) -> Void
     let onBrightness: (Double) -> Void
     let onAspect: (String) -> Void
     let onSleep: (Int?) -> Void
 
     private let speeds: [Double] = [0.5, 0.75, 1, 1.25, 1.5, 2]
+    private let subtitleSizes: [(String, String)] = [
+        ("small", "صغير"), ("medium", "متوسط"), ("large", "كبير")
+    ]
     private let aspects: [(String, String)] = [
         ("", "تلقائي"), ("16:9", "16:9"), ("4:3", "4:3"), ("2.35:1", "2.35:1")
     ]
@@ -2033,6 +2089,29 @@ struct PlayerOptionsPanel: View {
                         Button("تصفير") { onSubtitleDelay(0) }
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(CinemaTheme.muted)
+                    }
+
+                    label("حجم الترجمة")
+                    HStack(spacing: 8) {
+                        ForEach(subtitleSizes, id: \.0) { entry in
+                            Button {
+                                onSubtitleSize(entry.0)
+                            } label: {
+                                Text(entry.1)
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(subtitleSize == entry.0 ? .black : .white)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 7)
+                                    .background {
+                                        Capsule().fill(
+                                            subtitleSize == entry.0
+                                                ? CinemaTheme.accent
+                                                : Color.white.opacity(0.1)
+                                        )
+                                    }
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
 
                     label("نسبة العرض")
@@ -2285,7 +2364,10 @@ struct DetailView: View {
     @State private var qualityFilter: String?
     @State private var speeds: [String: Double] = [:]
     @State private var shared = false
+    @State private var marked = false
     @State private var episodeQuery = ""
+    @State private var similar: [CinemaItem] = []
+    @State private var similarPick: CinemaItem?
 
     private var playlist: [CinemaItem] {
         guard let detail = model.detail, !detail.episodes.isEmpty else { return [] }
@@ -2317,6 +2399,7 @@ struct DetailView: View {
                         if !playlist.isEmpty { episodes }
                     }
                     sources
+                    if !similar.isEmpty { similarRow }
                     Spacer(minLength: 60)
                 }
             }
@@ -2330,8 +2413,20 @@ struct DetailView: View {
                     .background(.ultraThinMaterial, in: Capsule())
                     .padding(.top, 54)
             }
+            if marked {
+                Text("عُلم كمشاهد")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(CinemaTheme.accent.opacity(0.85), in: Capsule())
+                    .padding(.top, 100)
+            }
         }
         .task { await model.load(item: item) }
+        .task(id: item.id) {
+            similar = await CinemaAPI.shared.similar(item: item)
+        }
         .onChange(of: model.streams) { streams in
             speeds = [:]
             Task {
@@ -2349,6 +2444,48 @@ struct DetailView: View {
                 episodes: model.detail?.episodes ?? [],
                 type: item.type
             )
+        }
+        .fullScreenCover(item: $similarPick) { entry in
+            DetailView(item: entry)
+        }
+    }
+
+    /// Titles TMDB puts next to this one, tapping through to their own page.
+    private var similarRow: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionHeader(title: "أعمال مشابهة")
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(alignment: .top, spacing: 12) {
+                    ForEach(similar) { entry in
+                        PosterCard(
+                            item: entry,
+                            width: CinemaxPrefs.posterMinWidth,
+                            onOpen: { similarPick = entry }
+                        )
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
+        }
+    }
+
+    /// Records the title as fully watched, for what was seen somewhere else.
+    private func markWatched() {
+        let minutes: Int64 = 100 * 60 * 1000
+        CinemaAPI.shared.saveProgress(
+            item: item,
+            positionMs: minutes,
+            durationMs: minutes,
+            videoId: episode?.id,
+            videoLabel: episode?.name
+        )
+        Haptics.tap()
+        withAnimation(.easeInOut(duration: 0.2)) { marked = true }
+        Task {
+            await LibraryModel.shared.load()
+            HomeModel.shared.resetCache()
+            try? await Task.sleep(nanoseconds: 1_800_000_000)
+            withAnimation(.easeInOut(duration: 0.2)) { marked = false }
         }
     }
 
@@ -2450,6 +2587,42 @@ struct DetailView: View {
                         .background(Color.white.opacity(0.1), in: Capsule())
                 }
                 .buttonStyle(CinemaPressStyle())
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    markWatched()
+                } label: {
+                    Label("علّم كمشاهد", systemImage: "checkmark.circle")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.muted)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(CinemaTheme.surface, in: Capsule())
+                }
+                .buttonStyle(.plain)
+
+                if resumeEntry != nil {
+                    Button {
+                        Haptics.select()
+                        Task {
+                            _ = await CinemaAPI.shared.removeProgress(
+                                itemId: item.id,
+                                videoLabel: episode?.name
+                            )
+                            await LibraryModel.shared.load()
+                        }
+                    } label: {
+                        Label("مسح موضع التوقف", systemImage: "arrow.counterclockwise")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.muted)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(CinemaTheme.surface, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+                Spacer()
             }
 
             if let genres = model.detail?.genres, !genres.isEmpty {
@@ -2660,7 +2833,16 @@ struct DetailView: View {
         if let speed = speeds[stream.url] {
             score += min(speed, 20.0) / 5.0
         }
+        // A tier the viewer asked for climbs above the rest without hiding anything.
+        if let preferred = preferredTier, stream.quality == preferred {
+            score += 3
+        }
         return score
+    }
+
+    private var preferredTier: String? {
+        let value = CinemaxPrefs.preferredQuality
+        return value == "auto" ? nil : value
     }
 
     private func isProxied(_ stream: StreamChoice) -> Bool {
@@ -3144,6 +3326,23 @@ struct LibraryView: View {
         typeFilter == "all" || item.type == typeFilter
     }
 
+    private func scopeSuffix(_ id: String) -> String {
+        let source = model.segment == 1 ? model.progress.map(\.item) : model.favorites
+        let count = id == "all" ? source.count : source.filter { $0.type == id }.count
+        return count > 0 ? " · \(count)" : ""
+    }
+
+    /// A saved title that is also started shows its progress bar here.
+    private func resumeFraction(_ item: CinemaItem) -> Double {
+        model.progress.first { $0.item.id == item.id }?.fraction ?? 0
+    }
+
+    private var filterNotice: String? {
+        let source = model.segment == 1 ? model.progress.map(\.item) : model.favorites
+        guard !source.isEmpty, favorites.isEmpty, progress.isEmpty else { return nil }
+        return "لا نتائج لهذا الفلتر"
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView(showsIndicators: false) {
@@ -3194,7 +3393,7 @@ struct LibraryView: View {
                                 Haptics.select()
                                 withAnimation(.easeInOut(duration: 0.15)) { typeFilter = filter.id }
                             } label: {
-                                Text(filter.title)
+                                Text(filter.title + scopeSuffix(filter.id))
                                     .font(.system(size: 12, weight: .semibold))
                                     .foregroundStyle(typeFilter == filter.id ? .black : .white)
                                     .padding(.horizontal, 14)
@@ -3215,13 +3414,17 @@ struct LibraryView: View {
                         DownloadsView()
                     } else if model.segment == 0 {
                         if favorites.isEmpty {
-                            empty("لا شيء محفوظ بعد", "اضغط ♥ على أي عنوان ليظهر هنا.")
+                            empty(
+                                filterNotice ?? "لا شيء محفوظ بعد",
+                                filterNotice == nil ? "اضغط ♥ على أي عنوان ليظهر هنا." : "غيّر الفلتر أو امسح البحث."
+                            )
                         } else {
                             LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
                                 ForEach(favorites) { item in
                                     PosterCard(
                                         item: item,
                                         width: CinemaxPrefs.posterMinWidth,
+                                        progress: resumeFraction(item),
                                         saved: true,
                                         onLongClick: {
                                             Haptics.tap()
@@ -3235,7 +3438,10 @@ struct LibraryView: View {
                         }
                     } else {
                         if progress.isEmpty {
-                            empty("لا شيء قيد المشاهدة", "أي فيلم تبدأه يظهر هنا مع موضع التوقف.")
+                            empty(
+                                filterNotice ?? "لا شيء قيد المشاهدة",
+                                filterNotice == nil ? "أي فيلم تبدأه يظهر هنا مع موضع التوقف." : "غيّر الفلتر أو امسح البحث."
+                            )
                         } else {
                             LazyVStack(spacing: 12) {
                                 ForEach(progress) { entry in
@@ -3891,6 +4097,14 @@ struct PanoramaHomeView: View {
                             LazyHStack(spacing: 12) {
                                 ForEach(model.continueWatching) { entry in
                                     ContinueCard(entry: entry) { detailItem = entry.item }
+                                        .contextMenu {
+                                            Button(role: .destructive) {
+                                                Haptics.tap()
+                                                model.removeResume(entry)
+                                            } label: {
+                                                Label("إزالة من قيد المشاهدة", systemImage: "trash")
+                                            }
+                                        }
                                 }
                             }
                             .padding(.horizontal, 20)
@@ -4540,10 +4754,14 @@ struct PlaybackSettings: View {
     @AppStorage("cinemax.autoHideControls") private var autoHideControls = true
     @AppStorage("cinemax.autoResume") private var autoResume = true
     @AppStorage("cinemax.speedFirst") private var speedFirst = false
+    @AppStorage("cinemax.prefQuality") private var prefQuality = "auto"
     @AppStorage("cinemax.defaultSpeed") private var defaultSpeed = 1.0
 
     private let speeds: [Double] = [0.75, 1, 1.25, 1.5]
     private let steps: [Int] = [5, 10, 15, 30]
+    private let qualities: [(id: String, title: String)] = [
+        ("auto", "تلقائي"), ("4K", "4K"), ("1080p", "1080p"), ("720p", "720p")
+    ]
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -4571,6 +4789,36 @@ struct PlaybackSettings: View {
                     }
                 }
                 .tint(CinemaTheme.accent)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("الجودة المفضلة")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.muted)
+                    HStack(spacing: 8) {
+                        ForEach(qualities, id: \.id) { entry in
+                            Button {
+                                Haptics.select()
+                                prefQuality = entry.id
+                            } label: {
+                                Text(entry.title)
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(prefQuality == entry.id ? .black : .white)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 8)
+                                    .background {
+                                        Capsule().fill(
+                                            prefQuality == entry.id ? CinemaTheme.accent : Color.white.opacity(0.08)
+                                        )
+                                    }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    Text("المصادر الأخرى تبقى ظاهرة؛ الجودة المختارة تُقدَّم في أعلى القائمة فقط.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(CinemaTheme.muted)
+                        .lineSpacing(3)
+                }
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text("ترتيب المصادر")
@@ -5170,7 +5418,6 @@ struct AddonsSettings: View {
     }
 }
 
-/// Library data: what is stored and a way to empty it.
 /// A local, account-free look at what the viewer has built up: what is saved,
 /// where they stopped, and what the downloads take on the device.
 struct StatsSettings: View {
@@ -5280,6 +5527,7 @@ struct StatsSettings: View {
     }
 }
 
+/// Library data: what is stored and a way to empty it.
 struct DataSettings: View {
     @State private var progress = 0
     @State private var favorites = 0
@@ -5659,6 +5907,11 @@ enum CinemaxPrefs {
         (UserDefaults.standard.object(forKey: "cinemax.speedFirst") as? Bool) ?? false
     }
 
+    /// The quality tier the viewer wants first: "auto", "4K", "1080p" or "720p".
+    static var preferredQuality: String {
+        UserDefaults.standard.string(forKey: "cinemax.prefQuality") ?? "auto"
+    }
+
     static var searchHistory: [String] {
         UserDefaults.standard.stringArray(forKey: historyKey) ?? []
     }
@@ -5701,7 +5954,7 @@ enum CinemaxPrefs {
             "cinemax.autoplayNext", "cinemax.design", "cinemax.defaultSpeed",
             "cinemax.notifications", "cinemax.seekSeconds", "cinemax.autoHideControls",
             "cinemax.autoResume", "cinemax.heroAuto", "cinemax.skipIntro",
-            posterWidthKey
+            "cinemax.prefQuality", posterWidthKey
         ]
         let lines = keys.map { key in
             "\(key) = \(defaults.object(forKey: key).map { "\($0)" } ?? "—")"
@@ -5714,7 +5967,8 @@ enum CinemaxPrefs {
             "cinemax.accent", "cinemax.oled", "cinemax.reduceMotion", "cinemax.autoplayNext",
             "cinemax.design", posterWidthKey, "cinemax.defaultSpeed", "cinemax.notifications",
             "cinemax.seekSeconds", "cinemax.autoHideControls", "cinemax.autoResume",
-            "cinemax.heroAuto", "cinemax.skipIntro", "cinemax.subtitleLang",
+            "cinemax.heroAuto", "cinemax.skipIntro", "cinemax.prefQuality",
+            "cinemax.subtitleLang",
             "cinemax.subtitleSize", "cinemax.subtitleAuto",
             historyKey, lastRefreshKey
         ] {
