@@ -188,7 +188,9 @@ class CinemaxAppleBridge {
             "trending/all/week" to "الأكثر تداولًا هذا الأسبوع",
             "movie/popular" to "أفلام شائعة",
             "tv/popular" to "مسلسلات شائعة",
-            "movie/top_rated" to "أعلى تقييمًا"
+            "discover/movie?with_original_language=ar&sort_by=popularity.desc" to "سينما عربية",
+            "movie/top_rated" to "أعلى تقييمًا",
+            "movie/upcoming" to "قريبًا"
         )
         return coroutineScope {
             rows.map { (path, title) ->
@@ -207,7 +209,11 @@ class CinemaxAppleBridge {
     }
 
     private suspend fun fetchTmdbList(key: String, path: String): List<AppleItem> {
-        val body = tmdbHttp.get("https://api.themoviedb.org/3/$path?language=ar&api_key=$key").bodyAsText()
+        // A path may already carry its own query (discover), so the separator varies.
+        val separator = if (path.contains("?")) "&" else "?"
+        val body = tmdbHttp.get(
+            "https://api.themoviedb.org/3/$path${separator}language=ar&api_key=$key"
+        ).bodyAsText()
         val results = Json.parseToJsonElement(body).jsonObject["results"] as? JsonArray ?: return emptyList()
         return results.mapNotNull { element ->
             val obj = element.jsonObject

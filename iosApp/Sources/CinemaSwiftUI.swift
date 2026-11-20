@@ -1149,6 +1149,13 @@ final class HomeModel: ObservableObject {
         didSet { UserDefaults.standard.set(filter, forKey: "cinemax.homeFilter") }
     }
 
+    /// Rows the viewer put away from the home screen, by shelf id.
+    @Published var hiddenShelves: Set<String> = Set(
+        UserDefaults.standard.stringArray(forKey: "cinemax.hiddenShelves") ?? []
+    ) {
+        didSet { UserDefaults.standard.set(Array(hiddenShelves), forKey: "cinemax.hiddenShelves") }
+    }
+
     private var lastLoaded: Date?
     private let cacheKey = "cinemax.shelves.cache.v1"
 
@@ -1241,12 +1248,22 @@ final class HomeModel: ObservableObject {
     }
 
     var visibleShelves: [Shelf] {
+        let base = shelves.filter { !hiddenShelves.contains($0.id) }
         switch filter {
-        case "movie": return shelves.filter { $0.items.contains { $0.type == "movie" } }
-        case "series": return shelves.filter { $0.items.contains { $0.type == "series" } }
-        case "channel": return shelves.filter { $0.items.contains { $0.type == "channel" || $0.type == "tv" } }
-        default: return shelves
+        case "movie": return base.filter { $0.items.contains { $0.type == "movie" } }
+        case "series": return base.filter { $0.items.contains { $0.type == "series" } }
+        case "channel": return base.filter { $0.items.contains { $0.type == "channel" || $0.type == "tv" } }
+        default: return base
         }
+    }
+
+    /// Puts a row away; settings can bring every row back.
+    func hide(_ shelf: Shelf) {
+        hiddenShelves.insert(shelf.id)
+    }
+
+    func unhideAll() {
+        hiddenShelves = []
     }
 }
 
@@ -1306,6 +1323,14 @@ struct CinematicHomeView: View {
                         SectionHeader(title: "\(shelf.title) · \(shelf.items.count)") {
                             Haptics.tap()
                             gridShelf = shelf
+                        }
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                Haptics.tap()
+                                withAnimation(.easeInOut(duration: 0.2)) { model.hide(shelf) }
+                            } label: {
+                                Label("إخفاء هذا الصف", systemImage: "eye.slash")
+                            }
                         }
                         ScrollView(.horizontal, showsIndicators: false) {
                             LazyHStack(alignment: .top, spacing: 12) {
@@ -1497,6 +1522,8 @@ struct PlayerScreen: View {
     var item: CinemaItem? = nil
     var videoId: String? = nil
     var videoLabel: String? = nil
+    /// The addon and quality this link came from, shown under the title.
+    var sourceNote: String? = nil
     /// The whole episode list, so the player can roll into the next one.
     var episodes: [CinemaItem] = []
     var type: String = "series"
@@ -1574,10 +1601,18 @@ struct PlayerScreen: View {
             VStack {
                 HStack(spacing: 12) {
                     CircleButton(system: "xmark") { dismiss() }
-                    Text(currentTitle.isEmpty ? title : currentTitle)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(currentTitle.isEmpty ? title : currentTitle)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                        if let sourceNote, !sourceNote.isEmpty {
+                            Text(sourceNote)
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(CinemaTheme.muted)
+                                .lineLimit(1)
+                        }
+                    }
                     Spacer()
                     if switching {
                         ProgressView().tint(CinemaTheme.accent)
@@ -2502,6 +2537,7 @@ struct DetailView: View {
                 item: item,
                 videoId: episode?.id,
                 videoLabel: episode?.name,
+                sourceNote: [choice.addon, choice.quality].compactMap { $0 }.joined(separator: " · "),
                 episodes: model.detail?.episodes ?? [],
                 type: item.type
             )
@@ -3196,6 +3232,7 @@ struct SearchView: View {
         switch kind {
         case "movie": return model.results.filter { $0.type == "movie" }
         case "series": return model.results.filter { $0.type == "series" }
+        case "channel": return model.results.filter { $0.type == "channel" || $0.type == "tv" }
         default: return model.results
         }
     }
@@ -3336,7 +3373,7 @@ struct SearchView: View {
     private var kindChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach([("all", "الكل"), ("movie", "أفلام"), ("series", "مسلسلات")], id: \.0) { entry in
+                ForEach([("all", "الكل"), ("movie", "أفلام"), ("series", "مسلسلات"), ("channel", "قنوات")], id: \.0) { entry in
                     Button {
                         Haptics.select()
                         withAnimation(.easeInOut(duration: 0.15)) { kind = entry.0 }
@@ -4880,6 +4917,22 @@ struct LayoutSettings: View {
                 }
                 .tint(CinemaTheme.accent)
                 .padding(.top, 4)
+
+                if !HomeModel.shared.hiddenShelves.isEmpty {
+                    HStack(spacing: 8) {
+                        Text("\(HomeModel.shared.hiddenShelves.count) صفًا مخفيًا في الرئيسية")
+                            .font(.system(size: 11))
+                            .foregroundStyle(CinemaTheme.muted)
+                        Spacer()
+                        Button("إظهار الكل") {
+                            Haptics.select()
+                            HomeModel.shared.unhideAll()
+                        }
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.accent)
+                        .buttonStyle(.plain)
+                    }
+                }
                 }
                 .padding(16)
                 .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
@@ -5850,6 +5903,19 @@ struct DataSettings: View {
                         confirming = "favorites"
                     }
                     Divider().overlay(CinemaTheme.hairline)
+                    action("مسح ما اكتمل", "يزيل من قيد المشاهدة ما وصل نهايته", destructive: false) {
+                        let done = LibraryModel.shared.progress.filter { $0.fraction >= 0.95 }
+                        for entry in done {
+                            _ = await CinemaAPI.shared.removeProgress(
+                                itemId: entry.item.id,
+                                videoLabel: entry.episodeLabel
+                            )
+                        }
+                        await LibraryModel.shared.load()
+                        HomeModel.shared.resetCache()
+                        message = done.isEmpty ? "لا شيء مكتمل" : "حُذف \(done.count) عنوانًا مكتملًا"
+                    }
+                    Divider().overlay(CinemaTheme.hairline)
                     action("إعادة تحميل الكتالوج", "يمسح الكاش ويجلب الصفوف من جديد", destructive: false) {
                         HomeModel.shared.resetCache()
                         message = "جارٍ إعادة التحميل"
@@ -6581,6 +6647,15 @@ final class DownloadManager: ObservableObject {
 struct DownloadsView: View {
     @ObservedObject private var manager = DownloadManager.shared
     @State private var playing: CinemaItem?
+    @State private var filter = "all"
+
+    private var jobs: [DownloadJob] {
+        switch filter {
+        case "running": return manager.jobs.filter { $0.state == "running" }
+        case "done": return manager.jobs.filter { $0.state == "done" }
+        default: return manager.jobs
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -6598,6 +6673,28 @@ struct DownloadsView: View {
                 .padding(.top, 50)
                 .padding(.horizontal, 30)
             } else {
+                HStack(spacing: 8) {
+                    ForEach([("all", "الكل"), ("running", "الجارية"), ("done", "المكتملة")], id: \.0) { entry in
+                        Button {
+                            Haptics.select()
+                            withAnimation(.easeInOut(duration: 0.15)) { filter = entry.0 }
+                        } label: {
+                            Text(entry.1)
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(filter == entry.0 ? .black : .white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background {
+                                    Capsule().fill(
+                                        filter == entry.0 ? CinemaTheme.accent : Color.white.opacity(0.08)
+                                    )
+                                }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    Spacer()
+                }
+
                 HStack {
                     Text("\(manager.jobs.count) ملفًا")
                         .font(.system(size: 12, weight: .semibold))
@@ -6609,7 +6706,7 @@ struct DownloadsView: View {
                 }
                 .padding(.bottom, 2)
 
-                ForEach(manager.jobs) { job in
+                ForEach(jobs) { job in
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
                             Text(job.title)
