@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
@@ -717,6 +718,7 @@ internal fun StreamList(
                 Column {
                     StreamSectionHeader(
                         addonName = shared.label,
+                        streamCount = 1,
                         isLoading = false,
                         fetchingText = fetchingText,
                     )
@@ -802,6 +804,7 @@ private fun LazyListScope.streamSection(
         item(key = "header_$sectionKey") {
             StreamSectionHeader(
                 addonName = group.addonName,
+                streamCount = group.streams.size,
                 isLoading = group.isLoading,
                 fetchingText = fetchingText,
             )
@@ -826,7 +829,7 @@ private fun LazyListScope.streamSection(
         val sourceStreams = streamsBySource[sourceName].orEmpty()
         if (showSourceHeaders) {
             item(key = "source_${sectionKey}_$sourceIndex") {
-                StreamSourceHeader(sourceName = sourceName)
+                StreamSourceHeader(sourceName = sourceName, streamCount = sourceStreams.size)
             }
         }
 
@@ -902,6 +905,7 @@ internal fun streamCardRenderKey(
 @Composable
 private fun StreamSectionHeader(
     addonName: String,
+    streamCount: Int,
     isLoading: Boolean,
     fetchingText: String,
     modifier: Modifier = Modifier,
@@ -913,14 +917,26 @@ private fun StreamSectionHeader(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text(
-            text = addonName,
-            style = MaterialTheme.typography.bodyMedium.copy(
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-            ),
-            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.9f),
-        )
+        Row(
+            modifier = Modifier.weight(1f, fill = false),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = addonName,
+                modifier = Modifier.weight(1f, fill = false),
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                ),
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.9f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (streamCount > 0 && !isLoading) {
+                Spacer(modifier = Modifier.width(6.dp))
+                StreamCountBadge(count = streamCount)
+            }
+        }
         AnimatedVisibility(visible = isLoading, enter = fadeIn(), exit = fadeOut()) {
             Text(
                 text = fetchingText,
@@ -935,15 +951,50 @@ private fun StreamSectionHeader(
 @Composable
 private fun StreamSourceHeader(
     sourceName: String,
+    streamCount: Int,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            text = sourceName,
+            modifier = Modifier.weight(1f, fill = false),
+            style = MaterialTheme.typography.labelLarge.copy(
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.2.sp,
+            ),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (streamCount > 0) {
+            Spacer(modifier = Modifier.width(6.dp))
+            StreamCountBadge(count = streamCount)
+        }
+    }
+}
+
+// The number of links a source returned, so the list says up front how many rows sit under a header.
+@Composable
+private fun StreamCountBadge(
+    count: Int,
     modifier: Modifier = Modifier,
 ) {
     Text(
-        text = sourceName,
-        modifier = modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-        style = MaterialTheme.typography.labelLarge.copy(
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-            letterSpacing = 0.2.sp,
+        text = stringResource(Res.string.streams_link_count, count),
+        modifier = modifier
+            .clip(RoundedCornerShape(50))
+            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+        style = MaterialTheme.typography.labelSmall.copy(
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
         ),
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
