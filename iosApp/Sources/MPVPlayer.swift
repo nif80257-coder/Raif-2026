@@ -230,6 +230,18 @@ final class MPVViewController: UIViewController {
         setString(mpv, "speed", String(format: "%.2f", max(0.25, min(4.0, speed))))
     }
 
+    /// Shifts subtitle timing in seconds; 0 puts it back in sync.
+    func setSubtitleDelay(_ seconds: Double) {
+        guard let mpv else { return }
+        setString(mpv, "sub-delay", String(format: "%.2f", seconds))
+    }
+
+    /// Forces an aspect ratio ("16:9", "4:3", "2.35:1") or clears it with "".
+    func setVideoAspect(_ aspect: String) {
+        guard let mpv else { return }
+        setString(mpv, "video-aspect-override", aspect)
+    }
+
     func setVolumeLevel(_ volume: Double) {
         guard let mpv else { return }
         setString(mpv, "volume", String(format: "%.0f", max(0.0, min(100.0, volume))))

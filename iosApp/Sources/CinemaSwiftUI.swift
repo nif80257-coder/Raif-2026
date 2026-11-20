@@ -772,14 +772,22 @@ struct HeroCarousel: View {
     let items: [CinemaItem]
     let onOpen: (CinemaItem) -> Void
     let onPalette: ([Color]) -> Void
+    var isSaved: (CinemaItem) -> Bool = { _ in false }
+    var onToggleFavorite: (CinemaItem) -> Void = { _ in }
 
     @State private var index = 0
 
     var body: some View {
         TabView(selection: $index) {
             ForEach(Array(items.prefix(6).enumerated()), id: \.element.id) { offset, item in
-                HeroSlide(item: item, onOpen: { onOpen(item) }, onPalette: onPalette)
-                    .tag(offset)
+                HeroSlide(
+                    item: item,
+                    saved: isSaved(item),
+                    onOpen: { onOpen(item) },
+                    onFavorite: { onToggleFavorite(item) },
+                    onPalette: onPalette
+                )
+                .tag(offset)
             }
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
@@ -809,7 +817,9 @@ struct HeroCarousel: View {
 
 private struct HeroSlide: View {
     let item: CinemaItem
+    var saved: Bool = false
     let onOpen: () -> Void
+    var onFavorite: () -> Void = {}
     let onPalette: ([Color]) -> Void
 
     var body: some View {
@@ -854,6 +864,15 @@ private struct HeroSlide: View {
                             .background(.white, in: Capsule())
                     }
                     .buttonStyle(CinemaPressStyle())
+
+                    Button(action: onFavorite) {
+                        Image(systemName: saved ? "heart.fill" : "heart")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(saved ? CinemaTheme.favourite : .white)
+                            .frame(width: 44, height: 44)
+                            .background(.ultraThinMaterial, in: Circle())
+                    }
+                    .buttonStyle(CinemaPressStyle())
                 }
             }
             .padding(.horizontal, 32)
@@ -870,6 +889,7 @@ private struct HeroSlide: View {
 
 struct FloatingTabBar: View {
     @Binding var selection: Int
+    var libraryBadge: Int = 0
 
     private let tabs: [(icon: String, title: String)] = [
         ("house.fill", "الرئيسية"),
@@ -888,8 +908,19 @@ struct FloatingTabBar: View {
                     }
                 } label: {
                     VStack(spacing: 3) {
-                        Image(systemName: tab.icon)
-                            .font(.system(size: 17, weight: .semibold))
+                        ZStack(alignment: .topTrailing) {
+                            Image(systemName: tab.icon)
+                                .font(.system(size: 17, weight: .semibold))
+                            if index == 2 && libraryBadge > 0 {
+                                Text("\(min(libraryBadge, 99))")
+                                    .font(.system(size: 8, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 1)
+                                    .background(CinemaTheme.favourite, in: Capsule())
+                                    .offset(x: 12, y: -6)
+                            }
+                        }
                         Text(tab.title)
                             .font(.system(size: 10, weight: .medium))
                     }
@@ -1024,6 +1055,7 @@ struct CinematicHomeView: View {
     @ObservedObject private var model = HomeModel.shared
     @State private var glow: [Color] = [CinemaTheme.accent]
     @State private var detailItem: CinemaItem?
+    @State private var gridShelf: Shelf?
 
     private let filters: [(id: String, title: String)] = [
         ("all", "الكل"), ("movie", "أفلام"), ("series", "مسلسلات"), ("channel", "قنوات")
@@ -1039,7 +1071,16 @@ struct CinematicHomeView: View {
                 } else if let error = model.error, model.heroItems.isEmpty {
                     emptyState(error)
                 } else {
-                    HeroCarousel(items: model.heroItems, onOpen: { detailItem = $0 }, onPalette: { glow = $0 })
+                    HeroCarousel(
+                        items: model.heroItems,
+                        onOpen: { detailItem = $0 },
+                        onPalette: { glow = $0 },
+                        isSaved: { model.favorites.contains($0.id) },
+                        onToggleFavorite: { item in
+                            Haptics.tap()
+                            model.toggle(item)
+                        }
+                    )
                         .frame(height: 440)
                     if !model.continueWatching.isEmpty {
                         SectionHeader(title: "أكمل المشاهدة")
@@ -1053,7 +1094,10 @@ struct CinematicHomeView: View {
                         }
                     }
                     ForEach(model.visibleShelves) { shelf in
-                        SectionHeader(title: shelf.title)
+                        SectionHeader(title: "\(shelf.title) · \(shelf.items.count)") {
+                            Haptics.tap()
+                            gridShelf = shelf
+                        }
                         ScrollView(.horizontal, showsIndicators: false) {
                             LazyHStack(alignment: .top, spacing: 12) {
                                 ForEach(shelf.items) { item in
@@ -1077,6 +1121,12 @@ struct CinematicHomeView: View {
         .task { await model.load() }
         .fullScreenCover(item: $detailItem) { item in
             DetailView(item: item, onFavorite: { model.toggle(item) })
+        }
+        .sheet(item: $gridShelf) { shelf in
+            ShelfGridScreen(shelf: shelf, onOpen: { item in
+                gridShelf = nil
+                detailItem = item
+            })
         }
     }
 
@@ -1243,6 +1293,9 @@ struct PlayerScreen: View {
     @State private var audioTracks: [TrackInfo] = []
     @State private var speed: Double = 1
     @State private var subtitlesOff = false
+    @State private var subtitleDelay: Double = 0
+    @State private var volume: Double = 100
+    @State private var aspect = ""
     @State private var currentURL = ""
     @State private var currentTitle = ""
     @State private var currentVideoId: String?
@@ -1366,6 +1419,9 @@ struct PlayerScreen: View {
                     audioTracks: audioTracks,
                     speed: speed,
                     subtitlesOff: subtitlesOff,
+                    subtitleDelay: subtitleDelay,
+                    volume: volume,
+                    aspect: aspect,
                     onClose: { showOptions = false },
                     onSubtitle: { track in
                         subtitlesOff = track == nil
@@ -1385,6 +1441,20 @@ struct PlayerScreen: View {
                     onSpeed: { value in
                         speed = value
                         player?.setSpeed(value)
+                        Haptics.select()
+                    },
+                    onSubtitleDelay: { value in
+                        subtitleDelay = value
+                        player?.setSubtitleDelay(value)
+                        Haptics.select()
+                    },
+                    onVolume: { value in
+                        volume = value
+                        player?.setVolumeLevel(value)
+                    },
+                    onAspect: { value in
+                        aspect = value
+                        player?.setVideoAspect(value)
                         Haptics.select()
                     }
                 )
@@ -1512,13 +1582,22 @@ struct PlayerOptionsPanel: View {
     let audioTracks: [TrackInfo]
     let speed: Double
     let subtitlesOff: Bool
+    let subtitleDelay: Double
+    let volume: Double
+    let aspect: String
 
     let onClose: () -> Void
     let onSubtitle: (TrackInfo?) -> Void
     let onAudio: (TrackInfo) -> Void
     let onSpeed: (Double) -> Void
+    let onSubtitleDelay: (Double) -> Void
+    let onVolume: (Double) -> Void
+    let onAspect: (String) -> Void
 
     private let speeds: [Double] = [0.5, 0.75, 1, 1.25, 1.5, 2]
+    private let aspects: [(String, String)] = [
+        ("", "تلقائي"), ("16:9", "16:9"), ("4:3", "4:3"), ("2.35:1", "2.35:1")
+    ]
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -1586,6 +1665,75 @@ struct PlayerOptionsPanel: View {
                         Text("هذا الملف لا يحتوي مسارات مدمجة.")
                             .font(.system(size: 12))
                             .foregroundStyle(CinemaTheme.muted)
+                    }
+
+                    label("تأخير الترجمة")
+                    HStack(spacing: 10) {
+                        Button {
+                            onSubtitleDelay(subtitleDelay - 0.5)
+                        } label: {
+                            Text("− 0.5")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(Color.white.opacity(0.1), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        Text(String(format: "%+.1f ث", subtitleDelay))
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.accent)
+                            .frame(minWidth: 62)
+                        Button {
+                            onSubtitleDelay(subtitleDelay + 0.5)
+                        } label: {
+                            Text("+ 0.5")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(Color.white.opacity(0.1), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        Spacer()
+                        Button("تصفير") { onSubtitleDelay(0) }
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.muted)
+                    }
+
+                    label("نسبة العرض")
+                    HStack(spacing: 8) {
+                        ForEach(aspects, id: \.0) { entry in
+                            Button {
+                                onAspect(entry.0)
+                            } label: {
+                                Text(entry.1)
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(aspect == entry.0 ? .black : .white)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 7)
+                                    .background {
+                                        Capsule().fill(aspect == entry.0 ? CinemaTheme.accent : Color.white.opacity(0.1))
+                                    }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+
+                    label("الصوت")
+                    HStack(spacing: 10) {
+                        Image(systemName: "speaker.fill")
+                            .font(.system(size: 12))
+                            .foregroundStyle(CinemaTheme.muted)
+                        Slider(
+                            value: Binding(get: { volume }, set: { onVolume($0) }),
+                            in: 0...100
+                        )
+                        .tint(CinemaTheme.accent)
+                        Text("\(Int(volume))%")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.muted)
+                            .frame(width: 40)
                     }
                 }
                 .padding(20)
@@ -1823,6 +1971,25 @@ struct DetailView: View {
                 }
             }
 
+            if let cast = model.detail?.cast, !cast.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        Text("بطولة")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.muted)
+                        ForEach(cast.prefix(8), id: \.self) { person in
+                            CinemaPill(text: person, tint: .white)
+                        }
+                    }
+                }
+            }
+
+            if let directors = model.detail?.director, !directors.isEmpty {
+                Text("إخراج: \(directors.prefix(3).joined(separator: "، "))")
+                    .font(.system(size: 11))
+                    .foregroundStyle(CinemaTheme.muted)
+            }
+
             if let overview = model.detail?.item.overview ?? item.overview, !overview.isEmpty {
                 Text(overview)
                     .font(.system(size: 14))
@@ -1921,6 +2088,15 @@ struct DetailView: View {
                                                 lineWidth: episode?.id == entry.id ? 2 : 1
                                             )
                                     )
+                                    .overlay(alignment: .topTrailing) {
+                                        if watched(entry) {
+                                            Image(systemName: "checkmark.circle.fill")
+                                                .font(.system(size: 15, weight: .bold))
+                                                .foregroundStyle(.white)
+                                                .background(CinemaTheme.accent, in: Circle())
+                                                .padding(6)
+                                        }
+                                    }
                                 Text(entry.name)
                                     .font(.system(size: 12, weight: .medium))
                                     .foregroundStyle(.white)
@@ -1933,6 +2109,12 @@ struct DetailView: View {
                 }
                 .padding(.horizontal, 20)
             }
+        }
+    }
+
+    private func watched(_ episode: CinemaItem) -> Bool {
+        LibraryModel.shared.progress.contains { entry in
+            entry.item.id == item.id && entry.fraction >= 0.9 && entry.episodeLabel == episode.name
         }
     }
 
@@ -2856,7 +3038,7 @@ struct CinemaRootView: View {
             // Rebuilds the screens when the accent or the canvas changes, so the new
             // colour reaches every view instead of only newly created ones.
             .id(accent + (oled ? "-oled" : "-soft"))
-            FloatingTabBar(selection: $selection)
+            FloatingTabBar(selection: $selection, libraryBadge: LibraryModel.shared.progress.count)
         }
         .preferredColorScheme(.dark)
         .environment(\.layoutDirection, .rightToLeft)
@@ -3635,6 +3817,27 @@ struct AboutSettings: View {
                     .foregroundStyle(CinemaTheme.muted)
                     .lineSpacing(4)
 
+                Divider().overlay(CinemaTheme.hairline)
+
+                HStack {
+                    Text("المشغّل")
+                        .font(.system(size: 12))
+                        .foregroundStyle(CinemaTheme.muted)
+                    Spacer()
+                    Text("libmpv · MKV/AVI/HEVC")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                HStack {
+                    Text("الواجهة")
+                        .font(.system(size: 12))
+                        .foregroundStyle(CinemaTheme.muted)
+                    Spacer()
+                    Text("SwiftUI")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+
                 Link(destination: URL(string: "https://www.themoviedb.org/")!) {
                     Text("themoviedb.org")
                         .font(.system(size: 11, weight: .semibold))
@@ -3788,6 +3991,15 @@ struct AddonsSettings: View {
                                     .background(CinemaTheme.elevated, in: Circle())
                             }
                             .buttonStyle(.plain)
+                            if let page = URL(string: addon.url) {
+                                Link(destination: page) {
+                                    Image(systemName: "safari")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundStyle(CinemaTheme.muted)
+                                        .frame(width: 32, height: 32)
+                                        .background(CinemaTheme.elevated, in: Circle())
+                                }
+                            }
                             Button {
                                 Haptics.tap()
                                 CinemaAPI.shared.removeAddon(addon.url)
@@ -3963,6 +4175,46 @@ struct DataSettings: View {
                     }
                     .tint(CinemaTheme.accent)
                     .padding(.vertical, 12)
+
+                    Divider().overlay(CinemaTheme.hairline)
+
+                    Button {
+                        Haptics.tap()
+                        if let url = URL(string: UIApplication.openSettingsURLString) {
+                            UIApplication.shared.open(url)
+                        }
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("إعدادات الإشعارات في iOS")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundStyle(.white)
+                                Text("السماح بالإشعارات من إعدادات النظام")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(CinemaTheme.muted)
+                            }
+                            Spacer()
+                            Image(systemName: "arrow.up.right.square")
+                                .font(.system(size: 13))
+                                .foregroundStyle(CinemaTheme.accent)
+                        }
+                        .padding(.vertical, 12)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+
+                    Divider().overlay(CinemaTheme.hairline)
+
+                    HStack {
+                        Text("حجم البيانات المحلية")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.white)
+                        Spacer()
+                        Text(storageSize)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.muted)
+                    }
+                    .padding(.vertical, 12)
                 }
                 .padding(.horizontal, 14)
                 .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -3997,6 +4249,14 @@ struct DataSettings: View {
             progress = counts.progress
             favorites = counts.favorites
         }
+    }
+
+    private var storageSize: String {
+        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+        let size = (attributes?[.size] as? NSNumber)?.int64Value ?? 0
+        let mb = Double(size) / 1_048_576
+        return mb < 1 ? "أقل من 1 MB" : String(format: "%.1f MB", mb)
     }
 
     private func box(_ value: String, _ title: String) -> some View {
@@ -4173,5 +4433,71 @@ enum CinemaxPrefs {
         ] {
             UserDefaults.standard.removeObject(forKey: key)
         }
+    }
+}
+
+
+/// A whole shelf as a grid, opened from the "المزيد" action on a row.
+struct ShelfGridScreen: View {
+    let shelf: Shelf
+    let onOpen: (CinemaItem) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+
+    private var items: [CinemaItem] {
+        let text = query.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return shelf.items }
+        return shelf.items.filter { $0.name.localizedCaseInsensitiveContains(text) }
+    }
+
+    private var columns: [GridItem] {
+        [GridItem(.adaptive(minimum: CinemaxPrefs.posterMinWidth), spacing: 12)]
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 12))
+                            .foregroundStyle(CinemaTheme.muted)
+                        TextField("ابحث داخل هذه القائمة", text: $query)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(CinemaTheme.surface, in: Capsule())
+                    .padding(.horizontal, 20)
+
+                    LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
+                        ForEach(items) { item in
+                            PosterCard(
+                                item: item,
+                                width: CinemaxPrefs.posterMinWidth,
+                                saved: HomeModel.shared.favorites.contains(item.id),
+                                onOpen: { onOpen(item) }
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    Spacer(minLength: 40)
+                }
+                .padding(.top, 10)
+            }
+            .background(CinemaTheme.canvas.ignoresSafeArea())
+            .navigationTitle(shelf.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("تم") { dismiss() }
+                        .foregroundStyle(CinemaTheme.accent)
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
     }
 }
