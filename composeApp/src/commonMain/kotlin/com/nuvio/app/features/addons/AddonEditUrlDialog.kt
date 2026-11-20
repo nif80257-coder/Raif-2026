@@ -27,6 +27,7 @@ import nuvio.composeapp.generated.resources.addons_edit_link_placeholder
 import nuvio.composeapp.generated.resources.addons_edit_link_save
 import nuvio.composeapp.generated.resources.addons_edit_link_subtitle
 import nuvio.composeapp.generated.resources.addons_edit_link_title
+import nuvio.composeapp.generated.resources.addons_edit_name_label
 import org.jetbrains.compose.resources.stringResource
 
 /**
@@ -41,6 +42,9 @@ internal fun AddonEditUrlDialog(
     addon: ManagedAddon,
     onDismiss: () -> Unit,
 ) {
+    var name by remember(addon.manifestUrl) {
+        mutableStateOf(addon.userSetName ?: addon.manifest?.name.orEmpty())
+    }
     var url by remember(addon.manifestUrl) { mutableStateOf(addon.manifestUrl) }
     var isSaving by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -64,6 +68,17 @@ internal fun AddonEditUrlDialog(
                     text = stringResource(Res.string.addons_edit_link_subtitle),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            item {
+                NuvioInputField(
+                    value = name,
+                    onValueChange = {
+                        name = it
+                        errorMessage = null
+                    },
+                    placeholder = stringResource(Res.string.addons_edit_name_label),
                 )
             }
 
@@ -99,8 +114,22 @@ internal fun AddonEditUrlDialog(
                             isSaving = true
                             errorMessage = null
                             scope.launch {
+                                val urlChanged = url.trim() != addon.manifestUrl
+                                val nameChanged = name.trim() !=
+                                    (addon.userSetName ?: addon.manifest?.name.orEmpty()).trim()
+                                if (!urlChanged) {
+                                    if (nameChanged) AddonRepository.renameAddon(addon.manifestUrl, name)
+                                    isSaving = false
+                                    onDismiss()
+                                    return@launch
+                                }
                                 when (val result = AddonRepository.replaceAddon(addon.manifestUrl, url)) {
                                     is AddAddonResult.Success -> {
+                                        // The replacement keeps the old name, so a new one is applied
+                                        // after it, on the URL that is now installed.
+                                        if (nameChanged) {
+                                            AddonRepository.renameAddon(result.manifest.transportUrl, name)
+                                        }
                                         isSaving = false
                                         AddonDirectoryRepository.markInstalled(result.manifest.transportUrl)
                                         onDismiss()

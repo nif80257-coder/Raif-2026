@@ -59,6 +59,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.build.AppFeaturePolicy
+import com.nuvio.app.core.time.EpisodeReleaseDatePlatform
 import coil3.compose.AsyncImage
 import com.nuvio.app.core.ui.NuvioIconActionButton
 import com.nuvio.app.core.ui.NuvioInfoBadge
@@ -142,6 +143,7 @@ internal fun AddonsSettingsPageContent(
             neverPausedManifestUrls = AddonPauseExceptions.neverPausedManifestUrls(profileId),
             failureStreaks = failures.failureStreaks,
             failureReasons = failures.failureReasons,
+            lastFailureAtMs = failures.lastFailureAtMs,
             sourceSpeeds = AddonSpeedMemory.speedByManifestUrl(profileId)
                 .mapValues { (_, ms) -> formatSourceSpeedSeconds(ms) },
         )
@@ -469,6 +471,7 @@ internal fun AddonsSettingsPageContent(
                     isPaused = addon.manifestUrl in health.pausedManifestUrls,
                     failureStreak = health.failureStreaks[addon.manifestUrl] ?: 0,
                     failureReason = health.failureReasons[addon.manifestUrl],
+                    lastFailureAtMs = health.lastFailureAtMs[addon.manifestUrl],
                     measuredSpeed = health.sourceSpeeds[addon.manifestUrl],
                     isNeverPaused = addon.manifestUrl in health.neverPausedManifestUrls,
                     onToggleNeverPaused = {
@@ -926,12 +929,31 @@ private sealed interface AddonInstallModalState {
 
 private const val ADDON_SEARCH_DEBOUNCE_MS = 150L
 
+/**
+ * How long ago a source last failed, in the roughest unit that still reads usefully: minutes under
+ * an hour, hours under a day, then days. Null when the time is unknown, so the card says nothing
+ * rather than "0 minutes ago" for a record that has no timestamp.
+ */
+@Composable
+private fun failureAgeLabel(lastFailureAtMs: Long?): String? {
+    val lastFailureAt = lastFailureAtMs?.takeIf { it > 0L } ?: return null
+    val age = failureAge(EpisodeReleaseDatePlatform.nowEpochMs() - lastFailureAt)
+    return when (age.unit) {
+        FailureAgeUnit.Now -> stringResource(Res.string.addons_failure_age_now)
+        FailureAgeUnit.Minutes -> stringResource(Res.string.addons_failure_age_minutes, age.amount)
+        FailureAgeUnit.Hours -> stringResource(Res.string.addons_failure_age_hours, age.amount)
+        FailureAgeUnit.Days -> stringResource(Res.string.addons_failure_age_days, age.amount)
+    }
+}
+
 /** The per-source health the add-ons screen draws, filled from a single storage read. */
 private data class AddonsHealthUiState(
     val pausedManifestUrls: Set<String> = emptySet(),
     val neverPausedManifestUrls: Set<String> = emptySet(),
     val failureStreaks: Map<String, Int> = emptyMap(),
     val failureReasons: Map<String, AddonFailureReason> = emptyMap(),
+    /** When each source last failed, so the card can say how long ago that was. */
+    val lastFailureAtMs: Map<String, Long> = emptyMap(),
     /** Average stream-request time per manifest URL, already written as seconds. */
     val sourceSpeeds: Map<String, String> = emptyMap(),
 )
@@ -988,6 +1010,7 @@ private fun InstalledAddonCard(
     isPaused: Boolean,
     failureStreak: Int,
     failureReason: AddonFailureReason?,
+    lastFailureAtMs: Long?,
     measuredSpeed: String?,
     isNeverPaused: Boolean,
     onToggleNeverPaused: () -> Unit,
@@ -1220,9 +1243,11 @@ private fun InstalledAddonCard(
         if (failureStreak > 0) {
             Spacer(modifier = Modifier.height(8.dp))
             val reasonLabel = addonFailureReasonLabel(failureReason)
+            val ageLabel = failureAgeLabel(lastFailureAtMs)
+            val detail = listOfNotNull(reasonLabel, ageLabel).joinToString(separator = " · ")
             Text(
-                text = if (reasonLabel != null) {
-                    stringResource(Res.string.addons_failure_streak_with_reason, failureStreak, reasonLabel)
+                text = if (detail.isNotBlank()) {
+                    stringResource(Res.string.addons_failure_streak_with_reason, failureStreak, detail)
                 } else {
                     stringResource(Res.string.addons_failure_streak, failureStreak)
                 },

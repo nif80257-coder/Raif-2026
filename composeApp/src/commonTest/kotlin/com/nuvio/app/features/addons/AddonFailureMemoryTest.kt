@@ -64,6 +64,15 @@ class AddonFailureMemoryTest {
     }
 
     @Test
+    fun `failure age uses the roughest unit that still reads usefully`() {
+        assertEquals(FailureAge(0L, FailureAgeUnit.Now), failureAge(30_000L))
+        assertEquals(FailureAge(5L, FailureAgeUnit.Minutes), failureAge(5 * 60_000L))
+        assertEquals(FailureAge(3L, FailureAgeUnit.Hours), failureAge(3 * 60 * 60_000L))
+        assertEquals(FailureAge(2L, FailureAgeUnit.Days), failureAge(2 * 24 * 60 * 60_000L))
+        assertEquals(FailureAge(0L, FailureAgeUnit.Now), failureAge(-5_000L))
+    }
+
+    @Test
     fun `two failures are not enough to pause an add-on`() {
         val record = AddonFailureRecord(failures = 2, lastFailureAtMs = 1_000L)
 

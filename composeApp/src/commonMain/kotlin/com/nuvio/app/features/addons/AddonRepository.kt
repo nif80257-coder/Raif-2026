@@ -437,6 +437,33 @@ object AddonRepository {
         }
     }
 
+    /**
+     * Gives an installed source a name of its own, or clears it back to the manifest's name.
+     *
+     * The stored name is what the add-on list, the search field and the source transfer file use,
+     * so a long list of hosts can read as the things they actually are.
+     */
+    fun renameAddon(manifestUrl: String, name: String?) {
+        if (isUsingPrimaryAddonsFromSecondaryProfile()) return
+        val trimmed = name?.trim()?.takeIf { it.isNotEmpty() }
+        var changed = false
+        _uiState.update { current ->
+            current.copy(
+                addons = current.addons.map { addon ->
+                    if (addon.manifestUrl != manifestUrl) return@map addon
+                    val normalized = trimmed?.takeIf { it != addon.manifest?.name }
+                    if (addon.userSetName == normalized) return@map addon
+                    changed = true
+                    addon.copy(userSetName = normalized)
+                },
+            )
+        }
+        if (!changed) return
+        persist()
+        queueAddonChanges(changedManifestUrls = setOf(manifestUrl))
+        pushToServer()
+    }
+
     fun refreshAll() {
         _uiState.value.addons.filter { it.enabled }.distinctBy { it.manifestUrl }.forEach { addon ->
             refreshAddon(

@@ -69,6 +69,10 @@
     <string name="addons_search_empty">لا توجد إضافة مثبتة تطابق هذا البحث.</string>
     <string name="addons_failure_streak">%1$d محاولات فاشلة متتالية</string>
     <string name="addons_failure_streak_with_reason">%1$d محاولات فاشلة متتالية · %2$s</string>
+    <string name="addons_failure_age_now">الآن</string>
+    <string name="addons_failure_age_minutes">قبل %1$d دقيقة</string>
+    <string name="addons_failure_age_hours">قبل %1$d ساعة</string>
+    <string name="addons_failure_age_days">قبل %1$d يوم</string>
     <string name="addons_failure_reason_timeout">انتهت مهلة آخر محاولة</string>
     <string name="addons_failure_reason_not_found">المصدر لم يعد يوفّر هذه الصفحة (404)</string>
     <string name="addons_failure_reason_server">خادم المصدر أعاد خطأً</string>
@@ -2838,9 +2842,10 @@
     <string name="addons_directory_count">%1$d إضافة</string>
     <string name="addons_edit_link">تعديل رابط المصدر</string>
     <string name="addons_edit_link_title">تعديل %1$s</string>
-    <string name="addons_edit_link_subtitle">عدّل رابط المانيفست نفسه: وسوم البحث والجودة واللغة تُضبط من الرابط. الحفظ يُبقي المصدر في مكانه بدل إضافة نسخة ثانية.</string>
+    <string name="addons_edit_link_subtitle">عدّل اسم المصدر ورابط المانيفست: وسوم البحث والجودة واللغة تُضبط من الرابط. الحفظ يُبقي المصدر في مكانه بدل إضافة نسخة ثانية.</string>
     <string name="addons_edit_link_placeholder">https://example.com/…/manifest.json</string>
-    <string name="addons_edit_link_save">حفظ الرابط</string>
+    <string name="addons_edit_link_save">حفظ التعديل</string>
+    <string name="addons_edit_name_label">الاسم الظاهر في القائمة</string>
     <string name="addons_group_user">إضافاتك</string>
     <string name="addons_built_in_count">%1$d مصدرًا، بالترتيب أدناه</string>
     <string name="addons_reset">إعادة الضبط</string>

@@ -52,6 +52,7 @@ internal object AddonFailureMemory {
         val paused = mutableSetOf<String>()
         val streaks = mutableMapOf<String, Int>()
         val reasons = mutableMapOf<String, AddonFailureReason>()
+        val lastFailureAt = mutableMapOf<String, Long>()
         stored.forEach { (manifestUrl, encoded) ->
             val record = decodeFailureRecord(
                 encoded = encoded,
@@ -60,6 +61,7 @@ internal object AddonFailureMemory {
             ) ?: return@forEach
             streaks[manifestUrl] = record.failures
             reasons[manifestUrl] = record.reason
+            lastFailureAt[manifestUrl] = record.lastFailureAtMs
             if (
                 manifestUrl !in neverPaused &&
                 record.isPaused(
@@ -75,6 +77,7 @@ internal object AddonFailureMemory {
             pausedManifestUrls = paused,
             failureStreaks = streaks,
             failureReasons = reasons,
+            lastFailureAtMs = lastFailureAt,
         )
     }
 
@@ -118,6 +121,26 @@ internal object AddonFailureMemory {
                 AddonHealthCheckStorage.saveStreamFailures(emptyMap())
             }
         }
+    }
+}
+
+/**
+ * How old a failure is, in the roughest unit that still reads usefully.
+ *
+ * Kept apart from the label so the buckets can be tested without a screen or a locale: the card
+ * turns the unit into its own words.
+ */
+internal enum class FailureAgeUnit { Now, Minutes, Hours, Days }
+
+internal data class FailureAge(val amount: Long, val unit: FailureAgeUnit)
+
+internal fun failureAge(elapsedMs: Long): FailureAge {
+    val minutes = elapsedMs.coerceAtLeast(0L) / 60_000L
+    return when {
+        minutes < 1L -> FailureAge(amount = 0L, unit = FailureAgeUnit.Now)
+        minutes < 60L -> FailureAge(amount = minutes, unit = FailureAgeUnit.Minutes)
+        minutes < 24L * 60L -> FailureAge(amount = minutes / 60L, unit = FailureAgeUnit.Hours)
+        else -> FailureAge(amount = minutes / (24L * 60L), unit = FailureAgeUnit.Days)
     }
 }
 
@@ -170,10 +193,10 @@ internal data class AddonFailureSnapshot(
     val pausedManifestUrls: Set<String> = emptySet(),
     val failureStreaks: Map<String, Int> = emptyMap(),
     val failureReasons: Map<String, AddonFailureReason> = emptyMap(),
+    val lastFailureAtMs: Map<String, Long> = emptyMap(),
 )
 
-/** One add-on's failure strikes, decoded from the `failures|lastFailureEpochMs|reason` payload. */
-internal data class AddonFailureRecord(
+/** One add-on's failure strikes, decoded from the `failures|lastFailureEpochMs|reason` payload. */internal data class AddonFailureRecord(
     val failures: Int,
     val lastFailureAtMs: Long,
     val reason: AddonFailureReason = AddonFailureReason.Other,

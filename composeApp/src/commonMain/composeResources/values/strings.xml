@@ -68,6 +68,10 @@
     <string name="addons_search_empty">No installed addon matches that search.</string>
     <string name="addons_failure_streak">%1$d failed attempts in a row</string>
     <string name="addons_failure_streak_with_reason">%1$d failed attempts in a row · %2$s</string>
+    <string name="addons_failure_age_now">just now</string>
+    <string name="addons_failure_age_minutes">%1$d min ago</string>
+    <string name="addons_failure_age_hours">%1$d h ago</string>
+    <string name="addons_failure_age_days">%1$d d ago</string>
     <string name="addons_failure_reason_timeout">the last attempt timed out</string>
     <string name="addons_failure_reason_not_found">the source no longer serves this page (404)</string>
     <string name="addons_failure_reason_server">the source's server returned an error</string>
@@ -2867,9 +2871,10 @@
     <string name="addons_directory_count">%1$d add-ons</string>
     <string name="addons_edit_link">Edit source link</string>
     <string name="addons_edit_link_title">Edit %1$s</string>
-    <string name="addons_edit_link_subtitle">Change the manifest link itself: search, quality and language tags live in the link. Saving keeps the source in its place instead of adding a second copy.</string>
+    <string name="addons_edit_link_subtitle">Change the source's name and its manifest link: search, quality and language tags live in the link. Saving keeps the source in its place instead of adding a second copy.</string>
     <string name="addons_edit_link_placeholder">https://example.com/…/manifest.json</string>
-    <string name="addons_edit_link_save">Save link</string>
+    <string name="addons_edit_link_save">Save changes</string>
+    <string name="addons_edit_name_label">Name shown in the list</string>
     <string name="addons_group_user">Your sources</string>
     <string name="addons_built_in_count">%1$d sources, in the order below</string>
     <string name="addons_reset">Reset</string>
