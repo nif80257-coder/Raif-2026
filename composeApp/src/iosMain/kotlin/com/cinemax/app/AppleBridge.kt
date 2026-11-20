@@ -159,6 +159,8 @@ class CinemaxAppleBridge {
     fun loadShelves(onDone: (String) -> Unit, onError: (String) -> Unit) {
         scope.launch {
             try {
+                val limit = NSUserDefaults.standardUserDefaults.integerForKey("cinemax.maxShelves")
+                    .let { if (it <= 0L) 28 else it.toInt() }
                 val shelves = coroutineScope {
                     addonStore.load().map { addon ->
                         async {
@@ -193,7 +195,7 @@ class CinemaxAppleBridge {
                                 }
                             }
                         }
-                    }.awaitAll().flatten().take(28)
+                    }.awaitAll().flatten().take(limit)
                 }
                 // With a TMDB key, four curated rows ride above the addon ones: the
                 // only free catalogue that answers with Arabic titles, Arabic

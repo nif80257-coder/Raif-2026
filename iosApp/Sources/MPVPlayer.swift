@@ -25,14 +25,18 @@ final class MPVViewController: UIViewController {
     private var cachedDurationMs: Int64 = 0
     private var cachedPositionMs: Int64 = 0
     private var cachedEnded = false
+    /// The last warnings libmpv wrote, kept so a black picture can be explained.
+    private var recentLog: [String] = []
 
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
         view.layer.masksToBounds = true
         metalLayer.frame = view.bounds
+        metalLayer.contentsScale = UIScreen.main.nativeScale
         view.layer.addSublayer(metalLayer)
         setupMPV()
+        installLifecycleObservers()
     }
 
     override func viewDidLayoutSubviews() {
@@ -40,13 +44,40 @@ final class MPVViewController: UIViewController {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         metalLayer.frame = view.bounds
-        let scale = view.window?.screen.nativeScale ?? UIScreen.main.nativeScale
-        metalLayer.drawableSize = CGSize(
-            width: max(1, view.bounds.width * scale),
-            height: max(1, view.bounds.height * scale)
-        )
+        // The layer derives its drawable size from the bounds and this scale.
+        metalLayer.contentsScale = view.window?.screen.nativeScale ?? UIScreen.main.nativeScale
         CATransaction.commit()
         startPendingLoadIfReady()
+    }
+
+    /// A player that came back from the background is the classic black screen:
+    /// the video output is dropped on the way out and asked for again on the way in.
+    private func installLifecycleObservers() {
+        let center = NotificationCenter.default
+        center.addObserver(
+            self,
+            selector: #selector(appDidEnterBackground),
+            name: UIApplication.didEnterBackgroundNotification,
+            object: nil
+        )
+        center.addObserver(
+            self,
+            selector: #selector(appWillEnterForeground),
+            name: UIApplication.willEnterForegroundNotification,
+            object: nil
+        )
+    }
+
+    @objc private func appDidEnterBackground() {
+        guard let mpv, isLoaded else { return }
+        pausePlayback()
+        setString(mpv, "vid", "no")
+    }
+
+    @objc private func appWillEnterForeground() {
+        guard let mpv, isLoaded else { return }
+        setString(mpv, "vid", "auto")
+        playPlayback()
     }
 
     deinit {
@@ -357,8 +388,17 @@ final class MPVViewController: UIViewController {
         setOption(ctx, "vo", "gpu-next")
         setOption(ctx, "gpu-api", "vulkan")
         setOption(ctx, "gpu-context", "moltenvk")
-        setOption(ctx, "hwdec", "videotoolbox")
+        // Settings can trade hardware decoding and cache size for compatibility,
+        // which is the only way to tell a bad source from a bad decoder.
+        let defaults = UserDefaults.standard
+        let hardwareDecoding = (defaults.object(forKey: "cinemax.hwdec") as? Bool) ?? true
+        setOption(ctx, "hwdec", hardwareDecoding ? "videotoolbox" : "no")
         setOption(ctx, "hwdec-software-fallback", "yes")
+        if (defaults.object(forKey: "cinemax.mpvFast") as? Bool) ?? false {
+            setOption(ctx, "profile", "fast")
+        }
+        let storedCache = defaults.integer(forKey: "cinemax.cacheMB")
+        let cacheBytes = (storedCache == 0 ? 256 : storedCache) * 1024 * 1024
         setOption(ctx, "ao", "audiounit")
         setOption(ctx, "audio-channels", "auto")
         setOption(ctx, "keep-open", "yes")
@@ -373,9 +413,9 @@ final class MPVViewController: UIViewController {
         // frame quick, four decoder threads keep high-quality H.264 smooth, and
         // libavformat reconnects a dropped socket instead of failing the title.
         setOption(ctx, "cache", "yes")
-        setOption(ctx, "cache-size", "268435456")
-        setOption(ctx, "demuxer-max-bytes", "134217728")
-        setOption(ctx, "demuxer-max-back-bytes", "67108864")
+        setOption(ctx, "cache-size", String(cacheBytes))
+        setOption(ctx, "demuxer-max-bytes", String(cacheBytes / 2))
+        setOption(ctx, "demuxer-max-back-bytes", String(cacheBytes / 4))
         setOption(ctx, "demuxer-readahead-secs", "40")
         setOption(ctx, "cache-secs", "120")
         setOption(ctx, "stream-buffer-size", "4194304")
@@ -392,6 +432,7 @@ final class MPVViewController: UIViewController {
         setOption(ctx, "force-seekable", "yes")
         setOption(ctx, "demuxer-seekable-cache", "yes")
 
+        mpv_request_log_messages(ctx, "warn")
         if mpv_initialize(ctx) < 0 {
             errorText = "تعذر تشغيل مشغل MPV"
         }
@@ -433,7 +474,23 @@ final class MPVViewController: UIViewController {
                     errorText = "تعذر تشغيل المصدر (\(message))"
                 }
             }
+            if event.pointee.event_id == MPV_EVENT_LOG_MESSAGE, let data = event.pointee.data {
+                let log = UnsafePointer<mpv_event_log_message>(OpaquePointer(data)).pointee
+                if let text = log.text {
+                    let line = String(cString: log.prefix.map { String(cString: $0) } ?? "") +
+                        ": " + String(cString: text).trimmingCharacters(in: .whitespacesAndNewlines)
+                    recentLog.append(line)
+                    if recentLog.count > 30 { recentLog.removeFirst(recentLog.count - 30) }
+                }
+            }
         }
+    }
+
+    /// The last warnings libmpv wrote, so a black picture can be explained.
+    func diagnostics() -> String {
+        let tail = recentLog.suffix(18).joined(separator: "\n")
+        if errorText.isEmpty { return tail }
+        return tail.isEmpty ? errorText : errorText + "\n" + tail
     }
 
     private func setOption(_ ctx: OpaquePointer, _ name: String, _ value: String) {

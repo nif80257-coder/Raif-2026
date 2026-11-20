@@ -1281,6 +1281,7 @@ final class HomeModel: ObservableObject {
 struct CinematicHomeView: View {
     @Binding var selection: Int
     @ObservedObject private var model = HomeModel.shared
+    @AppStorage("cinemax.showContinue") private var showContinue = true
     @State private var glow: [Color] = [CinemaTheme.accent]
     @State private var detailItem: CinemaItem?
     @State private var gridShelf: Shelf?
@@ -1310,7 +1311,7 @@ struct CinematicHomeView: View {
                         }
                     )
                         .frame(height: 440)
-                    if !model.continueWatching.isEmpty {
+                    if showContinue, !model.continueWatching.isEmpty {
                         SectionHeader(title: "أكمل المشاهدة")
                         ScrollView(.horizontal, showsIndicators: false) {
                             LazyHStack(spacing: 12) {
@@ -1576,6 +1577,7 @@ struct PlayerScreen: View {
     @State private var playToken = 0
     @State private var autoTries = 0
     @State private var playerError: String?
+    @State private var diagnosticsText: String?
     @State private var currentURL = ""
     @State private var currentTitle = ""
     @State private var currentVideoId: String?
@@ -1813,6 +1815,12 @@ struct PlayerScreen: View {
                             .foregroundStyle(CinemaTheme.muted)
                             .buttonStyle(.plain)
                     }
+                    Button("تشخيص المشغل") {
+                        diagnosticsText = player?.diagnostics() ?? "لا رسائل من المشغّل"
+                    }
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(CinemaTheme.accent)
+                    .buttonStyle(.plain)
                 }
                 .padding(22)
                 .frame(maxWidth: 330)
@@ -1922,6 +1930,18 @@ struct PlayerScreen: View {
             Button("حسنًا", role: .cancel) {}
         } message: {
             Text("الصق رابطًا كاملًا يبدأ بـ https و ينتهي بملف .srt أو .vtt")
+        }
+        .alert("تشخيص المشغل", isPresented: Binding(
+            get: { diagnosticsText != nil },
+            set: { if !$0 { diagnosticsText = nil } }
+        )) {
+            Button("نسخ") {
+                UIPasteboard.general.string = diagnosticsText ?? ""
+                diagnosticsText = nil
+            }
+            Button("إغلاق", role: .cancel) { diagnosticsText = nil }
+        } message: {
+            Text(diagnosticsText ?? "")
         }
         .task {
             UIApplication.shared.isIdleTimerDisabled = true
@@ -3490,7 +3510,7 @@ struct SearchView: View {
     @State private var detailItem: CinemaItem?
     @State private var searchTask: Task<Void, Never>?
     @State private var history: [String] = CinemaxPrefs.searchHistory
-    @State private var kind = "all"
+    @AppStorage("cinemax.searchKind") private var kind = "all"
     @State private var sort = "best"
 
     private var columns: [GridItem] {
@@ -3762,7 +3782,7 @@ final class LibraryModel: ObservableObject {
 struct LibraryView: View {
     @ObservedObject private var model = LibraryModel.shared
     @State private var detailItem: CinemaItem?
-    @State private var sort = "recent"
+    @AppStorage("cinemax.librarySort") private var sort = "recent"
     @State private var query = ""
     @State private var typeFilter = "all"
 
@@ -4599,9 +4619,12 @@ struct PosterWallHomeView: View {
                     Text("استكشف")
                         .font(.system(size: 34, weight: .heavy))
                         .foregroundStyle(.white)
-                    Text("\(total) عنوانًا في مكتبتك")
+                    Text("\(total) عنوانًا محمّلًا من \(model.shelves.count) إضافة")
                         .font(.system(size: 13))
                         .foregroundStyle(CinemaTheme.muted)
+                    Text("كل إضافة تعرض أول صفحة فقط؛ الأرقام هنا لما وصل الآن لا لكل ما تحتويه الإضافات.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(CinemaTheme.muted.opacity(0.8))
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 8)
@@ -4710,6 +4733,7 @@ private extension HomeModel {
 struct PanoramaHomeView: View {
     @Binding var selection: Int
     @ObservedObject private var model = HomeModel.shared
+    @AppStorage("cinemax.showContinue") private var showContinue = true
     @State private var detailItem: CinemaItem?
     @State private var glow: [Color] = [CinemaTheme.accent]
 
@@ -4727,7 +4751,7 @@ struct PanoramaHomeView: View {
                     }
                     .padding(.horizontal, 20)
                 } else {
-                    if !model.continueWatching.isEmpty {
+                    if showContinue, !model.continueWatching.isEmpty {
                         SectionHeader(title: "أكمل المشاهدة")
                         ScrollView(.horizontal, showsIndicators: false) {
                             LazyHStack(spacing: 12) {
@@ -5009,10 +5033,32 @@ struct SettingsView: View {
                             )
                         }
                         .buttonStyle(.plain)
+
+                        NavigationLink {
+                            StreamingSettings()
+                        } label: {
+                            SettingsRow(
+                                icon: "antenna.radiowaves.left.and.right",
+                                title: "البث والمشغل",
+                                detail: "فك الترميز العتادي، بروفايل الأداء، وحجم كاش البث"
+                            )
+                        }
+                        .buttonStyle(.plain)
                     }
                     .padding(.horizontal, 20)
 
                     SettingsSection(title: "مكتبتي") {
+                        NavigationLink {
+                            LibrarySettings()
+                        } label: {
+                            SettingsRow(
+                                icon: "books.vertical.fill",
+                                title: "المكتبة والبحث",
+                                detail: "الترتيب الافتراضي ونوع البحث المحفوظ"
+                            )
+                        }
+                        .buttonStyle(.plain)
+
                         NavigationLink {
                             StatsSettings()
                         } label: {
@@ -5158,7 +5204,13 @@ struct AppearanceSettings: View {
 struct LayoutSettings: View {
     @AppStorage("cinemax.design") private var design = "cinematic"
     @AppStorage("cinemax.heroAuto") private var heroAuto = true
+    @AppStorage("cinemax.showContinue") private var showContinue = true
+    @AppStorage("cinemax.maxShelves") private var maxShelves = 28
     @State private var posterWidth = Int(CinemaxPrefs.posterMinWidth)
+
+    private let shelfLimits: [(value: Int, title: String)] = [
+        (14, "14 صفًا"), (28, "28 صفًا"), (42, "42 صفًا")
+    ]
 
     private let options: [(id: String, title: String, detail: String)] = [
         ("cinematic", "سينمائي زجاجي", "هيرو بعرض الشاشة ووهج بلون البوستر وصفوف بوسترات"),
@@ -5249,6 +5301,49 @@ struct LayoutSettings: View {
                 }
                 .tint(CinemaTheme.accent)
                 .padding(.top, 4)
+
+                Toggle(isOn: $showContinue) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("صف «أكمل المشاهدة»")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.white)
+                        Text("يظهر أعلى الرئيسية حين يكون لك موضع توقف محفوظ")
+                            .font(.system(size: 11))
+                            .foregroundStyle(CinemaTheme.muted)
+                    }
+                }
+                .tint(CinemaTheme.accent)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("عدد الصفوف في الرئيسية")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.muted)
+                    HStack(spacing: 8) {
+                        ForEach(shelfLimits, id: \.value) { entry in
+                            Button {
+                                Haptics.select()
+                                maxShelves = entry.value
+                                HomeModel.shared.resetCache()
+                            } label: {
+                                Text(entry.title)
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(maxShelves == entry.value ? .black : .white)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background {
+                                        Capsule().fill(
+                                            maxShelves == entry.value ? CinemaTheme.accent : Color.white.opacity(0.08)
+                                        )
+                                    }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    Text("عدد أكبر يعني صفوفًا أكثر من إضافاتك، وجلبًا أطول قليلًا في أول تحميل.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(CinemaTheme.muted)
+                        .lineSpacing(3)
+                }
 
                 if !HomeModel.shared.hiddenShelves.isEmpty {
                     HStack(spacing: 8) {
@@ -5605,6 +5700,87 @@ struct PlaybackSettings: View {
     }
 }
 
+/// The knobs that decide how the player draws and buffers a stream. A black
+/// picture is usually one of these two switches, so both are in the viewer's hands.
+struct StreamingSettings: View {
+    @AppStorage("cinemax.hwdec") private var hardwareDecoding = true
+    @AppStorage("cinemax.mpvFast") private var fastProfile = false
+    @AppStorage("cinemax.cacheMB") private var cacheMB = 256
+
+    private let caches: [Int] = [128, 256, 512]
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 18) {
+                Toggle(isOn: $hardwareDecoding) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("فك الترميز العتادي (VideoToolbox)")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.white)
+                        Text("أوقفه إذا بقيت صيغة معينة على شاشة سوداء؛ الفك البرمجي أبطأ لكنه يعمل مع كل شيء")
+                            .font(.system(size: 11))
+                            .foregroundStyle(CinemaTheme.muted)
+                    }
+                }
+                .tint(CinemaTheme.accent)
+
+                Toggle(isOn: $fastProfile) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("بروفايل الأداء السريع")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.white)
+                        Text("يخفف المعالجة لتشغيل 4K بسلاسة على الأجهزة الأضعف، بجودة رسم أقل قليلًا")
+                            .font(.system(size: 11))
+                            .foregroundStyle(CinemaTheme.muted)
+                    }
+                }
+                .tint(CinemaTheme.accent)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("حجم كاش البث")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.muted)
+                    HStack(spacing: 8) {
+                        ForEach(caches, id: \.self) { size in
+                            Button {
+                                Haptics.select()
+                                cacheMB = size
+                            } label: {
+                                Text("\(size) MB")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(cacheMB == size ? .black : .white)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 8)
+                                    .background {
+                                        Capsule().fill(
+                                            cacheMB == size ? CinemaTheme.accent : Color.white.opacity(0.08)
+                                        )
+                                    }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    Text("كاش أكبر يمتص تقطع المصدر البطيء، ويستهلك ذاكرة أكثر. الافتراضي 256 MB.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(CinemaTheme.muted)
+                        .lineSpacing(3)
+                }
+
+                Text("كل ما هنا يسري على التشغيل التالي. إذا ظهرت شاشة سوداء: جرّب «مصدر آخر» أولًا، ثم أوقف فك الترميز العتادي، ثم فعّل بروفايل الأداء.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(CinemaTheme.muted)
+                    .lineSpacing(4)
+            }
+            .padding(16)
+            .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .padding(20)
+        }
+        .background(CinemaTheme.canvas.ignoresSafeArea())
+        .navigationTitle("البث والمشغل")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
 struct AboutSettings: View {
     @AppStorage("cinemax.onboarded") private var onboarded = true
 
@@ -5657,13 +5833,13 @@ struct AboutSettings: View {
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.white)
                     ForEach([
-                        "ثلاثة تصاميم للرئيسية تُبدَّل من الإعدادات، وهيرو يتقدم تلقائيًا",
-                        "مصادر مرتّبة بالجودة أو بالسرعة المقيسة حسب اختيارك",
-                        "لوحة مشغّل: ترجمة وصوت وسرعة وتأخير وسطوع الشاشة ونسبة عرض",
-                        "مؤقت نوم بعدّاد، وتخطي مقدمة، وقائمة حلقات داخل المشغّل",
-                        "مقدار تقديم قابل للضبط (5 إلى 30 ثانية) وإخفاء أدوات تلقائي",
-                        "تنزيل متوازٍ مع إشعار عند الاكتمال، وإحصاءات محلية لمكتبتك",
-                        "إدارة الإضافات وكتالوج TMDB العربي ونسخة احتياطية كاملة"
+                        "مشغّل libmpv مع إصلاح الشاشة السوداء (MoltenVK) واستعادة الصورة بعد الخلفية",
+                        "مصادر من كل إضافة Stremio ومن مزوّدي Nuvio مع بيان ما لم يستجب",
+                        "لوحة مشغّل: مصدر آخر، ترجمة من رابط، سطوع، سرعة، مؤقت نوم، وقائمة حلقات",
+                        "إعدادات البث: فك ترميز عتادي أو برمجي، بروفايل أداء، وحجم كاش",
+                        "ثلاثة تصاميم للرئيسية، إخفاء الصفوف، وترتيب المكتبة والبحث",
+                        "إدارة الإضافات مع نقل الأولوية وفتح إعدادات كل إضافة داخل التطبيق",
+                        "تنزيل متوازٍ بإشعار، إحصاءات محلية، ونسخة احتياطية كاملة"
                     ], id: \.self) { line in
                         HStack(alignment: .top, spacing: 6) {
                             Text("•").foregroundStyle(CinemaTheme.accent)
@@ -6161,6 +6337,77 @@ struct AddonsSettings: View {
         HomeModel.shared.resetCache()
         await load()
         busy = false
+    }
+}
+
+/// Defaults for the library and the search screen, so both open the way the
+/// viewer left them instead of resetting on every launch.
+struct LibrarySettings: View {
+    @AppStorage("cinemax.librarySort") private var sort = "recent"
+    @AppStorage("cinemax.searchKind") private var searchKind = "all"
+    @AppStorage("cinemax.posterWidth") private var posterWidth = 112
+
+    private let sorts: [(id: String, title: String)] = [
+        ("recent", "الأحدث"), ("az", "أبجدي"), ("rating", "التقييم"), ("remaining", "المتبقي")
+    ]
+    private let kinds: [(id: String, title: String)] = [
+        ("all", "الكل"), ("movie", "أفلام"), ("series", "مسلسلات"), ("channel", "قنوات")
+    ]
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("ترتيب المكتبة الافتراضي")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.muted)
+                    HStack(spacing: 8) {
+                        ForEach(sorts, id: \.id) { entry in
+                            chip(entry.title, active: sort == entry.id) { sort = entry.id }
+                        }
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("نوع البحث الافتراضي")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.muted)
+                    HStack(spacing: 8) {
+                        ForEach(kinds, id: \.id) { entry in
+                            chip(entry.title, active: searchKind == entry.id) { searchKind = entry.id }
+                        }
+                    }
+                }
+
+                Text("هذه القيم تُحفظ وتُستخدم عند فتح المكتبة أو البحث في المرة القادمة.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(CinemaTheme.muted)
+                    .lineSpacing(4)
+            }
+            .padding(16)
+            .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .padding(20)
+        }
+        .background(CinemaTheme.canvas.ignoresSafeArea())
+        .navigationTitle("المكتبة والبحث")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func chip(_ title: String, active: Bool, action: @escaping () -> Void) -> some View {
+        Button {
+            Haptics.select()
+            action()
+        } label: {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(active ? .black : .white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background {
+                    Capsule().fill(active ? CinemaTheme.accent : Color.white.opacity(0.08))
+                }
+        }
+        .buttonStyle(.plain)
     }
 }
 
