@@ -31,5 +31,5 @@ internal fun MetaDetails.withMetahubArtwork(): MetaDetails {
 internal fun metahubPosterUrl(imdbId: String?): String? =
     imdbId
         ?.trim()
-        ?.takeIf { id -> id.startsWith("tt") && id.length > 2 && id.all { it.isDigit() } }
+        ?.takeIf { id -> id.startsWith("tt") && id.length > 2 && id.drop(2).all(Char::isDigit) }
         ?.let { id -> "$METAHUB_IMAGE_BASE/poster/medium/$id/img" }

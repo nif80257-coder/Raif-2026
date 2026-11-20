@@ -63,31 +63,35 @@ jobs:
           set -o pipefail
           ./gradlew :composeApp:iosSimulatorArm64Test --stacktrace 2>&1 | tee "$RUNNER_TEMP/gradle-test.log"
 
-      # Annotations are what a reader of the run page (and of the checks API) sees first, so the
-      # reason and the first failure message are lifted out of the log instead of scrolling in it.
+      # Annotations are what a reader of the run page (and of the checks API) sees first, so every
+      # failing test is lifted out of the log with its own message.
       - name: Summarise the failure
         if: failure()
         run: |
           set +e
-          results=composeApp/build/test-results
-          files=$(grep -rl '<failure' "$results" 2>/dev/null | sort)
-          if [ -z "$files" ]; then
-            reason=$(sed -n '/What went wrong/,/^\* Try/p' "$RUNNER_TEMP/gradle-test.log" | head -12 | tr '\n' ' ')
-            echo "::error title=Gradle failure (no test XML)::${reason:0:900}"
-            exit 0
-          fi
-          cases=$(grep -rho '<testcase ' "$results" | wc -l | tr -d ' ')
-          fails=$(grep -rho '<failure' "$results" | wc -l | tr -d ' ')
-          files_count=$(echo "$files" | wc -l | tr -d ' ')
-          echo "::error title=Shared tests summary::$cases cases, $fails failures across $files_count files"
-          while read -r file; do
-            message=$(grep -o '<failure message="[^"]*"' "$file" | head -1 | sed 's/<failure message="//; s/"$//' | cut -c1-600)
-            echo "::error title=$(basename "$file" .xml)::$message"
-          done <<< "$(echo "$files" | head -6)"
-          first=$(echo "$files" | head -1)
-          trace=$(grep -A5 '<failure' "$first" | sed -n '2,5p' | tr -s ' \t' ' ' | tr '\n' '|' | cut -c1-800)
-          echo "::error title=First stack trace from $(basename "$first" .xml)::${trace}"
-          exit 0
+          python3 - <<'PY'
+          import glob
+          import os
+          import xml.etree.ElementTree as ET
+
+          rows = []
+          for path in glob.glob('composeApp/build/test-results/**/*.xml', recursive=True):
+              try:
+                  root = ET.parse(path).getroot()
+              except Exception:
+                  continue
+              for case in root.iter('testcase'):
+                  failure = case.find('failure')
+                  if failure is None:
+                      continue
+                  message = (failure.get('message') or '').replace('\n', ' ')[:400]
+                  rows.append((os.path.basename(path), case.get('name', ''), message))
+
+          print(f"::error title=Shared tests::{len(rows)} failing tests")
+          for file_name, test_name, message in rows[:24]:
+              title = f"{file_name} · {test_name}"[:110]
+              print(f"::error title={title}::{message}")
+          PY
 
       - name: Upload test reports
         if: failure()

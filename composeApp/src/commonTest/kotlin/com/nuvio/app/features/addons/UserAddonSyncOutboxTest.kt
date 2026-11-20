@@ -55,13 +55,17 @@ class UserAddonSyncOutboxTest {
         )
         val original = PendingUserAddonChange("account-a", 1, listOf(PendingUserAddonMutation("one")))
         val newer = original.copy(mutations = listOf(PendingUserAddonMutation("two")))
+        val merged = original.copy(mutations = original.mutations + newer.mutations)
         outbox.record(original)
         outbox.record(newer)
 
         assertNull(outbox.pendingFor("account-b", 1))
         assertNull(outbox.pendingFor("account-a", 2))
+        // A record carries the edit that just happened, so a second edit joins the queue instead of
+        // wiping the first one that has not been pushed yet.
+        assertEquals(merged, outbox.pendingFor("account-a", 1))
         assertFalse(outbox.clearIfMatches(original))
-        assertEquals(newer, outbox.pendingFor("account-a", 1))
-        assertTrue(outbox.clearIfMatches(newer))
+        assertEquals(merged, outbox.pendingFor("account-a", 1))
+        assertTrue(outbox.clearIfMatches(merged))
     }
 }
