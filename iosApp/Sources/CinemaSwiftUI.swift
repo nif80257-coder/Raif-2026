@@ -132,7 +132,10 @@ struct Shelf: Identifiable, Codable {
 }
 
 struct ShelvesPayload: Codable { let shelves: [Shelf] }
-struct StreamsPayload: Codable { let streams: [StreamChoice] }
+struct StreamsPayload: Codable {
+    let streams: [StreamChoice]
+    let failures: [String]?
+}
 
 struct ProgressItem: Identifiable, Codable {
     let item: CinemaItem
@@ -264,10 +267,16 @@ final class CinemaAPI {
     }
 
     func streams(for id: String, type: String) async throws -> [StreamChoice] {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[StreamChoice], Error>) in
+        try await streamsReport(for: id, type: type).streams
+    }
+
+    /// The links and, separately, which addon or provider failed to answer.
+    func streamsReport(for id: String, type: String) async throws -> (streams: [StreamChoice], failures: [String]) {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<([StreamChoice], [String]), Error>) in
             bridge.loadStreams(itemId: id, type: type, onDone: { json in
                 do {
-                    continuation.resume(returning: try self.decode(StreamsPayload.self, json).streams)
+                    let payload = try self.decode(StreamsPayload.self, json)
+                    continuation.resume(returning: (payload.streams, payload.failures ?? []))
                 } catch {
                     continuation.resume(throwing: error)
                 }
@@ -2631,6 +2640,7 @@ final class DetailModel: ObservableObject {
     @Published var loading = true
     @Published var streams: [StreamChoice] = []
     @Published var loadingStreams = false
+    @Published var failures: [String] = []
     @Published var error: String?
 
     func load(item: CinemaItem) async {
@@ -2646,7 +2656,14 @@ final class DetailModel: ObservableObject {
 
     func loadStreams(id: String, type: String) async {
         loadingStreams = true
-        streams = (try? await CinemaAPI.shared.streams(for: id, type: type)) ?? []
+        do {
+            let report = try await CinemaAPI.shared.streamsReport(for: id, type: type)
+            streams = report.streams
+            failures = report.failures
+        } catch {
+            streams = []
+            failures = [error.localizedDescription]
+        }
         loadingStreams = false
     }
 }
@@ -3271,6 +3288,27 @@ struct DetailView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            if !sourcesCollapsed, !model.loadingStreams {
+                HStack(spacing: 6) {
+                    Text("\(model.streams.count) رابطًا فريدًا من \(addonNames.count) مصدرًا")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(CinemaTheme.muted)
+                    if !model.failures.isEmpty {
+                        Text("· \(model.failures.count) لم يستجب")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(CinemaTheme.favourite)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 20)
+                if !model.failures.isEmpty {
+                    Text(model.failures.prefix(3).joined(separator: " · "))
+                        .font(.system(size: 10))
+                        .foregroundStyle(CinemaTheme.muted)
+                        .lineLimit(2)
+                        .padding(.horizontal, 20)
+                }
+            }
             if sourcesCollapsed {
                 EmptyView()
             } else if model.loadingStreams {

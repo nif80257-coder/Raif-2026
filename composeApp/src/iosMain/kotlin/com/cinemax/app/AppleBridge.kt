@@ -9,7 +9,13 @@ import com.cinemax.app.core.appVersionLabel
 import com.cinemax.app.core.dedupeSources
 import com.cinemax.app.core.parseSuggestedSources
 import com.cinemax.app.core.streamBadges
+import com.cinemax.app.nuvio.NuvioProviderClient
+import com.cinemax.app.nuvio.NuvioProviderEntry
 import com.cinemax.app.nuvio.NuvioProviderStore
+import com.cinemax.app.nuvio.TmdbIdResolver
+import com.cinemax.app.nuvio.createNuvioHttpClient
+import com.cinemax.app.nuvio.createNuvioScriptRuntime
+import com.cinemax.app.nuvio.nuvioSourcesFrom
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.encodeURLParameter
@@ -68,7 +74,11 @@ data class AppleEpisodes(val episodes: List<AppleItem>)
 data class AppleStream(val url: String, val addon: String, val title: String, val quality: String?)
 
 @Serializable
-data class AppleStreams(val streams: List<AppleStream>)
+data class AppleStreams(
+    val streams: List<AppleStream>,
+    /** "<addon>: reason" for every source that failed or timed out. */
+    val failures: List<String> = emptyList()
+)
 
 @Serializable
 data class AppleDetail(
@@ -101,6 +111,12 @@ class CinemaxAppleBridge {
     private val favoritesStore = FavoritesStore()
     private val nuvioStore = NuvioProviderStore()
     private val tmdbHttp = createCinemaxHttpClient()
+    // Nuvio providers run as scripts, so the bridge needs their own client and
+    // JavaScript runtime to join their sources with the Stremio ones.
+    private val nuvioHttp = createNuvioHttpClient()
+    private val nuvioClient = NuvioProviderClient(nuvioHttp)
+    private val nuvioRuntime = createNuvioScriptRuntime(nuvioHttp)
+    private val tmdbResolver = TmdbIdResolver(nuvioHttp, nuvioStore)
 
     /** The optional TMDB key, shared with the Nuvio providers. */
     fun tmdbKey(): String = nuvioStore.loadTmdbApiKey()
@@ -135,36 +151,49 @@ class CinemaxAppleBridge {
     fun cachedShelves(): String =
         NSUserDefaults.standardUserDefaults.stringForKey(SHELVES_CACHE_KEY) ?: "[]"
 
-    /** The first catalogue of every installed addon, one shelf each, in parallel. */
+    /**
+     * Two catalogue rows per installed addon — one for films and one for series when
+     * it has both — so a viewer with many addons sees what they actually installed
+     * instead of a handful of rows.
+     */
     fun loadShelves(onDone: (String) -> Unit, onError: (String) -> Unit) {
         scope.launch {
             try {
                 val shelves = coroutineScope {
                     addonStore.load().map { addon ->
                         async {
-                            val catalog = addon.catalogs.firstOrNull { it.type == "movie" || it.type == "series" }
-                                ?: addon.catalogs.firstOrNull()
-                                ?: return@async null
-                            val items = try {
-                                withTimeoutOrNull(10_000) {
-                                    repository.loadCatalog(addon.manifestUrl, catalog.type, catalog.id)
-                                } ?: emptyList()
-                            } catch (error: CancellationException) {
-                                throw error
-                            } catch (_: Throwable) {
-                                emptyList()
-                            }
-                            if (items.isEmpty()) {
-                                null
-                            } else {
-                                AppleShelf(
-                                    id = addon.id + ":" + catalog.id,
-                                    title = catalog.name?.takeIf { it.isNotBlank() } ?: addon.name,
-                                    items = items.take(24).map(::itemOf)
-                                )
+                            val picks = buildList {
+                                addon.catalogs.firstOrNull { it.type == "movie" }?.let(::add)
+                                addon.catalogs.firstOrNull { it.type == "series" }?.let(::add)
+                                if (isEmpty()) addon.catalogs.firstOrNull()?.let(::add)
+                            }.distinctBy { it.type + ":" + it.id }
+                            picks.mapNotNull { catalog ->
+                                val items = try {
+                                    withTimeoutOrNull(10_000) {
+                                        repository.loadCatalog(addon.manifestUrl, catalog.type, catalog.id)
+                                    } ?: emptyList()
+                                } catch (error: CancellationException) {
+                                    throw error
+                                } catch (_: Throwable) {
+                                    emptyList()
+                                }
+                                if (items.isEmpty()) {
+                                    null
+                                } else {
+                                    val label = catalog.name?.takeIf { it.isNotBlank() } ?: addon.name
+                                    AppleShelf(
+                                        id = addon.id + ":" + catalog.id,
+                                        title = if (picks.size > 1) {
+                                            "$label · " + if (catalog.type == "movie") "أفلام" else "مسلسلات"
+                                        } else {
+                                            label
+                                        },
+                                        items = items.take(30).map(::itemOf)
+                                    )
+                                }
                             }
                         }
-                    }.awaitAll().filterNotNull().take(14)
+                    }.awaitAll().flatten().take(28)
                 }
                 // With a TMDB key, four curated rows ride above the addon ones: the
                 // only free catalogue that answers with Arabic titles, Arabic
@@ -356,7 +385,11 @@ class CinemaxAppleBridge {
         )
     }
 
-    /** Cross-addon search over every catalogue that advertises it. */
+    /**
+     * Cross-addon search, run in parallel over every catalogue that advertises it,
+     * with the free TMDB search in front when a key is set: those rows carry Arabic
+     * titles and a translated summary, which the addons rarely do.
+     */
     fun search(query: String, onDone: (String) -> Unit, onError: (String) -> Unit) {
         val text = query.trim()
         if (text.length < 2) {
@@ -367,24 +400,63 @@ class CinemaxAppleBridge {
             try {
                 val found = mutableListOf<AppleItem>()
                 val seen = mutableSetOf<String>()
-                for (addon in addonStore.load()) {
-                    for (catalog in addon.catalogs.filter { it.supportsExtra("search") }) {
-                        val items = try {
-                            repository.searchCatalog(addon.manifestUrl, catalog.type, catalog.id, text)
-                        } catch (error: CancellationException) {
-                            throw error
-                        } catch (_: Throwable) {
-                            emptyList()
-                        }
-                        for (item in items) {
-                            if (seen.add(item.id)) found += itemOf(item)
-                        }
+                val key = nuvioStore.loadTmdbApiKey()
+                if (key.isNotBlank()) {
+                    val query = text.encodeURLParameter()
+                    val tmdb = coroutineScope {
+                        listOf("movie", "tv").map { kind ->
+                            async {
+                                try {
+                                    withTimeoutOrNull(9_000) {
+                                        fetchTmdbList(
+                                            key,
+                                            "search/$kind?include_adult=false&query=$query"
+                                        )
+                                    } ?: emptyList()
+                                } catch (error: CancellationException) {
+                                    throw error
+                                } catch (_: Throwable) {
+                                    emptyList()
+                                }
+                            }
+                        }.awaitAll().flatten()
                     }
-                    if (found.size >= 80) break
+                    for (item in tmdb) {
+                        if (seen.add(item.id)) found += item
+                    }
+                }
+                val fromAddons = coroutineScope {
+                    addonStore.load().map { addon ->
+                        async {
+                            addon.catalogs
+                                .filter { it.supportsExtra("search") }
+                                .map { catalog ->
+                                    try {
+                                        withTimeoutOrNull(9_000) {
+                                            repository.searchCatalog(
+                                                addon.manifestUrl,
+                                                catalog.type,
+                                                catalog.id,
+                                                text
+                                            )
+                                        } ?: emptyList()
+                                    } catch (error: CancellationException) {
+                                        throw error
+                                    } catch (_: Throwable) {
+                                        emptyList()
+                                    }
+                                }
+                                .flatten()
+                        }
+                    }.awaitAll().flatten()
+                }
+                for (item in fromAddons) {
+                    if (found.size >= 120) break
+                    if (seen.add(item.id)) found += itemOf(item)
                 }
                 onDone(
                     json.encodeToString(
-                        AppleShelves(listOf(AppleShelf("search", "نتائج البحث", found.take(80))))
+                        AppleShelves(listOf(AppleShelf("search", "نتائج البحث", found.take(120))))
                     )
                 )
             } catch (error: Throwable) {
@@ -465,7 +537,11 @@ class CinemaxAppleBridge {
         }
     }
 
-    /** Every playable HTTPS link for an item or an episode id, fetched in parallel. */
+    /**
+     * Every playable link for an item or an episode id: the Stremio addons and the
+     * enabled Nuvio providers are asked in parallel, and whichever source fails is
+     * reported instead of disappearing silently.
+     */
     fun loadStreams(itemId: String, type: String, onDone: (String) -> Unit, onError: (String) -> Unit) {
         scope.launch {
             try {
@@ -480,47 +556,123 @@ class CinemaxAppleBridge {
                     itemId
                 }
                 val addons = addonStore.load().filter { AddonCapabilities.supportsStreams(it, type, queryId) }
+                val failures = mutableListOf<String>()
                 val found = coroutineScope {
                     addons.map { addon ->
                         async {
                             try {
-                                withTimeoutOrNull(12_000) {
+                                withTimeoutOrNull(15_000) {
                                     repository.loadStreams(addon.manifestUrl, type, queryId)
                                 }?.mapNotNull { stream ->
                                     val url = stream.url ?: return@mapNotNull null
-                                    if (!url.startsWith("https://")) return@mapNotNull null
+                                    // mpv carries its own network stack, so a plain
+                                    // http link plays just as well as an https one.
+                                    if (!url.startsWith("https://") && !url.startsWith("http://")) {
+                                        return@mapNotNull null
+                                    }
                                     AppleStream(
                                         url = url,
                                         addon = addon.name,
                                         title = stream.title ?: stream.name ?: url,
                                         quality = streamBadges(stream.name, stream.title).firstOrNull()
                                     )
-                                } ?: emptyList()
+                                } ?: run {
+                                    failures += "${addon.name}: لا يستجيب"
+                                    emptyList()
+                                }
                             } catch (error: CancellationException) {
                                 throw error
-                            } catch (_: Throwable) {
+                            } catch (error: Throwable) {
+                                failures += "${addon.name}: " + (error.message ?: "خطأ").take(90)
                                 emptyList()
                             }
                         }
                     }.awaitAll().flatten()
                 }
+                val fromProviders = nuvioStreams(itemId, type, failures)
                 // Direct MP4/HLS answers faster than a big MKV, a known CDN is
                 // quicker than someone's home server, and a link routed through a
                 // free public proxy is the slowest of all. The score mixes those
                 // with the quality tier so the best link is the first row.
-                val sorted = found
+                val sorted = (found + fromProviders)
                     .distinctBy { it.url }
                     .sortedWith(
                         compareByDescending<AppleStream> { streamScore(it) }
                             .thenByDescending { qualityRank(it.quality) }
                             .thenBy { it.addon }
                     )
-                onDone(json.encodeToString(AppleStreams(sorted)))
+                onDone(json.encodeToString(AppleStreams(sorted, failures.distinct())))
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
                 onError(error.message ?: "تعذر جلب المصادر")
             }
         }
+    }
+
+    /** Runs every enabled Nuvio provider and returns its links, reporting failures. */
+    private suspend fun nuvioStreams(
+        itemId: String,
+        type: String,
+        failures: MutableList<String>
+    ): List<AppleStream> {
+        val enabled = runCatching { nuvioStore.loadEnabledProviders() }.getOrDefault(emptySet())
+        val providers = runCatching { nuvioStore.loadRepositories() }.getOrDefault(emptyList())
+            .flatMap { repository ->
+                repository.scrapers
+                    .filter { scraper ->
+                        scraper.enabled && "${repository.manifestUrl}#${scraper.id}" in enabled
+                    }
+                    .map { scraper ->
+                        NuvioProviderEntry(
+                            "${repository.manifestUrl}#${scraper.id}",
+                            repository.name,
+                            repository,
+                            scraper
+                        )
+                    }
+            }
+        if (providers.isEmpty()) return emptyList()
+        val (season, episode) = seasonEpisodeOf(itemId, type)
+        val request = try {
+            tmdbResolver.request(itemId, type, season, episode)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Throwable) {
+            null
+        } ?: run {
+            failures += "Nuvio: تعذر تحويل المعرّف إلى TMDB (أضف مفتاح TMDB)"
+            return emptyList()
+        }
+        val report = try {
+            nuvioSourcesFrom(nuvioClient, nuvioRuntime, providers, request)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            failures += "Nuvio: " + (error.message ?: "خطأ").take(90)
+            return emptyList()
+        }
+        failures += report.failures
+        return report.streams.mapNotNull { option ->
+            val url = option.stream.url ?: return@mapNotNull null
+            if (!url.startsWith("https://") && !url.startsWith("http://")) return@mapNotNull null
+            AppleStream(
+                url = url,
+                addon = option.addonName,
+                title = option.stream.title ?: option.stream.name ?: url,
+                quality = streamBadges(option.stream.name, option.stream.title).firstOrNull()
+            )
+        }
+    }
+
+    /** Season and episode numbers carried at the end of an id, when it has them. */
+    private fun seasonEpisodeOf(itemId: String, type: String): Pair<Int?, Int?> {
+        if (type != "series" && type != "episode") return null to null
+        val parts = itemId.split(":")
+        if (parts.size < 3) return null to null
+        val season = parts[parts.size - 2].toIntOrNull()
+        val episode = parts[parts.size - 1].toIntOrNull()
+        if (season == null || episode == null) return null to null
+        return season to episode
     }
 
     /**
@@ -577,6 +729,7 @@ class CinemaxAppleBridge {
         )
         if (fastHosts.any { it in host }) score += 2
         if (isProxied(stream)) score -= 3
+        if (!url.startsWith("https://")) score -= 2
         return score
     }
 
