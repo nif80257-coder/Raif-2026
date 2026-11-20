@@ -579,7 +579,7 @@ private fun BoxScope.RenderPlaybackOverlays(
             }
         },
         onDismissSkipInterval = { skipIntervalDismissed = true },
-        showSubtitleQuickAction = subtitleQuickActionVisible,
+        showSubtitleQuickAction = subtitleQuickActionVisible && autoSkipUndo == null,
         subtitleQuickActionLoading = isLoadingAddonSubtitles,
         onSubtitleQuickAction = {
             if (!isLoadingAddonSubtitles && addonSubtitles.isEmpty()) {
@@ -589,6 +589,8 @@ private fun BoxScope.RenderPlaybackOverlays(
             showSubtitleModal = true
             controlsVisible = true
         },
+        autoSkipUndoMessage = autoSkipUndo?.message,
+        onAutoSkipUndo = { undoAutoSkip() },
         sliderEdgePadding = sliderEdgePadding,
         overlayBottomPadding = overlayBottomPadding,
         isSeries = isSeries,

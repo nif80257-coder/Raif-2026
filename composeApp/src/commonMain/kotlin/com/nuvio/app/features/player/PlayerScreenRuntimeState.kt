@@ -277,6 +277,8 @@ internal class PlayerScreenRuntime(
     var centerMixLevelDb by mutableStateOf(0)
     var centerMixAvailable by mutableStateOf(false)
     var subtitleAutoSyncState by mutableStateOf(SubtitleAutoSyncUiState())
+    /** The last automatic skip that can still be taken back; null once it expires. */
+    var autoSkipUndo by mutableStateOf<AutoSkipUndo?>(null)
 
     var lastSyncedSettingsResizeMode: PlayerResizeMode? = null
     var lastResetPlaybackIdentity: PlaybackKey? = null

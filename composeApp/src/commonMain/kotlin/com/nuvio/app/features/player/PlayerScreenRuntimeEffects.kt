@@ -4,7 +4,6 @@ import com.nuvio.app.core.i18n.localizedSeasonEpisodeCode
 import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.core.ui.LocalFold
-import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.features.party.PartyRepository
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.features.shuffle.EpisodeShuffleRepository
@@ -743,8 +742,17 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
             scheduleProgressSyncAfterSeek()
             publishPartyPlayback(positionMs = seekPositionMs)
             skipIntervalDismissed = true
-            notification?.let { NuvioToastController.show(it, AUTO_SKIP_NOTIFICATION_DURATION_MS) }
+            // Offer the way back instead of a plain confirmation: the interval can be wrong.
+            autoSkipUndo = notification?.let {
+                AutoSkipUndo(message = it, intervalStartMs = (current.startTime * 1000.0).toLong())
+            }
         }
+    }
+
+    LaunchedEffect(autoSkipUndo) {
+        if (autoSkipUndo == null) return@LaunchedEffect
+        delay(AUTO_SKIP_UNDO_DURATION_MS)
+        autoSkipUndo = null
     }
 
     LaunchedEffect(
