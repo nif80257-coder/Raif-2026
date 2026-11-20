@@ -309,6 +309,36 @@ final class CinemaAPI {
         }
     }
 
+    func removeProgress(itemId: String, videoLabel: String?) async -> (progress: Int, favorites: Int) {
+        await withCheckedContinuation { (continuation: CheckedContinuation<(Int, Int), Never>) in
+            bridge.removeProgress(itemId: itemId, videoLabel: videoLabel, onDone: { json in
+                let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
+                continuation.resume(returning: (
+                    (object?["progress"] as? NSNumber)?.intValue ?? 0,
+                    (object?["favorites"] as? NSNumber)?.intValue ?? 0
+                ))
+            })
+        }
+    }
+
+    func exportBackup() async -> String {
+        await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+            bridge.exportBackup(onDone: { text in
+                continuation.resume(returning: text)
+            })
+        }
+    }
+
+    func importBackup(_ raw: String) async throws -> String {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+            bridge.importBackup(raw: raw, onDone: { summary in
+                continuation.resume(returning: summary)
+            }, onError: { message in
+                continuation.resume(throwing: CinemaError(message: message))
+            })
+        }
+    }
+
     func saveProgress(item: CinemaItem, positionMs: Int64, durationMs: Int64, videoId: String?, videoLabel: String?) {
         guard let data = try? JSONEncoder().encode(item), let json = String(data: data, encoding: .utf8) else { return }
         bridge.saveProgress(
@@ -1356,6 +1386,13 @@ struct PlayerScreen: View {
     @State private var subtitleDelay: Double = 0
     @State private var volume: Double = 100
     @State private var aspect = ""
+    @State private var sleepMinutes: Int?
+    /// The moment the sleep timer runs out, kept apart from the minutes so the
+    /// countdown keeps running while the options panel is closed.
+    @State private var sleepDeadline: Date?
+    @State private var sleepRemaining: Int = 0
+    /// Tapping the picture hides every control, for a clean full-screen frame.
+    @State private var controlsVisible = true
     @State private var currentURL = ""
     @State private var currentTitle = ""
     @State private var currentVideoId: String?
@@ -1373,6 +1410,10 @@ struct PlayerScreen: View {
         (UserDefaults.standard.object(forKey: "cinemax.autoplayNext") as? Bool) ?? true
     }
 
+    private var skipIntroEnabled: Bool {
+        (UserDefaults.standard.object(forKey: "cinemax.skipIntro") as? Bool) ?? true
+    }
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
@@ -1380,6 +1421,13 @@ struct PlayerScreen: View {
                 MPVSurface(url: currentURL, startMs: startMs, controller: $player)
                     .id(currentURL + "-" + String(startMs))
                     .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            controlsVisible.toggle()
+                            if !controlsVisible { showOptions = false }
+                        }
+                    }
             } else {
                 ProgressView().tint(CinemaTheme.accent)
             }
@@ -1426,6 +1474,28 @@ struct PlayerScreen: View {
 
                 Spacer()
 
+                if skipIntroEnabled, duration > 300, position > 5, position < 90 {
+                    HStack {
+                        Spacer()
+                        Button {
+                            Haptics.tap()
+                            seek(by: 85)
+                        } label: {
+                            Label("تخطي المقدمة", systemImage: "forward.fill")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 9)
+                                .background(.ultraThinMaterial, in: Capsule())
+                                .overlay(Capsule().strokeBorder(CinemaTheme.hairline, lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 10)
+                    .transition(.opacity)
+                }
+
                 VStack(spacing: 10) {
                     Slider(
                         value: Binding(
@@ -1471,6 +1541,19 @@ struct PlayerScreen: View {
                         }
 
                         Spacer()
+                        if sleepDeadline != nil {
+                            HStack(spacing: 4) {
+                                Image(systemName: "moon.zzz.fill")
+                                    .font(.system(size: 10, weight: .semibold))
+                                Text(clock(Double(sleepRemaining)))
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .monospacedDigit()
+                            }
+                            .foregroundStyle(CinemaTheme.accent)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 5)
+                            .background(CinemaTheme.accent.opacity(0.14), in: Capsule())
+                        }
                         Text("\(clock(position)) / \(clock(duration))")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(CinemaTheme.muted)
@@ -1481,6 +1564,8 @@ struct PlayerScreen: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 18)
             }
+            .opacity(controlsVisible ? 1 : 0)
+            .allowsHitTesting(controlsVisible)
             if showOptions {
                 PlayerOptionsPanel(
                     subtitleTracks: subtitleTracks,
@@ -1490,6 +1575,8 @@ struct PlayerScreen: View {
                     subtitleDelay: subtitleDelay,
                     volume: volume,
                     aspect: aspect,
+                    sleepMinutes: sleepMinutes,
+                    sleepRemaining: sleepRemaining,
                     onClose: { showOptions = false },
                     onSubtitle: { track in
                         subtitlesOff = track == nil
@@ -1523,6 +1610,18 @@ struct PlayerScreen: View {
                     onAspect: { value in
                         aspect = value
                         player?.setVideoAspect(value)
+                        Haptics.select()
+                    },
+                    onSleep: { minutes in
+                        if let minutes {
+                            sleepMinutes = minutes
+                            sleepRemaining = minutes * 60
+                            sleepDeadline = Date().addingTimeInterval(Double(minutes) * 60)
+                        } else {
+                            sleepMinutes = nil
+                            sleepDeadline = nil
+                            sleepRemaining = 0
+                        }
                         Haptics.select()
                     }
                 )
@@ -1638,6 +1737,7 @@ struct PlayerScreen: View {
         ticker?.invalidate()
         ticker = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
             Task { @MainActor in
+                tickSleepTimer()
                 guard let player else { return }
                 player.refreshState()
                 position = Double(player.positionMs) / 1000
@@ -1651,13 +1751,31 @@ struct PlayerScreen: View {
         }
     }
 
+    /// Counts the sleep timer down and stops playback the moment it runs out, so
+    /// the viewer can doze off without the episode rolling on all night.
+    private func tickSleepTimer() {
+        guard let deadline = sleepDeadline else { return }
+        let left = deadline.timeIntervalSinceNow
+        guard left > 0 else {
+            sleepDeadline = nil
+            sleepMinutes = nil
+            sleepRemaining = 0
+            playing = false
+            player?.pausePlayback()
+            Haptics.tap()
+            return
+        }
+        sleepRemaining = Int(left.rounded(.up))
+    }
+
     private func seek(by seconds: Double) {
         guard duration > 0 else { return }
         position = min(max(0, position + seconds), max(0, duration - 0.5))
         player?.seekTo(Int64(position * 1000))
     }
 
-    private func clock(_ seconds: Double) -> String {        let total = Int(seconds.rounded())
+    private func clock(_ seconds: Double) -> String {
+        let total = Int(seconds.rounded())
         let hours = total / 3600
         let minutes = (total % 3600) / 60
         let secs = total % 60
@@ -1677,6 +1795,8 @@ struct PlayerOptionsPanel: View {
     let subtitleDelay: Double
     let volume: Double
     let aspect: String
+    let sleepMinutes: Int?
+    let sleepRemaining: Int
 
     let onClose: () -> Void
     let onSubtitle: (TrackInfo?) -> Void
@@ -1685,6 +1805,7 @@ struct PlayerOptionsPanel: View {
     let onSubtitleDelay: (Double) -> Void
     let onVolume: (Double) -> Void
     let onAspect: (String) -> Void
+    let onSleep: (Int?) -> Void
 
     private let speeds: [Double] = [0.5, 0.75, 1, 1.25, 1.5, 2]
     private let aspects: [(String, String)] = [
@@ -1827,6 +1948,46 @@ struct PlayerOptionsPanel: View {
                             .foregroundStyle(CinemaTheme.muted)
                             .frame(width: 40)
                     }
+
+                    HStack(spacing: 6) {
+                        label("مؤقت النوم")
+                        Spacer()
+                        if sleepMinutes != nil {
+                            Text("يتبقى \(remainingClock)")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(CinemaTheme.accent)
+                                .monospacedDigit()
+                        }
+                    }
+                    HStack(spacing: 8) {
+                        ForEach([15, 30, 45], id: \.self) { minutes in
+                            Button {
+                                onSleep(minutes)
+                            } label: {
+                                Text("\(minutes) د")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(sleepMinutes == minutes ? .black : .white)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 7)
+                                    .background {
+                                        Capsule().fill(
+                                            sleepMinutes == minutes ? CinemaTheme.accent : Color.white.opacity(0.1)
+                                        )
+                                    }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        Button {
+                            onSleep(nil)
+                        } label: {
+                            Text("إيقاف")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(sleepMinutes == nil ? CinemaTheme.accent : CinemaTheme.muted)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
                 .padding(20)
             }
@@ -1838,6 +1999,17 @@ struct PlayerOptionsPanel: View {
             )
             .padding(16)
         }
+    }
+
+    /// The time left on the sleep timer, as m:ss or h:mm:ss.
+    private var remainingClock: String {
+        let total = max(0, sleepRemaining)
+        let hours = total / 3600
+        let minutes = (total % 3600) / 60
+        let secs = total % 60
+        return hours > 0
+            ? String(format: "%d:%02d:%02d", hours, minutes, secs)
+            : String(format: "%d:%02d", minutes, secs)
     }
 
     private func label(_ text: String) -> some View {
@@ -2779,6 +2951,14 @@ struct LibraryView: View {
                             LazyVStack(spacing: 12) {
                                 ForEach(progress) { entry in
                                     ContinueCard(entry: entry) { detailItem = entry.item }
+                                        .contextMenu {
+                                            Button(role: .destructive) {
+                                                Haptics.tap()
+                                                removeResume(entry)
+                                            } label: {
+                                                Label("إزالة من قيد المشاهدة", systemImage: "trash")
+                                            }
+                                        }
                                 }
                             }
                             .padding(.horizontal, 20)
@@ -2800,6 +2980,16 @@ struct LibraryView: View {
         _ = CinemaAPI.shared.toggleFavorite(item)
         model.favorites.removeAll { $0.id == item.id }
         HomeModel.shared.favorites.remove(item.id)
+    }
+
+    /// Forgets one stop position, for a title the viewer has given up on.
+    private func removeResume(_ entry: ProgressItem) {
+        model.progress.removeAll { $0.id == entry.id }
+        HomeModel.shared.resetCache()
+        Task {
+            _ = await CinemaAPI.shared.removeProgress(itemId: entry.item.id, videoLabel: entry.episodeLabel)
+            await model.load()
+        }
     }
 
     private func empty(_ title: String, _ subtitle: String) -> some View {
@@ -3961,6 +4151,25 @@ struct SubtitleSettings: View {
                     }
                 }
 
+                // A dark frame that shows exactly how big the subtitle will be.
+                VStack {
+                    Spacer(minLength: 0)
+                    Text("هكذا ستظهر الترجمة على الشاشة")
+                        .font(.system(size: previewSize, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 14)
+                        .shadow(color: .black.opacity(0.9), radius: 3, y: 1)
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 116)
+                .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(CinemaTheme.hairline, lineWidth: 1)
+                )
+
                 Toggle(isOn: $autoSelect) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("اختيار الترجمة تلقائيًا")
@@ -3986,10 +4195,20 @@ struct SubtitleSettings: View {
         .navigationTitle("الترجمة")
         .navigationBarTitleDisplayMode(.inline)
     }
+
+    /// The point size the player uses for each of the three steps.
+    private var previewSize: CGFloat {
+        switch size {
+        case "small": return 13
+        case "large": return 21
+        default: return 17
+        }
+    }
 }
 
 struct PlaybackSettings: View {
     @AppStorage("cinemax.autoplayNext") private var autoplayNext = true
+    @AppStorage("cinemax.skipIntro") private var skipIntro = true
     @AppStorage("cinemax.defaultSpeed") private var defaultSpeed = 1.0
 
     private let speeds: [Double] = [0.75, 1, 1.25, 1.5]
@@ -4003,6 +4222,18 @@ struct PlaybackSettings: View {
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(.white)
                         Text("ينتقل المشغّل إلى الحلقة التالية حين تنتهي الحالية")
+                            .font(.system(size: 11))
+                            .foregroundStyle(CinemaTheme.muted)
+                    }
+                }
+                .tint(CinemaTheme.accent)
+
+                Toggle(isOn: $skipIntro) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("زر تخطي المقدمة")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.white)
+                        Text("يظهر في أول دقيقة ونصف من الأفلام والمسلسلات الطويلة")
                             .font(.system(size: 11))
                             .foregroundStyle(CinemaTheme.muted)
                     }
@@ -4643,6 +4874,39 @@ struct DataSettings: View {
                 }
                 .buttonStyle(.plain)
 
+                VStack(spacing: 0) {
+                    action("نسخ نسخة احتياطية", "المفضلة وسجل المشاهدة والحلقات والإضافات", destructive: false) {
+                        let text = await CinemaAPI.shared.exportBackup()
+                        UIPasteboard.general.string = text
+                        message = "نُسخت النسخة الاحتياطية إلى الحافظة"
+                    }
+                    Divider().overlay(CinemaTheme.hairline)
+                    action("استعادة من الحافظة", "تلصق نسخة سابقة وتعيدها كما هي", destructive: true) {
+                        let raw = UIPasteboard.general.string ?? ""
+                        do {
+                            let summary = try await CinemaAPI.shared.importBackup(raw)
+                            message = "استُعيدت: \(summary)"
+                            let counts = await CinemaAPI.shared.libraryCounts()
+                            progress = counts.progress
+                            favorites = counts.favorites
+                            HomeModel.shared.resetCache()
+                            LibraryModel.shared.favorites = []
+                            await LibraryModel.shared.load()
+                        } catch {
+                            message = error.localizedDescription
+                        }
+                    }
+                    Divider().overlay(CinemaTheme.hairline)
+                    action("حذف كل التنزيلات", downloadsLabel, destructive: true) {
+                        for job in DownloadManager.shared.jobs {
+                            DownloadManager.shared.remove(job)
+                        }
+                        message = "حُذفت كل التنزيلات"
+                    }
+                }
+                .padding(.horizontal, 14)
+                .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+
                 if let message {
                     Text(message)
                         .font(.system(size: 12))
@@ -4691,6 +4955,13 @@ struct DataSettings: View {
             HomeModel.shared.favorites = []
             message = "تم مسح المفضلة"
         }
+    }
+
+    private var downloadsLabel: String {
+        let jobs = DownloadManager.shared.jobs
+        guard !jobs.isEmpty else { return "لا توجد تنزيلات" }
+        let total = jobs.reduce(Int64(0)) { $0 + $1.total }
+        return String(format: "%d ملفًا · %.0f MB", jobs.count, Double(total) / 1_048_576)
     }
 
     private var storageSize: String {

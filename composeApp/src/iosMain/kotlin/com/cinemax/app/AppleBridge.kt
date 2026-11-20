@@ -588,6 +588,42 @@ class CinemaxAppleBridge {
         onDone("{\"progress\":${progressStore.load().size},\"favorites\":${favoritesStore.load().size}}")
     }
 
+    /** Drops one resume point, used by the history screen. */
+    fun removeProgress(itemId: String, videoLabel: String?, onDone: (String) -> Unit) {
+        val target = progressStore.load().firstOrNull { entry ->
+            entry.item.id == itemId && (videoLabel == null || entry.videoLabel == videoLabel)
+        }
+        if (target != null) progressStore.remove(target.key)
+        onDone("{\"progress\":${progressStore.load().size},\"favorites\":${favoritesStore.load().size}}")
+    }
+
+    /** A whole snapshot (saved list, resume points, marked episodes, addons). */
+    fun exportBackup(onDone: (String) -> Unit) {
+        val watched = runCatching { WatchedEpisodesStore().load() }.getOrDefault(emptySet())
+        val backup = CinemaxBackup(
+            favorites = favoritesStore.load(),
+            progress = progressStore.load(),
+            watched = watched.toList(),
+            addons = addonStore.load()
+        )
+        onDone(encodeBackup(backup))
+    }
+
+    /** Restores a snapshot pasted into the clipboard, and answers what it held. */
+    fun importBackup(raw: String, onDone: (String) -> Unit, onError: (String) -> Unit) {
+        val backup = decodeBackup(raw)
+        if (backup == null) {
+            onError("النسخة غير صالحة")
+            return
+        }
+        favoritesStore.save(backup.favorites)
+        progressStore.restore(backup.progress)
+        if (backup.watched.isNotEmpty()) WatchedEpisodesStore().save(backup.watched.toSet())
+        if (backup.addons.isNotEmpty()) addonStore.save(backup.addons)
+        repository.clearCaches()
+        onDone(backup.summary())
+    }
+
     /** Records where the SwiftUI player stopped, so "أكمل المشاهدة" stays right. */
     fun saveProgress(
         itemJson: String,
