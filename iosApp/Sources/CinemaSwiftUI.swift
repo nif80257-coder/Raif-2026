@@ -2439,6 +2439,20 @@ struct DetailView: View {
             )
         }
         .buttonStyle(CinemaPressStyle())
+        .contextMenu {
+            Button {
+                DownloadManager.shared.start(title: item.name, urlString: stream.url)
+                Haptics.tap()
+            } label: {
+                Label("تنزيل على الجهاز", systemImage: "arrow.down.circle")
+            }
+            Button {
+                UIPasteboard.general.string = stream.url
+                Haptics.tap()
+            } label: {
+                Label("نسخ الرابط", systemImage: "doc.on.doc")
+            }
+        }
     }
 }
 
@@ -2705,6 +2719,7 @@ struct LibraryView: View {
                     Picker("", selection: $model.segment) {
                         Text("المحفوظة (\(model.favorites.count))").tag(0)
                         Text("قيد المشاهدة (\(model.progress.count))").tag(1)
+                        Text("التنزيلات (\(DownloadManager.shared.jobs.count))").tag(2)
                     }
                     .pickerStyle(.segmented)
                     .padding(.horizontal, 20)
@@ -2735,7 +2750,9 @@ struct LibraryView: View {
                     .background(CinemaTheme.surface, in: Capsule())
                     .padding(.horizontal, 20)
 
-                    if model.segment == 0 {
+                    if model.segment == 2 {
+                        DownloadsView()
+                    } else if model.segment == 0 {
                         if favorites.isEmpty {
                             empty("لا شيء محفوظ بعد", "اضغط ♥ على أي عنوان ليظهر هنا.")
                         } else {
@@ -4938,5 +4955,317 @@ struct ShelfGridScreen: View {
             }
         }
         .preferredColorScheme(.dark)
+    }
+}
+
+
+// MARK: - Downloads
+
+struct DownloadJob: Identifiable, Codable, Equatable {
+    let id: String
+    let title: String
+    let url: String
+    var received: Int64
+    var total: Int64
+    /// running · done · failed · cancelled
+    var state: String
+    var filePath: String?
+
+    var progress: Double {
+        guard total > 0 else { return 0 }
+        return min(1, Double(received) / Double(total))
+    }
+
+    var sizeLabel: String {
+        guard total > 0 else { return "—" }
+        let mb = Double(total) / 1_048_576
+        return String(format: "%.0f MB", mb)
+    }
+}
+
+/// Downloads a link to the device over several parallel range requests, which is
+/// the fastest free way to pull a file: most servers cap a single connection, so
+/// four ranges together finish far sooner than one stream.
+@MainActor
+final class DownloadManager: ObservableObject {
+    static let shared = DownloadManager()
+
+    @Published private(set) var jobs: [DownloadJob] = []
+
+    private var runners: [String: Task<Void, Never>] = [:]
+    private let storageKey = "cinemax.downloads.v1"
+
+    private init() {
+        load()
+    }
+
+    func isRunning(_ url: String) -> Bool {
+        jobs.contains { $0.id == url && $0.state == "running" }
+    }
+
+    func start(title: String, urlString: String) {
+        guard URL(string: urlString) != nil else { return }
+        if jobs.contains(where: { $0.id == urlString && $0.state == "running" }) { return }
+        var job = DownloadJob(
+            id: urlString,
+            title: title,
+            url: urlString,
+            received: 0,
+            total: 0,
+            state: "running",
+            filePath: nil
+        )
+        job.total = 0
+        jobs.removeAll { $0.id == urlString && $0.state != "done" }
+        jobs.insert(job, at: 0)
+        save()
+        let id = urlString
+        runners[id] = Task { [weak self] in
+            await self?.run(id: id, title: title, urlString: urlString)
+        }
+    }
+
+    func cancel(_ job: DownloadJob) {
+        runners[job.id]?.cancel()
+        runners[job.id] = nil
+        update(job.id) { entry in
+            entry.state = "cancelled"
+        }
+    }
+
+    func remove(_ job: DownloadJob) {
+        runners[job.id]?.cancel()
+        runners[job.id] = nil
+        if let path = job.filePath {
+            try? FileManager.default.removeItem(atPath: path)
+        }
+        jobs.removeAll { $0.id == job.id }
+        save()
+    }
+
+    private var folder: URL {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let dir = docs.appendingPathComponent("CINEMAX", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    private func run(id: String, title: String, urlString: String) async {
+        guard let url = URL(string: urlString) else { return }
+        do {
+            let total = try await contentLength(url)
+            update(id) { entry in entry.total = total }
+
+            let safeName = title
+                .replacingOccurrences(of: "/", with: "-")
+                .replacingOccurrences(of: ":", with: "-")
+            let ext = url.pathExtension.isEmpty ? "mp4" : url.pathExtension
+            let destination = folder.appendingPathComponent("\(safeName).\(ext)")
+
+            if total > 1_048_576 {
+                try await downloadInParts(url: url, total: total, destination: destination, id: id)
+            } else {
+                try await downloadWhole(url: url, destination: destination, id: id)
+            }
+
+            update(id) { entry in
+                entry.state = "done"
+                entry.received = entry.total
+                entry.filePath = destination.path
+            }
+            save()
+        } catch is CancellationError {
+            update(id) { entry in entry.state = "cancelled" }
+            save()
+        } catch {
+            update(id) { entry in entry.state = "failed" }
+            save()
+        }
+    }
+
+    private func contentLength(_ url: URL) async throws -> Int64 {
+        var request = URLRequest(url: url)
+        request.httpMethod = "HEAD"
+        request.timeoutInterval = 20
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode < 400 else {
+            throw CinemaError(message: "تعذر قراءة حجم الملف")
+        }
+        return max(0, http.expectedContentLength)
+    }
+
+    private func downloadInParts(url: URL, total: Int64, destination: URL, id: String) async throws {
+        let parts = 4
+        let chunk = total / Int64(parts)
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+        let partURLs = (0..<parts).map { temp.appendingPathComponent("part-\($0)") }
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for index in 0..<parts {
+                let from = Int64(index) * chunk
+                let to = index == parts - 1 ? total - 1 : from + chunk - 1
+                let partURL = partURLs[index]
+                group.addTask {
+                    var request = URLRequest(url: url)
+                    request.setValue("bytes=\(from)-\(to)", forHTTPHeaderField: "Range")
+                    request.timeoutInterval = 60
+                    let (tmp, response) = try await URLSession.shared.download(for: request)
+                    guard let http = response as? HTTPURLResponse, http.statusCode < 400 else {
+                        throw CinemaError(message: "تعذر تنزيل جزء من الملف")
+                    }
+                    if FileManager.default.fileExists(atPath: partURL.path) {
+                        try FileManager.default.removeItem(at: partURL)
+                    }
+                    try FileManager.default.moveItem(at: tmp, to: partURL)
+                }
+            }
+            try await group.waitForAll()
+        }
+
+        // One part at a time into the final file keeps memory flat.
+        FileManager.default.createFile(atPath: destination.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: destination)
+        for partURL in partURLs {
+            let data = try Data(contentsOf: partURL, options: .mappedIfSafe)
+            try handle.write(contentsOf: data)
+            try FileManager.default.removeItem(at: partURL)
+            update(id) { entry in
+                entry.received = min(entry.total, entry.received + chunk)
+            }
+        }
+        try handle.close()
+        try? FileManager.default.removeItem(at: temp)
+    }
+
+    private func downloadWhole(url: URL, destination: URL, id: String) async throws {
+        let (tmp, response) = try await URLSession.shared.download(from: url)
+        guard let http = response as? HTTPURLResponse, http.statusCode < 400 else {
+            throw CinemaError(message: "تعذر تنزيل الملف")
+        }
+        if FileManager.default.fileExists(atPath: destination.path) {
+            try FileManager.default.removeItem(at: destination)
+        }
+        try FileManager.default.moveItem(at: tmp, to: destination)
+        update(id) { entry in
+            entry.received = entry.total
+        }
+    }
+
+    private func update(_ id: String, change: (inout DownloadJob) -> Void) {
+        guard let index = jobs.firstIndex(where: { $0.id == id }) else { return }
+        var job = jobs[index]
+        change(&job)
+        jobs[index] = job
+    }
+
+    private func save() {
+        if let data = try? JSONEncoder().encode(jobs) {
+            UserDefaults.standard.set(data, forKey: storageKey)
+        }
+    }
+
+    private func load() {
+        guard let data = UserDefaults.standard.data(forKey: storageKey),
+              let stored = try? JSONDecoder().decode([DownloadJob].self, from: data) else { return }
+        // Anything that was running when the app closed is marked as stopped.
+        jobs = stored.map { job in
+            var copy = job
+            if copy.state == "running" { copy.state = "cancelled" }
+            return copy
+        }
+    }
+}
+
+/// The downloads tab inside the library.
+struct DownloadsView: View {
+    @ObservedObject private var manager = DownloadManager.shared
+    @State private var playing: CinemaItem?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if manager.jobs.isEmpty {
+                VStack(spacing: 8) {
+                    Text("لا تنزيلات بعد")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Text("من صفحة أي عمل، اضغط مطوّلًا على المصدر واختر «تنزيل» ليُحفظ على الجهاز.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(CinemaTheme.muted)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 50)
+                .padding(.horizontal, 30)
+            } else {
+                ForEach(manager.jobs) { job in
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text(job.title)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                            Spacer()
+                            Text(statusLabel(job))
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(job.state == "failed" ? CinemaTheme.favourite : CinemaTheme.accent)
+                        }
+                        ProgressView(value: job.progress)
+                            .tint(CinemaTheme.accent)
+                        HStack(spacing: 12) {
+                            Text(job.sizeLabel)
+                                .font(.system(size: 10))
+                                .foregroundStyle(CinemaTheme.muted)
+                            Spacer()
+                            if job.state == "running" {
+                                Button("إلغاء") { manager.cancel(job) }
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(CinemaTheme.muted)
+                            }
+                            if job.state == "done", let path = job.filePath {
+                                Button("تشغيل") {
+                                    let item = CinemaItem(
+                                        id: path,
+                                        type: "movie",
+                                        name: job.title,
+                                        poster: nil,
+                                        background: nil,
+                                        releaseInfo: nil,
+                                        rating: nil,
+                                        overview: nil
+                                    )
+                                    playing = item
+                                }
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(CinemaTheme.accent)
+                            }
+                            Button {
+                                manager.remove(job)
+                            } label: {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(CinemaTheme.favourite)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(14)
+                    .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+            }
+        }
+        .padding(.horizontal, 20)
+        .fullScreenCover(item: $playing) { item in
+            PlayerScreen(title: item.name, url: item.id)
+        }
+    }
+
+    private func statusLabel(_ job: DownloadJob) -> String {
+        switch job.state {
+        case "done": return "مكتمل"
+        case "failed": return "فشل"
+        case "cancelled": return "متوقف"
+        default: return "\(Int(job.progress * 100))٪"
+        }
     }
 }
