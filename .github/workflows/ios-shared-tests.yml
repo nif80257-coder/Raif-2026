@@ -89,8 +89,7 @@ jobs:
 
           print(f"::error title=Shared tests::{len(rows)} failing tests")
           for file_name, test_name, message in rows[:24]:
-              title = f"{file_name} · {test_name}"[:110]
-              print(f"::error title={title}::{message}")
+              print(f"::error::{file_name} · {test_name} — {message[:700]}")
           PY
 
       - name: Upload test reports
