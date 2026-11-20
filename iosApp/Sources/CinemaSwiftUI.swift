@@ -1543,6 +1543,8 @@ struct PlayerScreen: View {
     @State private var subtitlesOff = false
     @State private var subtitleDelay: Double = 0
     @State private var subtitleSize = UserDefaults.standard.string(forKey: "cinemax.subtitleSize") ?? "medium"
+    @State private var externalSubtitle: String?
+    @State private var subtitleError = false
     @State private var volume: Double = 100
     @State private var aspect = ""
     @State private var brightness: Double = 0.6
@@ -1767,6 +1769,7 @@ struct PlayerScreen: View {
                     subtitlesOff: subtitlesOff,
                     subtitleDelay: subtitleDelay,
                     subtitleSize: subtitleSize,
+                    externalSubtitle: externalSubtitle,
                     volume: volume,
                     brightness: brightness,
                     aspect: aspect,
@@ -1829,6 +1832,9 @@ struct PlayerScreen: View {
                             sleepRemaining = 0
                         }
                         Haptics.select()
+                    },
+                    onSubtitleLink: { value in
+                        applySubtitleLink(value)
                     }
                 )
             }
@@ -1848,6 +1854,11 @@ struct PlayerScreen: View {
         }
         .alert("تعذّر جلب مصدر لهذه الحلقة", isPresented: $episodeError) {
             Button("حسنًا", role: .cancel) {}
+        }
+        .alert("رابط الترجمة غير صالح", isPresented: $subtitleError) {
+            Button("حسنًا", role: .cancel) {}
+        } message: {
+            Text("الصق رابطًا كاملًا يبدأ بـ https و ينتهي بملف .srt أو .vtt")
         }
         .task {
             UIApplication.shared.isIdleTimerDisabled = true
@@ -2016,6 +2027,26 @@ struct PlayerScreen: View {
         }
     }
 
+    /// Loads a subtitle the viewer found elsewhere. libmpv fetches http links itself,
+    /// so nothing has to sit in memory first.
+    private func applySubtitleLink(_ raw: String) {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            player?.setSubtitle(nil)
+            externalSubtitle = nil
+            Haptics.select()
+            return
+        }
+        guard let url = URL(string: text), url.scheme != nil else {
+            subtitleError = true
+            return
+        }
+        player?.setSubtitle(text)
+        externalSubtitle = url.lastPathComponent.isEmpty ? text : url.lastPathComponent
+        Haptics.select()
+        showOptions = false
+    }
+
     /// Counts the sleep timer down and stops playback the moment it runs out, so
     /// the viewer can doze off without the episode rolling on all night.
     private func tickSleepTimer() {
@@ -2059,6 +2090,7 @@ struct PlayerOptionsPanel: View {
     let subtitlesOff: Bool
     let subtitleDelay: Double
     let subtitleSize: String
+    let externalSubtitle: String?
     let volume: Double
     let brightness: Double
     let aspect: String
@@ -2075,8 +2107,10 @@ struct PlayerOptionsPanel: View {
     let onBrightness: (Double) -> Void
     let onAspect: (String) -> Void
     let onSleep: (Int?) -> Void
+    let onSubtitleLink: (String) -> Void
 
     private let speeds: [Double] = [0.5, 0.75, 1, 1.25, 1.5, 2]
+    @State private var subtitleLink = ""
     private let subtitleSizes: [(String, String)] = [
         ("small", "صغير"), ("medium", "متوسط"), ("large", "كبير")
     ]
@@ -2207,6 +2241,50 @@ struct PlayerOptionsPanel: View {
                             }
                             .buttonStyle(.plain)
                         }
+                    }
+
+                    label("ترجمة من رابط")
+                    HStack(spacing: 8) {
+                        Image(systemName: "link")
+                            .font(.system(size: 12))
+                            .foregroundStyle(CinemaTheme.muted)
+                        TextField("رابط ملف .srt أو .vtt", text: $subtitleLink)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white)
+                            .keyboardType(.URL)
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
+                        Button("تحميل") {
+                            let text = subtitleLink.trimmingCharacters(in: .whitespacesAndNewlines)
+                            subtitleLink = ""
+                            onSubtitleLink(text)
+                        }
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.accent)
+                        .disabled(subtitleLink.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
+                    .background(CinemaTheme.elevated.opacity(0.7), in: Capsule())
+
+                    if let externalSubtitle {
+                        HStack(spacing: 8) {
+                            Image(systemName: "captions.bubble.fill")
+                                .font(.system(size: 11))
+                                .foregroundStyle(CinemaTheme.accent)
+                            Text(externalSubtitle)
+                                .font(.system(size: 11))
+                                .foregroundStyle(CinemaTheme.muted)
+                                .lineLimit(1)
+                            Spacer()
+                            Button("إزالة") { onSubtitleLink("") }
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(CinemaTheme.favourite)
+                                .buttonStyle(.plain)
+                        }
+                        .padding(.horizontal, 12)
                     }
 
                     label("نسبة العرض")
@@ -5043,7 +5121,7 @@ struct SubtitleSettings: View {
                 }
                 .tint(CinemaTheme.accent)
 
-                Text("الملفات التي لا تحتوي ترجمة مدمجة تحتاج إضافة ترجمات (OpenSubtitles) لتعرض الترجمة العربية.")
+                Text("الملفات التي لا تحتوي ترجمة مدمجة: افتح لوحة التشغيل ← «ترجمة من رابط» والصق رابط ملف .srt أو .vtt، ويجلبه المشغّل مباشرة.")
                     .font(.system(size: 11))
                     .foregroundStyle(CinemaTheme.muted)
                     .lineSpacing(4)
@@ -5274,6 +5352,8 @@ struct PlaybackSettings: View {
 }
 
 struct AboutSettings: View {
+    @AppStorage("cinemax.onboarded") private var onboarded = true
+
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 14) {
@@ -5346,6 +5426,31 @@ struct AboutSettings: View {
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(CinemaTheme.accent)
                 }
+
+                Divider().overlay(CinemaTheme.hairline)
+
+                Button {
+                    Haptics.select()
+                    onboarded = false
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("أظهر شاشة البداية مجددًا")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(.white)
+                            Text(onboarded
+                                 ? "ستظهر عند فتح التطبيق في المرة القادمة"
+                                 : "ستظهر عند فتح التطبيق")
+                                .font(.system(size: 11))
+                                .foregroundStyle(CinemaTheme.muted)
+                        }
+                        Spacer()
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.accent)
+                    }
+                }
+                .buttonStyle(.plain)
             }
             .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
