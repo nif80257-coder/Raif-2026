@@ -149,6 +149,18 @@ struct InstalledAddonRow: Identifiable, Codable {
     let version: String
 }
 
+struct AddonCheckRow: Identifiable, Codable {
+    let id: String
+    let name: String
+    let url: String
+    let ok: Bool
+    let ms: Int64
+    let version: String
+    let storedVersion: String
+
+    var hasUpdate: Bool { ok && !version.isEmpty && version != storedVersion }
+}
+
 struct SuggestedAddonRow: Identifiable, Codable {
     let name: String
     let url: String
@@ -353,6 +365,33 @@ final class CinemaAPI {
         await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
             bridge.installAllSuggested(onDone: { json in
                 continuation.resume(returning: json)
+            })
+        }
+    }
+
+    func checkAddons() async -> [AddonCheckRow] {
+        await withCheckedContinuation { (continuation: CheckedContinuation<[AddonCheckRow], Never>) in
+            bridge.checkAddons(onDone: { json in
+                continuation.resume(returning: (try? self.decode([AddonCheckRow].self, json)) ?? [])
+            })
+        }
+    }
+
+    func updateAddon(_ url: String) async throws -> String {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+            bridge.updateAddon(url: url, onDone: { summary in
+                continuation.resume(returning: summary)
+            }, onError: { message in
+                continuation.resume(throwing: CinemaError(message: message))
+            })
+        }
+    }
+
+    func updateAllAddons() async -> Int {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Int, Never>) in
+            bridge.updateAllAddons(onDone: { json in
+                let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
+                continuation.resume(returning: (object?["updated"] as? NSNumber)?.intValue ?? 0)
             })
         }
     }
@@ -1526,6 +1565,30 @@ struct PlayerScreen: View {
             [TrackInfo].self,
             from: Data(player.embeddedAudioTracksJson().utf8)
         )) ?? []
+        applySubtitlePreferences()
+    }
+
+    /// Applies the subtitle language and size the viewer picked in settings.
+    private func applySubtitlePreferences() {
+        guard let player else { return }
+        let defaults = UserDefaults.standard
+        let language = defaults.string(forKey: "cinemax.subtitleLang") ?? "ar"
+        let size = defaults.string(forKey: "cinemax.subtitleSize") ?? "medium"
+        let auto = (defaults.object(forKey: "cinemax.subtitleAuto") as? Bool) ?? true
+
+        let fontSize: Int
+        switch size {
+        case "small": fontSize = 42
+        case "large": fontSize = 66
+        default: fontSize = 54
+        }
+        player.setSubtitleFontSize(fontSize)
+
+        guard auto, language != "off", !subtitlesOff else { return }
+        guard let match = subtitleTracks.first(where: {
+            $0.language.lowercased().hasPrefix(language)
+        }) else { return }
+        player.setSubtitleTrack(match.id, ordinal: Int32(match.index))
     }
 
     /// Writes the stop position back, so "أكمل المشاهدة" and resume stay accurate
@@ -3579,6 +3642,17 @@ struct SettingsView: View {
                             )
                         }
                         .buttonStyle(.plain)
+
+                        NavigationLink {
+                            SubtitleSettings()
+                        } label: {
+                            SettingsRow(
+                                icon: "captions.bubble.fill",
+                                title: "الترجمة",
+                                detail: "اللغة المفضلة، حجم الخط، والاختيار التلقائي"
+                            )
+                        }
+                        .buttonStyle(.plain)
                     }
                     .padding(.horizontal, 20)
 
@@ -3803,6 +3877,100 @@ struct LayoutSettings: View {
     }
 }
 
+struct SubtitleSettings: View {
+    @AppStorage("cinemax.subtitleLang") private var language = "ar"
+    @AppStorage("cinemax.subtitleSize") private var size = "medium"
+    @AppStorage("cinemax.subtitleAuto") private var autoSelect = true
+
+    private let languages: [(id: String, title: String)] = [
+        ("ar", "العربية"), ("en", "English"), ("off", "إيقاف")
+    ]
+    private let sizes: [(id: String, title: String)] = [
+        ("small", "صغير"), ("medium", "متوسط"), ("large", "كبير")
+    ]
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("اللغة المفضلة")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.muted)
+                    HStack(spacing: 8) {
+                        ForEach(languages, id: \.id) { entry in
+                            Button {
+                                Haptics.select()
+                                language = entry.id
+                            } label: {
+                                Text(entry.title)
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(language == entry.id ? .black : .white)
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 9)
+                                    .background {
+                                        Capsule().fill(
+                                            language == entry.id ? CinemaTheme.accent : Color.white.opacity(0.08)
+                                        )
+                                    }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("حجم خط الترجمة")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.muted)
+                    HStack(spacing: 8) {
+                        ForEach(sizes, id: \.id) { entry in
+                            Button {
+                                Haptics.select()
+                                size = entry.id
+                            } label: {
+                                Text(entry.title)
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(size == entry.id ? .black : .white)
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 9)
+                                    .background {
+                                        Capsule().fill(
+                                            size == entry.id ? CinemaTheme.accent : Color.white.opacity(0.08)
+                                        )
+                                    }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+
+                Toggle(isOn: $autoSelect) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("اختيار الترجمة تلقائيًا")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.white)
+                        Text("عند تشغيل ملف فيه ترجمة باللغة المفضلة تُختار وحدها")
+                            .font(.system(size: 11))
+                            .foregroundStyle(CinemaTheme.muted)
+                    }
+                }
+                .tint(CinemaTheme.accent)
+
+                Text("الملفات التي لا تحتوي ترجمة مدمجة تحتاج إضافة ترجمات (OpenSubtitles) لتعرض الترجمة العربية.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(CinemaTheme.muted)
+                    .lineSpacing(4)
+            }
+            .padding(16)
+            .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .padding(20)
+        }
+        .background(CinemaTheme.canvas.ignoresSafeArea())
+        .navigationTitle("الترجمة")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
 struct PlaybackSettings: View {
     @AppStorage("cinemax.autoplayNext") private var autoplayNext = true
     @AppStorage("cinemax.defaultSpeed") private var defaultSpeed = 1.0
@@ -3969,6 +4137,9 @@ struct AddonsSettings: View {
     @State private var message: String?
     @State private var installing: String?
     @State private var ascending = true
+    @State private var checks: [String: AddonCheckRow] = [:]
+    @State private var checking = false
+    @State private var updating: String?
 
     private var visibleSuggested: [SuggestedAddonRow] {
         let text = query.trimmingCharacters(in: .whitespaces)
@@ -3984,6 +4155,37 @@ struct AddonsSettings: View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 18) {
                 summary
+
+                HStack(spacing: 8) {
+                    Button {
+                        Task { await runCheck() }
+                    } label: {
+                        HStack(spacing: 6) {
+                            if checking { ProgressView().tint(.white) }
+                            Text(checking ? "جارٍ الفحص…" : "فحص الإضافات")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(.white)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 11)
+                        .background(Color.white.opacity(0.1), in: Capsule())
+                    }
+                    .buttonStyle(CinemaPressStyle())
+                    .disabled(checking || addons.isEmpty)
+
+                    Button {
+                        Task { await updateAll() }
+                    } label: {
+                        Text(updateAllLabel)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.accent)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 11)
+                            .background(CinemaTheme.accent.opacity(0.14), in: Capsule())
+                    }
+                    .buttonStyle(CinemaPressStyle())
+                    .disabled(checking || updating != nil || addons.isEmpty)
+                }
 
                 Button {
                     Task { await installAll() }
@@ -4093,11 +4295,30 @@ struct AddonsSettings: View {
                                     .font(.system(size: 14, weight: .semibold))
                                     .foregroundStyle(.white)
                                     .lineLimit(1)
-                                Text("الإصدار \(addon.version)")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(CinemaTheme.muted)
+                                HStack(spacing: 6) {
+                                    if let check = checks[addon.url] {
+                                        Circle()
+                                            .fill(check.ok ? CinemaTheme.accent : CinemaTheme.favourite)
+                                            .frame(width: 6, height: 6)
+                                        Text(check.ok ? "\(check.ms) مللي" : "لا يستجيب")
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(CinemaTheme.muted)
+                                    }
+                                    Text("الإصدار \(addon.version)")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(CinemaTheme.muted)
+                                }
                             }
                             Spacer()
+                            if updating == addon.url {
+                                ProgressView().tint(CinemaTheme.accent)
+                            } else if checks[addon.url]?.hasUpdate == true {
+                                Button("تحديث") {
+                                    Task { await updateOne(addon) }
+                                }
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(CinemaTheme.accent)
+                            }
                             Button {
                                 Haptics.tap()
                                 UIPasteboard.general.string = addon.url
@@ -4197,6 +4418,48 @@ struct AddonsSettings: View {
             .padding(.horizontal, 14)
             .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
+    }
+
+    private var updateAllLabel: String {
+        let count = checks.values.filter { $0.hasUpdate }.count
+        return count > 0 ? "حدّث الكل (\(count))" : "حدّث الكل"
+    }
+
+    private func runCheck() async {
+        checking = true
+        message = nil
+        let results = await CinemaAPI.shared.checkAddons()
+        checks = Dictionary(uniqueKeysWithValues: results.map { ($0.url, $0) })
+        let alive = results.filter { $0.ok }.count
+        message = "الفحص: \(alive) تعمل من \(results.count)"
+        checking = false
+    }
+
+    private func updateOne(_ addon: InstalledAddonRow) async {
+        updating = addon.url
+        message = nil
+        do {
+            let summary = try await CinemaAPI.shared.updateAddon(addon.url)
+            let parts = summary.split(separator: "|")
+            message = parts.count == 2 ? "حُدّثت \(parts[0]) إلى \(parts[1])" : "تم التحديث"
+            HomeModel.shared.resetCache()
+            await load()
+            await runCheck()
+        } catch {
+            message = error.localizedDescription
+        }
+        updating = nil
+    }
+
+    private func updateAll() async {
+        checking = true
+        message = nil
+        let count = await CinemaAPI.shared.updateAllAddons()
+        HomeModel.shared.resetCache()
+        await load()
+        checking = false
+        message = count > 0 ? "تم تحديث \(count) إضافة" : "كل الإضافات محدثة"
+        await runCheck()
     }
 
     private func load() async {

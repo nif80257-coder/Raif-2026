@@ -242,6 +242,12 @@ final class MPVViewController: UIViewController {
         setString(mpv, "video-aspect-override", aspect)
     }
 
+    /// Subtitle text size, as libmpv's font-size property (default is 55).
+    func setSubtitleFontSize(_ size: Int) {
+        guard let mpv else { return }
+        setString(mpv, "sub-font-size", String(max(20, min(120, size))))
+    }
+
     func setVolumeLevel(_ volume: Double) {
         guard let mpv else { return }
         setString(mpv, "volume", String(format: "%.0f", max(0.0, min(100.0, volume))))

@@ -677,6 +677,122 @@ class CinemaxAppleBridge {
         repository.clearCaches()
     }
 
+    @Serializable
+    data class AppleAddonHealth(
+        val id: String,
+        val name: String,
+        val url: String,
+        val ok: Boolean,
+        val ms: Long,
+        val version: String,
+        val storedVersion: String
+    )
+
+    /**
+     * Asks every installed addon for its manifest again, timing the answer, so the
+     * screen can show which ones are alive and which advertise a newer version.
+     */
+    fun checkAddons(onDone: (String) -> Unit) {
+        scope.launch {
+            val installed = addonStore.load()
+            val results = coroutineScope {
+                installed.map { addon ->
+                    async {
+                        val started = Clock.System.now().toEpochMilliseconds()
+                        val manifest = try {
+                            withTimeoutOrNull(8_000) { repository.loadManifest(addon.manifestUrl) }
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (_: Throwable) {
+                            null
+                        }
+                        val elapsed = Clock.System.now().toEpochMilliseconds() - started
+                        AppleAddonHealth(
+                            id = addon.id,
+                            name = addon.name,
+                            url = addon.manifestUrl,
+                            ok = manifest != null,
+                            ms = elapsed,
+                            version = manifest?.version ?: "",
+                            storedVersion = addon.version
+                        )
+                    }
+                }.awaitAll()
+            }
+            onDone(json.encodeToString(results))
+        }
+    }
+
+    /** Re-fetches one addon's manifest and stores whatever it now advertises. */
+    fun updateAddon(url: String, onDone: (String) -> Unit, onError: (String) -> Unit) {
+        scope.launch {
+            try {
+                val manifest = repository.loadManifest(url)
+                val current = addonStore.load()
+                val existing = current.firstOrNull { it.manifestUrl == url }
+                val refreshed = com.cinemax.app.addons.InstalledAddon(
+                    manifestUrl = url,
+                    id = manifest.id,
+                    name = manifest.name,
+                    version = manifest.version,
+                    description = manifest.description,
+                    installedAtEpochMillis = existing?.installedAtEpochMillis
+                        ?: Clock.System.now().toEpochMilliseconds(),
+                    resources = manifest.resourceNames().toList(),
+                    types = manifest.types,
+                    idPrefixes = manifest.idPrefixes,
+                    catalogs = manifest.catalogs,
+                    configurable = manifest.behaviorHints.configurable
+                )
+                addonStore.save(current.filterNot { it.manifestUrl == url } + refreshed)
+                repository.clearCaches()
+                onDone("${manifest.name}|${manifest.version}")
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                onError(error.message ?: "تعذر تحديث الإضافة")
+            }
+        }
+    }
+
+    /** Refreshes every addon that advertises a newer version and answers how many. */
+    fun updateAllAddons(onDone: (String) -> Unit) {
+        scope.launch {
+            val installed = addonStore.load()
+            var updated = 0
+            val kept = installed.toMutableList()
+            for (addon in installed) {
+                val manifest = try {
+                    withTimeoutOrNull(8_000) { repository.loadManifest(addon.manifestUrl) }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Throwable) {
+                    null
+                } ?: continue
+                if (manifest.version == addon.version) continue
+                kept.removeAll { it.manifestUrl == addon.manifestUrl }
+                kept.add(
+                    com.cinemax.app.addons.InstalledAddon(
+                        manifestUrl = addon.manifestUrl,
+                        id = manifest.id,
+                        name = manifest.name,
+                        version = manifest.version,
+                        description = manifest.description,
+                        installedAtEpochMillis = addon.installedAtEpochMillis,
+                        resources = manifest.resourceNames().toList(),
+                        types = manifest.types,
+                        idPrefixes = manifest.idPrefixes,
+                        catalogs = manifest.catalogs,
+                        configurable = manifest.behaviorHints.configurable
+                    )
+                )
+                updated += 1
+            }
+            addonStore.save(kept)
+            repository.clearCaches()
+            onDone("{\"updated\":$updated}")
+        }
+    }
+
     /** Installs every shipped source that is still missing, one after another. */
     fun installAllSuggested(onDone: (String) -> Unit) {
         scope.launch {
