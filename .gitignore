@@ -34,6 +34,7 @@ PERFORMANCE_FINDINGS.md
 scripts/*
 !scripts/prepare-ios-dependencies.sh
 !scripts/sign-ios-device-app.py
+!scripts/build-ios-ipa.sh
 iosApp/Configuration/DeviceSigning.local.json
 
 # Local MPVKit iOS build environment (sparse APFS image, see MPVKit docs)
