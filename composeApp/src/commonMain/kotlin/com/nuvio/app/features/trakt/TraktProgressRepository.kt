@@ -1,6 +1,7 @@
 package com.nuvio.app.features.trakt
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.core.concurrent.runCatchingCancellable
 import com.nuvio.app.features.addons.RawHttpResponse
 import com.nuvio.app.features.addons.httpGetTextWithHeaders
 import com.nuvio.app.features.addons.httpRequestRaw
@@ -124,7 +125,7 @@ object TraktProgressRepository {
                     continue
                 }
 
-                runCatching {
+                runCatchingCancellable {
                     refreshIfActivityChanged()
                 }.onFailure { error ->
                     if (error is CancellationException) throw error
@@ -267,7 +268,7 @@ object TraktProgressRepository {
     }
 
     private suspend fun hasActivityChanged(headers: Map<String, String>): Boolean {
-        val activities = runCatching {
+        val activities = runCatchingCancellable {
             val endpoint = "$BASE_URL/sync/last_activities"
             val payload = httpGetTextWithHeaders(
                 url = endpoint,
@@ -340,7 +341,7 @@ object TraktProgressRepository {
 
         publishProgressState(isLoading = true, errorMessage = null)
 
-        val playbackEntries = runCatching {
+        val playbackEntries = runCatchingCancellable {
             fetchPlaybackEntries(headers)
         }.onFailure { error ->
             if (error is CancellationException) throw error
@@ -376,7 +377,7 @@ object TraktProgressRepository {
             hasLoadedRemoteProgress = false,
         )
 
-        val completedEntries = runCatching {
+        val completedEntries = runCatchingCancellable {
             coroutineScope {
                 val history = async { fetchHistoryEntries(headers) }
                 val watchedShowSeeds = async { fetchWatchedShowSeedEntries(headers) }
@@ -425,7 +426,7 @@ object TraktProgressRepository {
     ) {
         metadataHydrationJob?.cancel()
         metadataHydrationJob = scope.launch {
-            runCatching {
+            runCatchingCancellable {
                 hydrateEntriesFromAddonMeta(
                     requestId = requestId,
                     entries = entries,
@@ -594,7 +595,7 @@ object TraktProgressRepository {
             episodeNumber = episodeNumber,
         )
 
-        val playbackMovies = runCatching {
+        val playbackMovies = runCatchingCancellable {
             json.decodeFromString<List<TraktPlaybackItem>>(
                 httpGetTextWithHeaders(
                     url = "$BASE_URL/sync/playback/movies",
@@ -602,7 +603,7 @@ object TraktProgressRepository {
                 ),
             )
         }.getOrDefault(emptyList())
-        val playbackEpisodes = runCatching {
+        val playbackEpisodes = runCatchingCancellable {
             json.decodeFromString<List<TraktPlaybackItem>>(
                 httpGetTextWithHeaders(
                     url = "$BASE_URL/sync/playback/episodes",
@@ -615,7 +616,7 @@ object TraktProgressRepository {
             .filter { item -> normalizeTraktContentId(item.movie?.ids, fallback = item.movie?.title) == normalizedContentId }
             .forEach { item ->
                 item.id?.let { playbackId ->
-                    runCatching {
+                    runCatchingCancellable {
                         httpRequestRaw(
                             method = "DELETE",
                             url = "$BASE_URL/sync/playback/$playbackId",
@@ -641,7 +642,7 @@ object TraktProgressRepository {
             }
             .forEach { item ->
                 item.id?.let { playbackId ->
-                    runCatching {
+                    runCatchingCancellable {
                         httpRequestRaw(
                             method = "DELETE",
                             url = "$BASE_URL/sync/playback/$playbackId",
@@ -895,7 +896,7 @@ object TraktProgressRepository {
         )
         if (response.status !in 200..299) return@withContext emptyList()
 
-        val progress = runCatching {
+        val progress = runCatchingCancellable {
             json.decodeFromString<TraktShowProgressResponse>(response.body)
         }.getOrNull() ?: return@withContext emptyList()
 
@@ -938,12 +939,12 @@ object TraktProgressRepository {
         val tmdb = parsed.tmdb
         if (tmdb != null) {
             showIdToTraktPathId["tmdb:$tmdb"]?.let { return it }
-            runCatching {
+            runCatchingCancellable {
                 TmdbService.tmdbToImdb(tmdbId = tmdb, mediaType = "series")
                     ?: TmdbService.tmdbToImdb(tmdbId = tmdb, mediaType = "movie")
             }.getOrNull()?.takeIf { it.isNotBlank() }?.let { return it }
 
-            val response = runCatching {
+            val response = runCatchingCancellable {
                 httpRequestRaw(
                     method = "GET",
                     url = "$BASE_URL/search/tmdb/$tmdb?type=show",
@@ -952,7 +953,7 @@ object TraktProgressRepository {
                 )
             }.getOrNull()
             if (response != null && response.status in 200..299) {
-                val result = runCatching {
+                val result = runCatchingCancellable {
                     json.decodeFromString<List<TraktSearchResult>>(response.body)
                 }.getOrDefault(emptyList()).firstOrNull()
                 result?.show?.ids?.let { ids ->
@@ -1229,7 +1230,7 @@ object TraktProgressRepository {
                 if (directMatch != null) {
                     directMatch
                 } else {
-                    val remapped = runCatching {
+                    val remapped = runCatchingCancellable {
                         TraktEpisodeMappingService.resolveAddonEpisodeMapping(
                             contentId = entry.parentMetaId,
                             contentType = "series",
@@ -1559,7 +1560,7 @@ internal suspend fun <T> collectRecentTraktEpisodeHistory(
         val response = fetchPage(page)
         if (response.status !in 200..299) return null
 
-        val items = runCatching { decodePage(response.body) }.getOrNull() ?: return null
+        val items = runCatchingCancellable { decodePage(response.body) }.getOrNull() ?: return null
         if (items.isEmpty()) break
 
         var shouldStop = false

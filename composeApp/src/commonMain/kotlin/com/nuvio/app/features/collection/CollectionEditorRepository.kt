@@ -1,6 +1,7 @@
 package com.nuvio.app.features.collection
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.core.concurrent.runCatchingCancellable
 import com.nuvio.app.features.home.PosterShape
 import com.nuvio.app.features.trakt.TraktPublicListSearchResult
 import com.nuvio.app.features.trakt.TraktPublicListSourceResolver
@@ -425,7 +426,7 @@ object CollectionEditorRepository {
         scope.launch {
             val loadErrorMessage = getString(Res.string.collections_editor_trakt_load_error)
             val results = if (query.isTraktListIdentifierInput()) {
-                runCatching {
+                runCatchingCancellable {
                     val metadata = TraktPublicListSourceResolver.listImportMetadata(query)
                     val id = metadata.traktListId ?: error(loadErrorMessage)
                     listOf(
@@ -438,7 +439,7 @@ object CollectionEditorRepository {
                     )
                 }
             } else {
-                runCatching { TraktPublicListSourceResolver.searchPublicLists(query) }
+                runCatchingCancellable { TraktPublicListSourceResolver.searchPublicLists(query) }
             }
             val mapped = results.getOrDefault(emptyList())
             _uiState.value = _uiState.value.copy(
@@ -451,8 +452,8 @@ object CollectionEditorRepository {
 
     private fun loadTraktFeaturedLists() {
         scope.launch {
-            val trending = runCatching { TraktPublicListSourceResolver.trendingPublicLists() }
-            val popular = runCatching { TraktPublicListSourceResolver.popularPublicLists() }
+            val trending = runCatchingCancellable { TraktPublicListSourceResolver.trendingPublicLists() }
+            val popular = runCatchingCancellable { TraktPublicListSourceResolver.popularPublicLists() }
             _uiState.value = _uiState.value.copy(
                 traktTrendingResults = trending.getOrDefault(_uiState.value.traktTrendingResults),
                 traktPopularResults = popular.getOrDefault(_uiState.value.traktPopularResults),
@@ -577,7 +578,7 @@ object CollectionEditorRepository {
         val query = _uiState.value.tmdbInput.trim()
         if (query.isBlank()) return
         scope.launch {
-            val results = runCatching { TmdbCollectionSourceResolver.searchCompanies(query) }
+            val results = runCatchingCancellable { TmdbCollectionSourceResolver.searchCompanies(query) }
             _uiState.value = _uiState.value.copy(
                 tmdbCompanyResults = results.getOrDefault(emptyList()),
                 tmdbSearchError = results.exceptionOrNull()?.message,
@@ -589,7 +590,7 @@ object CollectionEditorRepository {
         val query = _uiState.value.tmdbInput.trim()
         if (query.isBlank()) return
         scope.launch {
-            val results = runCatching { TmdbCollectionSourceResolver.searchCollections(query) }
+            val results = runCatchingCancellable { TmdbCollectionSourceResolver.searchCollections(query) }
             _uiState.value = _uiState.value.copy(
                 tmdbCollectionResults = results.getOrDefault(emptyList()),
                 tmdbSearchError = results.exceptionOrNull()?.message,
@@ -601,7 +602,7 @@ object CollectionEditorRepository {
         val sourceType = source.tmdbType()
         if (source.tmdbId != null && sourceType in coverMetadataSourceTypes) {
             scope.launch {
-                val metadata = runCatching { TmdbCollectionSourceResolver.importMetadata(sourceType, source.tmdbId) }
+                val metadata = runCatchingCancellable { TmdbCollectionSourceResolver.importMetadata(sourceType, source.tmdbId) }
                 val resolved = metadata.getOrNull()
                 addTmdbSources(
                     sources = listOf(
@@ -628,7 +629,7 @@ object CollectionEditorRepository {
             scope.launch {
                 val sourceType = metadataSource.tmdbType()
                 val metadata = metadataId?.let { id ->
-                    runCatching { TmdbCollectionSourceResolver.importMetadata(sourceType, id) }
+                    runCatchingCancellable { TmdbCollectionSourceResolver.importMetadata(sourceType, id) }
                 }
                 addTmdbSources(sources, metadata?.getOrNull()?.coverImageUrl)
             }
@@ -687,7 +688,7 @@ object CollectionEditorRepository {
             }
             if (sourceType == TmdbCollectionSourceType.LIST || sourceType == TmdbCollectionSourceType.COLLECTION) {
                 val sourceId = id ?: return@launch
-                val metadata = runCatching { TmdbCollectionSourceResolver.importMetadata(sourceType, sourceId) }
+                val metadata = runCatchingCancellable { TmdbCollectionSourceResolver.importMetadata(sourceType, sourceId) }
                 val resolved = metadata.getOrNull()
                 if (metadata.isFailure) {
                     _uiState.value = _uiState.value.copy(
@@ -749,7 +750,7 @@ object CollectionEditorRepository {
         scope.launch {
             val moviesSuffix = getString(Res.string.collections_editor_media_movies_suffix)
             val seriesSuffix = getString(Res.string.collections_editor_media_series_suffix)
-            val metadata = runCatching { TraktPublicListSourceResolver.listImportMetadata(input) }
+            val metadata = runCatchingCancellable { TraktPublicListSourceResolver.listImportMetadata(input) }
             val resolved = metadata.getOrNull()
             val listId = resolved?.traktListId
             if (metadata.isFailure || listId == null) {
@@ -936,7 +937,7 @@ private fun selectedTraktMediaTypes(state: CollectionEditorUiState): List<TmdbCo
 
 private fun CollectionSource.tmdbType(): TmdbCollectionSourceType =
     tmdbSourceType
-        ?.let { raw -> runCatching { TmdbCollectionSourceType.valueOf(raw.uppercase()) }.getOrNull() }
+        ?.let { raw -> runCatchingCancellable { TmdbCollectionSourceType.valueOf(raw.uppercase()) }.getOrNull() }
         ?: TmdbCollectionSourceType.DISCOVER
 
 private fun String.isTraktListIdentifierInput(): Boolean {

@@ -1,6 +1,7 @@
 package com.nuvio.app.features.watching.sync
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.core.concurrent.runCatchingCancellable
 import com.nuvio.app.features.addons.RawHttpResponse
 import com.nuvio.app.features.addons.httpRequestRaw
 import com.nuvio.app.features.tmdb.TmdbService
@@ -235,7 +236,7 @@ object TraktWatchedSyncAdapter : TrackingWatchedProvider {
             ),
         )
 
-        val response = runCatching {
+        val response = runCatchingCancellable {
             httpRequestRaw(
                 method = "POST",
                 url = "$BASE_URL/sync/history",
@@ -248,7 +249,7 @@ object TraktWatchedSyncAdapter : TrackingWatchedProvider {
         }.getOrNull()
 
         val responseBody = response?.body?.takeIf { it.isNotBlank() }?.let { payload ->
-            runCatching { json.decodeFromString<TraktHistoryAddResponseDto>(payload) }.getOrNull()
+            runCatchingCancellable { json.decodeFromString<TraktHistoryAddResponseDto>(payload) }.getOrNull()
         }
         val shouldRetryRemap = shows.isNotEmpty() && (
             response == null ||
@@ -341,7 +342,7 @@ object TraktWatchedSyncAdapter : TrackingWatchedProvider {
             ),
         )
 
-        runCatching {
+        runCatchingCancellable {
             httpRequestRaw(
                 method = "POST",
                 url = "$BASE_URL/sync/history",
@@ -403,7 +404,7 @@ object TraktWatchedSyncAdapter : TrackingWatchedProvider {
             ),
         )
 
-        val response = runCatching {
+        val response = runCatchingCancellable {
             httpRequestRaw(
                 method = "POST",
                 url = "$BASE_URL/sync/history/remove",
@@ -420,7 +421,7 @@ object TraktWatchedSyncAdapter : TrackingWatchedProvider {
                 it.type.trim().lowercase() !in listOf("movie", "film")
         }
         val responseBody = response?.body?.takeIf { it.isNotBlank() }?.let { payload ->
-            runCatching { json.decodeFromString<TraktHistoryRemoveResponseDto>(payload) }.getOrNull()
+            runCatchingCancellable { json.decodeFromString<TraktHistoryRemoveResponseDto>(payload) }.getOrNull()
         }
         val shouldRetryRemap = episodeItems.isNotEmpty() && (
             response == null ||
@@ -479,7 +480,7 @@ object TraktWatchedSyncAdapter : TrackingWatchedProvider {
             ),
         )
 
-        runCatching {
+        runCatchingCancellable {
             httpRequestRaw(
                 method = "POST",
                 url = "$BASE_URL/sync/history/remove",
@@ -556,7 +557,7 @@ object TraktWatchedSyncAdapter : TrackingWatchedProvider {
         contentType: String,
     ): TraktSyncIdsDto {
         if (ids.tmdb == null || !ids.imdb.isNullOrBlank()) return ids
-        val imdb = runCatching {
+        val imdb = runCatchingCancellable {
             TmdbService.tmdbToImdb(tmdbId = ids.tmdb, mediaType = contentType)
         }.getOrNull() ?: return ids
         return ids.copy(imdb = imdb)

@@ -1,6 +1,7 @@
 package com.nuvio.app.features.plugins
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.core.concurrent.runCatchingCancellable
 import com.nuvio.app.core.network.SupabaseProvider
 import com.nuvio.app.features.addons.httpGetText
 import com.nuvio.app.features.profiles.ProfileRepository
@@ -121,7 +122,7 @@ actual object PluginRepository {
     actual suspend fun pullFromServer(profileId: Int) {
         val effectiveProfileId = resolveEffectiveProfileId(profileId)
         ensureStateLoadedForProfile(effectiveProfileId)
-        runCatching {
+        runCatchingCancellable {
             val rows = SupabaseProvider.client.postgrest
                 .from("plugins")
                 .select {
@@ -247,7 +248,7 @@ actual object PluginRepository {
         var refreshJob: Job? = null
         refreshJob = scope.launch {
             try {
-                val result = runCatching {
+                val result = runCatchingCancellable {
                     val previous = _uiState.value.scrapers.associateBy { it.id }
                     fetchRepositoryData(manifestUrl, previous)
                 }
@@ -379,7 +380,7 @@ actual object PluginRepository {
             mediaType = mediaType,
         )
 
-        return runCatching {
+        return runCatchingCancellable {
             PluginRuntime.executePlugin(
                 code = scraper.code,
                 tmdbId = resolvedTmdbId,
@@ -423,7 +424,7 @@ actual object PluginRepository {
                     } else {
                         "$baseUrl/${info.filename.trimStart('/')}"
                     }
-                    runCatching {
+                    runCatchingCancellable {
                         val code = httpGetText(codeUrl)
                         val scraperId = "${manifestUrl.lowercase()}:${info.id}"
                         val cached = PluginStorage.saveScraperCode(
@@ -530,7 +531,7 @@ actual object PluginRepository {
                 if (currentProfileId != profileId) return@launch
                 if (_uiState.value.repositories.any { it.manifestUrl == manifestUrl }) return@forEach
 
-                val result = runCatching {
+                val result = runCatchingCancellable {
                     fetchRepositoryData(manifestUrl, _uiState.value.scrapers.associateBy { it.id })
                 }.getOrNull() ?: return@forEach
 
@@ -562,7 +563,7 @@ actual object PluginRepository {
 
     private fun pushToServer() {
         scope.launch {
-            runCatching {
+            runCatchingCancellable {
                 val repos = _uiState.value.repositories.mapIndexed { index, repo ->
                     PluginPushItem(
                         url = repo.manifestUrl,
@@ -632,7 +633,7 @@ actual object PluginRepository {
     private fun loadStoredState(profileId: Int): StoredPluginsState? {
         val raw = PluginStorage.loadState(profileId)?.trim().orEmpty()
         if (raw.isBlank()) return null
-        return runCatching {
+        return runCatchingCancellable {
             json.decodeFromString<StoredPluginsState>(raw)
         }.getOrNull()
     }
