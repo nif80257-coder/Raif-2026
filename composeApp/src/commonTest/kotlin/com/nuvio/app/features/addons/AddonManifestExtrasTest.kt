@@ -112,3 +112,49 @@ class AddonManifestExtrasTest {
         assertEquals(listOf("always", "never"), visibility.options)
     }
 }
+
+
+internal class LegacyCatalogExtrasTest {
+    private fun manifest(catalog: String): AddonManifest = AddonManifestParser.parse(
+        manifestUrl = "https://example.com/manifest.json",
+        payload = """
+            {
+              "id": "org.example.legacy",
+              "version": "1.0.0",
+              "name": "Legacy",
+              "resources": ["catalog"],
+              "types": ["movie"],
+              "catalogs": [$catalog]
+            }
+        """.trimIndent(),
+    )
+
+    @Test
+    fun `extra written as plain names is read`() {
+        val extra = manifest("""{"type":"movie","id":"top","name":"Top","extra":["search","genre"]}""")
+            .catalogs.single().extra
+
+        assertEquals(listOf("search", "genre"), extra.map { it.name })
+        assertTrue(extra.none { it.isRequired })
+    }
+
+    @Test
+    fun `extraSupported without an extra array is read as the catalog's extras`() {
+        val extra = manifest(
+            """{"type":"movie","id":"top","name":"Top","extraSupported":["search","skip"],"extraRequired":["search"]}""",
+        ).catalogs.single().extra
+
+        assertEquals(listOf("search", "skip"), extra.map { it.name })
+        assertTrue(extra.single { it.name == "search" }.isRequired)
+        assertFalse(extra.single { it.name == "skip" }.isRequired)
+    }
+
+    @Test
+    fun `a catalog using the object schema still wins over the legacy lists`() {
+        val extra = manifest(
+            """{"type":"movie","id":"top","name":"Top","extra":[{"name":"search"}],"extraSupported":["genre"]}""",
+        ).catalogs.single().extra
+
+        assertEquals(listOf("search"), extra.map { it.name })
+    }
+}

@@ -694,27 +694,31 @@ private data class SearchCatalogRequest(
     val supportsPagination: Boolean,
 )
 
-private fun AddonCatalog.supportsSearch(): Boolean =
-    extra.any { property -> property.name == "search" } &&
-        extra.none { property -> property.isRequired && property.name != "search" }
+internal fun AddonCatalog.supportsSearch(): Boolean =
+    extra.any { property -> property.isNamed("search") } &&
+        extra.none { property -> property.isRequired && !property.isNamed("search") }
 
 private fun AddonCatalog.supportsDiscover(): Boolean {
-    if (extra.any { property -> property.name == "search" && property.isRequired }) {
+    if (extra.any { property -> property.isNamed("search") && property.isRequired }) {
         return false
     }
 
     return extra.none { property ->
-        when (property.name) {
-            "genre" -> property.isRequired && property.options.isEmpty()
-            "skip" -> false
-            "search" -> false
+        when {
+            property.isNamed("genre") -> property.isRequired && property.options.isEmpty()
+            property.isNamed("skip") -> false
+            property.isNamed("search") -> false
             else -> property.isRequired
         }
     }
 }
 
 private fun AddonCatalog.genreExtra(): AddonExtraProperty? =
-    extra.firstOrNull { property -> property.name == "genre" }
+    extra.firstOrNull { property -> property.isNamed("genre") }
+
+/** Extra names are technical keys, and a few manifests capitalise them. */
+private fun AddonExtraProperty.isNamed(name: String): Boolean =
+    this.name.equals(name, ignoreCase = true)
 
 private fun DiscoverCatalogOption.resolveGenreSelection(requestedGenre: String?): String? =
     when {

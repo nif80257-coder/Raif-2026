@@ -112,18 +112,44 @@ internal object AddonManifestParser {
                 type = catalog.requiredString("type"),
                 id = catalog.requiredString("id"),
                 name = catalog.optionalString("name").orEmpty().ifBlank { catalog.requiredString("id") },
-                extra = catalog.array("extra").mapNotNull { extraElement ->
-                    extraElement.jsonObject.optionalString("name")?.takeIf { it.isNotBlank() }?.let { name ->
-                        AddonExtraProperty(
-                            name = name,
-                            isRequired = extraElement.jsonObject.boolean("isRequired"),
-                            options = extraElement.jsonObject.stringList("options"),
-                            optionsLimit = extraElement.jsonObject.int("optionsLimit"),
-                        )
-                    }
-                },
+                extra = catalog.extraProperties(),
             )
         }
+
+    /**
+     * What a catalog accepts, in the three shapes manifests use: `extra` as objects (the current
+     * schema), `extra` as plain names (older manifests), or `extraSupported`/`extraRequired` with no
+     * `extra` at all (older still).
+     *
+     * Only the first shape was read, so every catalog written in either of the other two looked
+     * like a catalog that takes nothing extra — no `search` among them — and was left out of the
+     * search screen entirely, which is why a search only reached the few newest sources.
+     */
+    private fun JsonObject.extraProperties(): List<AddonExtraProperty> {
+        val listed = array("extra").mapNotNull { element ->
+            when (element) {
+                is JsonObject -> element.optionalString("name")?.takeIf(String::isNotBlank)?.let { name ->
+                    AddonExtraProperty(
+                        name = name,
+                        isRequired = element.boolean("isRequired"),
+                        options = element.stringList("options"),
+                        optionsLimit = element.int("optionsLimit"),
+                    )
+                }
+
+                else -> element.jsonPrimitive.contentOrNull?.takeIf(String::isNotBlank)?.let { name ->
+                    AddonExtraProperty(name = name)
+                }
+            }
+        }
+        if (listed.isNotEmpty()) return listed
+
+        val required = stringList("extraRequired").map { it.lowercase() }.toSet()
+        return (stringList("extraSupported") + stringList("extraRequired"))
+            .map { it.lowercase() }
+            .distinct()
+            .map { name -> AddonExtraProperty(name = name, isRequired = name in required) }
+    }
 
     private fun JsonObject.behaviorHints(): AddonBehaviorHints {
         val hints = this["behaviorHints"]?.jsonObject ?: return AddonBehaviorHints()
