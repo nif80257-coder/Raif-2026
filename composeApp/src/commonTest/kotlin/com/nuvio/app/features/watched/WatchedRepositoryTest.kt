@@ -151,7 +151,7 @@ class WatchedRepositoryTest {
         val queued = mergePendingWatchedDeletes(listOf(first), listOf(newer, other))
 
         assertEquals(2_000L, queued.first { it.id == "same" }.markedAtEpochMs)
-        assertEquals(listOf(other), acknowledgePendingWatchedDeletes(queued, listOf(other)))
+        assertEquals(listOf(newer), acknowledgePendingWatchedDeletes(queued, listOf(other)))
         assertEquals(queued, acknowledgePendingWatchedDeletes(queued, listOf(first)))
     }
 
