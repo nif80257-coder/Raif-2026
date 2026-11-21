@@ -164,22 +164,23 @@ internal fun WatchProgressEntry.shouldUseAsCompletedSeedForContinueWatching(): B
     return entry.isEffectivelyCompleted
 }
 
+/**
+ * Whether a snapshot from another device or a provider replaces the row already stored.
+ *
+ * Both sides follow the same rule: a candidate at least as new as the stored row replaces it, and
+ * so does one inside [WatchProgressSnapshotConflictToleranceMs], because two devices reporting the
+ * same session disagree by a second or two depending on when each one wrote. Only a candidate that
+ * is older than that gives way, whichever of the two carries the completion — a completion seen
+ * elsewhere within the window still lands.
+ */
 internal fun shouldReplaceProgressSnapshotEntry(
     existing: WatchProgressEntry,
     candidate: WatchProgressEntry,
 ): Boolean {
     val normalizedExisting = existing.normalizedCompletion()
     val normalizedCandidate = candidate.normalizedCompletion()
-    val existingInProgress = normalizedExisting.shouldTreatAsInProgressForContinueWatching()
-    val candidateInProgress = normalizedCandidate.shouldTreatAsInProgressForContinueWatching()
-    if (existingInProgress != candidateInProgress) {
-        val inProgressEntry = if (candidateInProgress) normalizedCandidate else normalizedExisting
-        val completedEntry = if (candidateInProgress) normalizedExisting else normalizedCandidate
-        val inProgressIsCurrentEnough =
-            inProgressEntry.lastUpdatedEpochMs >= completedEntry.lastUpdatedEpochMs - WatchProgressSnapshotConflictToleranceMs
-        return if (candidateInProgress) inProgressIsCurrentEnough else !inProgressIsCurrentEnough
-    }
-    return normalizedCandidate.lastUpdatedEpochMs > normalizedExisting.lastUpdatedEpochMs
+    return normalizedCandidate.lastUpdatedEpochMs >=
+        normalizedExisting.lastUpdatedEpochMs - WatchProgressSnapshotConflictToleranceMs
 }
 
 /**

@@ -26,7 +26,7 @@ class StreamReleaseQualityTest {
         // A camera copy is its own tier.
         assertEquals(ReleaseTier.CAM, stream("Movie 2024 HDCAM").releaseTier())
         // A resolution alone says nothing about the source.
-        assertNull(stream("Movie 1080p CH-HEB"))
+        assertNull(stream("Movie 1080p CH-HEB").releaseTier())
     }
 
     @Test

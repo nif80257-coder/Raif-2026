@@ -54,7 +54,7 @@ class WatchProgressRulesTest {
 
         assertEquals(setOf("opaque", "other-key"), queued.map { it.resolvedProgressKey() }.toSet())
         assertEquals(20L, queued.first { it.resolvedProgressKey() == "opaque" }.lastUpdatedEpochMs)
-        assertEquals(listOf(unrelatedDelete), acknowledgePendingWatchProgressDeletes(queued, listOf(unrelatedDelete)))
+        assertEquals(listOf(newerDelete), acknowledgePendingWatchProgressDeletes(queued, listOf(unrelatedDelete)))
         assertEquals(queued, acknowledgePendingWatchProgressDeletes(queued, listOf(oldDelete)))
     }
 

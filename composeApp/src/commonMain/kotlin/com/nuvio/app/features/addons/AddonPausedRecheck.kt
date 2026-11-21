@@ -18,8 +18,9 @@ internal const val PAUSED_RECHECK_CACHE = "addon-pause-recheck"
 /**
  * True when at least one source is paused and the last automatic recheck is a day old or older.
  *
- * A clock that moved backwards counts as due, so a device whose time was corrected is not left
- * waiting for a check that looks like it happened in the future.
+ * A zero timestamp is the record of a check that never happened, which counts as due; so does a
+ * clock that moved backwards, so a device whose time was corrected is not left waiting for a
+ * check that looks like it happened in the future.
  */
 internal fun shouldRecheckPausedSources(
     nowMs: Long,
@@ -27,6 +28,7 @@ internal fun shouldRecheckPausedSources(
     pausedCount: Int,
 ): Boolean {
     if (pausedCount <= 0) return false
+    if (lastRecheckAtMs <= 0L) return true
     if (nowMs < lastRecheckAtMs) return true
     return nowMs - lastRecheckAtMs >= PausedRecheckIntervalMs
 }

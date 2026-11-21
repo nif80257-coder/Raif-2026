@@ -32,15 +32,15 @@ class WatchHistoryCsvTest {
                 movieEntry(
                     id = "m1",
                     title = "Dune",
-                    positionMs = 2_000L,
-                    durationMs = 2_000L,
+                    positionMs = 2_000_000L,
+                    durationMs = 2_000_000L,
                     updatedAtMs = 100L,
                 ),
                 episodeEntry(
                     parentId = "show1",
                     videoId = "v1",
-                    positionMs = 500L,
-                    durationMs = 2_000L,
+                    positionMs = 500_000L,
+                    durationMs = 2_000_000L,
                     updatedAtMs = 300L,
                 ),
             ),
@@ -65,8 +65,8 @@ class WatchHistoryCsvTest {
                 episodeEntry(
                     parentId = "show1",
                     videoId = "v1",
-                    positionMs = 500L,
-                    durationMs = 2_000L,
+                    positionMs = 500_000L,
+                    durationMs = 2_000_000L,
                     updatedAtMs = 300L,
                 ),
             ),
@@ -95,12 +95,15 @@ class WatchHistoryCsvTest {
             ),
         )
 
+        // The watched item for the episode is folded into its progress row, and the newest row
+        // comes first.
         assertEquals(2, rows.size)
-        assertEquals("Arrival", rows[0].title)
-        assertEquals(WatchHistoryContentType.MOVIE, rows[0].contentType)
-        assertEquals(true, rows[0].isCompleted)
-        assertEquals("Show One", rows[1].title)
-        assertEquals(WatchHistoryContentType.EPISODE, rows[1].contentType)
+        assertEquals("Show One", rows[0].title)
+        assertEquals(WatchHistoryContentType.EPISODE, rows[0].contentType)
+        assertEquals(false, rows[0].isCompleted)
+        assertEquals("Arrival", rows[1].title)
+        assertEquals(WatchHistoryContentType.MOVIE, rows[1].contentType)
+        assertEquals(true, rows[1].isCompleted)
     }
 
     @Test
