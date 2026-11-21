@@ -59,5 +59,7 @@ data class NuvioStream(
     val url: String? = null,
     val quality: String? = null,
     val size: String? = null,
-    val provider: String? = null
+    val provider: String? = null,
+    /** Referer / User-Agent a host demands before it serves the file. */
+    val headers: Map<String, String> = emptyMap()
 )

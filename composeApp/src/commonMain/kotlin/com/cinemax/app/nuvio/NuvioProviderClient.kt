@@ -36,4 +36,9 @@ class NuvioProviderClient(
         scriptCache[url] = script
         return script
     }
+
+    /** Forgets downloaded scripts, used when a repository is added or removed. */
+    fun clearScriptCache() {
+        scriptCache.clear()
+    }
 }

@@ -71,7 +71,14 @@ data class AppleProgress(
 data class AppleEpisodes(val episodes: List<AppleItem>)
 
 @Serializable
-data class AppleStream(val url: String, val addon: String, val title: String, val quality: String?)
+data class AppleStream(
+    val url: String,
+    val addon: String,
+    val title: String,
+    val quality: String?,
+    /** Referer / User-Agent the host demands; empty for an open link. */
+    val headers: Map<String, String> = emptyMap()
+)
 
 @Serializable
 data class AppleStreams(
@@ -576,7 +583,9 @@ class CinemaxAppleBridge {
                                         url = url,
                                         addon = addon.name,
                                         title = stream.title ?: stream.name ?: url,
-                                        quality = streamBadges(stream.name, stream.title).firstOrNull()
+                                        quality = streamBadges(stream.name, stream.title).firstOrNull(),
+                                        headers = stream.behaviorHints.proxyHeaders?.request
+                                            ?: emptyMap()
                                     )
                                 } ?: run {
                                     failures += "${addon.name}: لا يستجيب"
@@ -661,7 +670,8 @@ class CinemaxAppleBridge {
                 url = url,
                 addon = option.addonName,
                 title = option.stream.title ?: option.stream.name ?: url,
-                quality = streamBadges(option.stream.name, option.stream.title).firstOrNull()
+                quality = streamBadges(option.stream.name, option.stream.title).firstOrNull(),
+                headers = option.stream.behaviorHints.proxyHeaders?.request ?: emptyMap()
             )
         }
     }
@@ -789,6 +799,94 @@ class CinemaxAppleBridge {
     /** How many titles and resume points are stored, for the data screen. */
     fun libraryCounts(onDone: (String) -> Unit) {
         onDone("{\"progress\":${progressStore.load().size},\"favorites\":${favoritesStore.load().size}}")
+    }
+
+    @Serializable
+    data class AppleNuvioProvider(
+        val key: String,
+        val name: String,
+        val description: String?,
+        val version: String,
+        val types: List<String>,
+        val enabled: Boolean
+    )
+
+    @Serializable
+    data class AppleNuvioRepository(
+        val url: String,
+        val name: String,
+        val version: String,
+        val description: String?,
+        val providers: List<AppleNuvioProvider>
+    )
+
+    /** Installed Nuvio repositories with their providers and which are enabled. */
+    fun nuvioRepositories(onDone: (String) -> Unit) {
+        onDone(json.encodeToString(nuvioSnapshot()))
+    }
+
+    private fun nuvioSnapshot(): List<AppleNuvioRepository> {
+        val enabled = runCatching { nuvioStore.loadEnabledProviders() }.getOrDefault(emptySet())
+        val repositories = runCatching { nuvioStore.loadRepositories() }.getOrDefault(emptyList())
+        return repositories.map { repository ->
+            AppleNuvioRepository(
+                url = repository.manifestUrl,
+                name = repository.name,
+                version = repository.version,
+                description = repository.description,
+                providers = repository.scrapers.map { scraper ->
+                    val key = repository.manifestUrl + "#" + scraper.id
+                    AppleNuvioProvider(
+                        key = key,
+                        name = scraper.name,
+                        description = scraper.description,
+                        version = scraper.version,
+                        types = scraper.supportedTypes,
+                        enabled = scraper.enabled && key in enabled
+                    )
+                }
+            )
+        }
+    }
+
+    /** Reads a provider repository and enables every provider it offers. */
+    fun addNuvioRepository(url: String, onDone: (String) -> Unit, onError: (String) -> Unit) {
+        scope.launch {
+            try {
+                val repository = nuvioClient.loadRepository(url)
+                val current = runCatching { nuvioStore.loadRepositories() }.getOrDefault(emptyList())
+                    .filterNot { it.manifestUrl == repository.manifestUrl }
+                nuvioStore.saveRepositories(current + repository)
+                val keys = runCatching { nuvioStore.loadEnabledProviders() }
+                    .getOrDefault(emptySet()).toMutableSet()
+                repository.scrapers.filter { it.enabled }.forEach { scraper ->
+                    keys.add(repository.manifestUrl + "#" + scraper.id)
+                }
+                nuvioStore.saveEnabledProviders(keys)
+                nuvioClient.clearScriptCache()
+                onDone(json.encodeToString(nuvioSnapshot()))
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                onError(error.message ?: "تعذر إضافة المستودع")
+            }
+        }
+    }
+
+    fun removeNuvioRepository(url: String, onDone: (String) -> Unit) {
+        val current = runCatching { nuvioStore.loadRepositories() }.getOrDefault(emptyList())
+        nuvioStore.saveRepositories(current.filterNot { it.manifestUrl == url })
+        val keys = runCatching { nuvioStore.loadEnabledProviders() }.getOrDefault(emptySet())
+        nuvioStore.saveEnabledProviders(keys.filterNot { it.startsWith(url + "#") }.toSet())
+        nuvioClient.clearScriptCache()
+        onDone(json.encodeToString(nuvioSnapshot()))
+    }
+
+    fun setNuvioProvider(key: String, enabled: Boolean, onDone: (String) -> Unit) {
+        val keys = runCatching { nuvioStore.loadEnabledProviders() }
+            .getOrDefault(emptySet()).toMutableSet()
+        if (enabled) keys.add(key) else keys.remove(key)
+        nuvioStore.saveEnabledProviders(keys)
+        onDone(json.encodeToString(nuvioSnapshot()))
     }
 
     /** Another small snapshot, for the statistics screen. */

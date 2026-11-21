@@ -165,6 +165,8 @@ struct StreamChoice: Identifiable, Codable, Hashable {
     let addon: String
     let title: String
     let quality: String?
+    /// Referer / User-Agent the host demands; nil for an open link.
+    var headers: [String: String]? = nil
 
     var id: String { url }
 }
@@ -174,6 +176,30 @@ struct InstalledAddonRow: Identifiable, Codable {
     let name: String
     let url: String
     let version: String
+}
+
+/// One provider inside an installed Nuvio repository.
+struct NuvioProviderRow: Identifiable, Codable {
+    let key: String
+    let name: String
+    let description: String?
+    let version: String
+    let types: [String]
+    let enabled: Bool
+
+    var id: String { key }
+}
+
+/// A Nuvio provider repository, with every provider it offers.
+struct NuvioRepositoryRow: Identifiable, Codable {
+    let url: String
+    let name: String
+    let version: String
+    let description: String?
+    let providers: [NuvioProviderRow]
+
+    var id: String { url }
+    var enabledCount: Int { providers.filter(\.enabled).count }
 }
 
 struct AddonCheckRow: Identifiable, Codable {
@@ -428,8 +454,47 @@ final class CinemaAPI {
         }
     }
 
-    func installedAddons() async -> [InstalledAddonRow] {
-        await withCheckedContinuation { (continuation: CheckedContinuation<[InstalledAddonRow], Never>) in
+    // MARK: - Nuvio providers
+
+    func nuvioRepositories() async -> [NuvioRepositoryRow] {
+        let payload = await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+            bridge.nuvioRepositories(onDone: { text in
+                continuation.resume(returning: text)
+            })
+        }
+        return (try? JSONDecoder().decode([NuvioRepositoryRow].self, from: Data(payload.utf8))) ?? []
+    }
+
+    func addNuvioRepository(_ url: String) async throws -> [NuvioRepositoryRow] {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[NuvioRepositoryRow], Error>) in
+            bridge.addNuvioRepository(url: url, onDone: { text in
+                let rows = (try? JSONDecoder().decode([NuvioRepositoryRow].self, from: Data(text.utf8))) ?? []
+                continuation.resume(returning: rows)
+            }, onError: { message in
+                continuation.resume(throwing: CinemaError(message: message))
+            })
+        }
+    }
+
+    func removeNuvioRepository(_ url: String) async -> [NuvioRepositoryRow] {
+        let payload = await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+            bridge.removeNuvioRepository(url: url, onDone: { text in
+                continuation.resume(returning: text)
+            })
+        }
+        return (try? JSONDecoder().decode([NuvioRepositoryRow].self, from: Data(payload.utf8))) ?? []
+    }
+
+    func setNuvioProvider(_ key: String, enabled: Bool) async -> [NuvioRepositoryRow] {
+        let payload = await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+            bridge.setNuvioProvider(key: key, enabled: enabled, onDone: { text in
+                continuation.resume(returning: text)
+            })
+        }
+        return (try? JSONDecoder().decode([NuvioRepositoryRow].self, from: Data(payload.utf8))) ?? []
+    }
+
+    func installedAddons() async -> [InstalledAddonRow] {        await withCheckedContinuation { (continuation: CheckedContinuation<[InstalledAddonRow], Never>) in
             bridge.installedAddons(onDone: { json in
                 continuation.resume(returning: (try? self.decode([InstalledAddonRow].self, json)) ?? [])
             })
@@ -1500,14 +1565,25 @@ struct CircleButton: View {
 /// uses, so MKV, HEVC, AVI and embedded subtitle tracks all work here too.
 struct MPVSurface: UIViewControllerRepresentable {
     let url: String
+    var headers: [String: String] = [:]
     var startMs: Int64 = 0
     @Binding var controller: MPVViewController?
 
     func makeUIViewController(context: Context) -> MPVViewController {
         let player = MPVViewController()
-        player.load(urlString: url, headersJson: "{}", startMs: startMs)
+        player.load(urlString: url, headersJson: Self.headersJson(headers), startMs: startMs)
         DispatchQueue.main.async { controller = player }
         return player
+    }
+
+    /// libmpv takes its request headers as a JSON object string.
+    static func headersJson(_ headers: [String: String]) -> String {
+        guard !headers.isEmpty,
+              let data = try? JSONSerialization.data(withJSONObject: headers),
+              let text = String(data: data, encoding: .utf8) else {
+            return "{}"
+        }
+        return text
     }
 
     func updateUIViewController(_ uiViewController: MPVViewController, context: Context) {}
@@ -1535,6 +1611,8 @@ struct PlayerScreen: View {
     var videoLabel: String? = nil
     /// The addon and quality this link came from, shown under the title.
     var sourceNote: String? = nil
+    /// Referer / User-Agent a host demands before it serves the file.
+    var headers: [String: String] = [:]
     /// Every source the detail page found, so a dead link can be replaced in place.
     var sources: [StreamChoice] = []
     /// The whole episode list, so the player can roll into the next one.
@@ -1579,6 +1657,7 @@ struct PlayerScreen: View {
     @State private var playerError: String?
     @State private var diagnosticsText: String?
     @State private var currentURL = ""
+    @State private var currentHeaders: [String: String] = [:]
     @State private var currentTitle = ""
     @State private var currentVideoId: String?
     @State private var currentVideoLabel: String?
@@ -1606,7 +1685,7 @@ struct PlayerScreen: View {
         ZStack {
             Color.black.ignoresSafeArea()
             if ready {
-                MPVSurface(url: currentURL, startMs: startMs, controller: $player)
+                MPVSurface(url: currentURL, headers: currentHeaders, startMs: startMs, controller: $player)
                     .id(currentURL + "-" + String(startMs) + "-" + String(playToken))
                     .ignoresSafeArea()
                     .contentShape(Rectangle())
@@ -1947,10 +2026,12 @@ struct PlayerScreen: View {
             UIApplication.shared.isIdleTimerDisabled = true
             if sources.isEmpty {
                 currentURL = url
+                currentHeaders = headers
             } else {
                 pool = sources
                 poolIndex = sources.firstIndex { $0.url == url } ?? 0
                 currentURL = sources[poolIndex].url
+                currentHeaders = sources[poolIndex].headers ?? headers
             }
             currentTitle = title
             currentVideoId = videoId
@@ -2065,6 +2146,7 @@ struct PlayerScreen: View {
             currentVideoLabel = next.name
             currentTitle = next.name
             currentURL = best.url
+            currentHeaders = best.headers ?? [:]
             ready = true
             switching = false
             player = nil
@@ -2153,6 +2235,7 @@ struct PlayerScreen: View {
         duration = 0
         startMs = 0
         currentURL = pool[poolIndex].url
+        currentHeaders = pool[poolIndex].headers ?? [:]
         playToken += 1
         ticker?.invalidate()
         startTicker()
@@ -2781,6 +2864,7 @@ struct DetailView: View {
                 videoId: episode?.id,
                 videoLabel: episode?.name,
                 sourceNote: [choice.addon, choice.quality].compactMap { $0 }.joined(separator: " · "),
+                headers: choice.headers ?? [:],
                 sources: filteredStreams,
                 episodes: model.detail?.episodes ?? [],
                 type: item.type
@@ -3339,6 +3423,10 @@ struct DetailView: View {
                         .foregroundStyle(CinemaTheme.muted)
                 }
                 .padding(.horizontal, 20)
+                Text("قد يستغرق حتى ٣٠ ثانية إذا فعّلت إضافات ومزوّدين كثر.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(CinemaTheme.muted)
+                    .padding(.horizontal, 20)
             } else if model.streams.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("لا يوجد رابط مباشر لهذا العنوان من إضافاتك.")
@@ -4992,6 +5080,17 @@ struct SettingsView: View {
                                 icon: "puzzlepiece.extension.fill",
                                 title: "الإضافات",
                                 detail: "ثبّت المصادر الجاهزة، أضف رابطًا، أو أزل إضافة"
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        NavigationLink {
+                            NuvioSettings()
+                        } label: {
+                            SettingsRow(
+                                icon: "bolt.horizontal.circle.fill",
+                                title: "مزوّدو Nuvio",
+                                detail: "مستودع سكربتات المصادر، وتشغيل كل مزوّد أو إيقافه"
                             )
                         }
                         .buttonStyle(.plain)
@@ -6807,6 +6906,162 @@ struct DataSettings: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// Nuvio provider repositories, the second half of the source engine: paste a
+/// repository URL, then switch individual providers on or off.
+struct NuvioSettings: View {
+    @State private var repos: [NuvioRepositoryRow] = []
+    @State private var input = ""
+    @State private var busy = false
+    @State private var loading = true
+    @State private var message: String?
+
+    private let sample = "https://raw.githubusercontent.com/tapframe/nuvio-providers/refs/heads/main"
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("أضف مستودع مزوّدين")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.muted)
+                    HStack(spacing: 8) {
+                        TextField("https://…", text: $input)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white)
+                            .keyboardType(.URL)
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
+                        Button(busy ? "…" : "أضف") {
+                            Task { await add() }
+                        }
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.accent)
+                        .disabled(busy || input.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(CinemaTheme.elevated.opacity(0.7), in: Capsule())
+
+                    Button("استخدم مستودع tapframe الجاهز") {
+                        Haptics.select()
+                        input = sample
+                    }
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(CinemaTheme.accent)
+                    .buttonStyle(.plain)
+
+                    if let message {
+                        Text(message)
+                            .font(.system(size: 11))
+                            .foregroundStyle(message.contains("تعذّر") ? CinemaTheme.favourite : CinemaTheme.accent)
+                    }
+                }
+                .padding(14)
+                .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+                if loading {
+                    ProgressView().tint(CinemaTheme.accent).padding(.vertical, 20)
+                } else if repos.isEmpty {
+                    Text("لا مستودع بعد. التطبيق يقرأ سكربتات المزوّدين من مستودع Nuvio ويشغّلها في صندوق معزول بلا وصول للملفات أو الشبكة إلا عبر https.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(CinemaTheme.muted)
+                        .lineSpacing(4)
+                } else {
+                    ForEach(repos) { repo in
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(repo.name)
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .foregroundStyle(.white)
+                                    Text(
+                                        "\(repo.enabledCount) من \(repo.providers.count) مفعّل" +
+                                        (repo.version.isEmpty ? "" : " · \(repo.version)")
+                                    )
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(CinemaTheme.muted)
+                                }
+                                Spacer()
+                                Button {
+                                    Haptics.tap()
+                                    Task { await remove(repo) }
+                                } label: {
+                                    Image(systemName: "trash")
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(CinemaTheme.favourite)
+                                        .frame(width: 32, height: 32)
+                                        .background(CinemaTheme.elevated, in: Circle())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            ForEach(repo.providers) { provider in
+                                Toggle(isOn: Binding(
+                                    get: { provider.enabled },
+                                    set: { value in Task { await toggle(provider, value) } }
+                                )) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(provider.name)
+                                            .font(.system(size: 13, weight: .medium))
+                                            .foregroundStyle(.white)
+                                        Text(provider.types.joined(separator: " · "))
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(CinemaTheme.muted)
+                                    }
+                                }
+                                .tint(CinemaTheme.accent)
+                            }
+                        }
+                        .padding(14)
+                        .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    }
+                }
+
+                Text("مزوّدو Nuvio يحتاجون مفتاح TMDB، وكل مزوّد مفعّل يزيد عدد المصادر عند فتح أي عنوان.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(CinemaTheme.muted)
+                    .lineSpacing(4)
+            }
+            .padding(20)
+        }
+        .background(CinemaTheme.canvas.ignoresSafeArea())
+        .navigationTitle("مزوّدو Nuvio")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await load() }
+    }
+
+    private func load() async {
+        repos = await CinemaAPI.shared.nuvioRepositories()
+        loading = false
+    }
+
+    private func add() async {
+        let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        busy = true
+        message = nil
+        do {
+            repos = try await CinemaAPI.shared.addNuvioRepository(text)
+            input = ""
+            message = "أُضيف المستودع وفُعّلت مزوّداته"
+        } catch {
+            message = "تعذّر: \(error.localizedDescription)"
+        }
+        busy = false
+    }
+
+    private func remove(_ repo: NuvioRepositoryRow) async {
+        repos = await CinemaAPI.shared.removeNuvioRepository(repo.url)
+        message = "أُزيل \(repo.name)"
+    }
+
+    private func toggle(_ provider: NuvioProviderRow, _ enabled: Bool) async {
+        Haptics.select()
+        repos = await CinemaAPI.shared.setNuvioProvider(provider.key, enabled: enabled)
     }
 }
 

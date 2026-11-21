@@ -1,6 +1,8 @@
 package com.cinemax.app.nuvio
 
 import com.cinemax.app.addons.StreamOption
+import com.cinemax.app.addons.StremioBehaviorHints
+import com.cinemax.app.addons.StremioProxyHeaders
 import com.cinemax.app.addons.StremioStream
 import com.cinemax.app.plugins.PluginSecurityPolicy
 import kotlinx.coroutines.CancellationException
@@ -47,7 +49,14 @@ suspend fun nuvioSourcesFrom(
                                 title = listOfNotNull(stream.title, stream.quality)
                                     .joinToString(" • ")
                                     .ifBlank { null },
-                                url = url
+                                url = url,
+                                behaviorHints = StremioBehaviorHints(
+                                    proxyHeaders = if (stream.headers.isEmpty()) {
+                                        null
+                                    } else {
+                                        StremioProxyHeaders(request = stream.headers)
+                                    }
+                                )
                             )
                         )
                     }
