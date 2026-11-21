@@ -5172,6 +5172,20 @@ struct SettingsView: View {
                     }
                     .padding(.horizontal, 20)
 
+                    SettingsSection(title: "المشاركة") {
+                        NavigationLink {
+                            SharingSettings()
+                        } label: {
+                            SettingsRow(
+                                icon: "square.and.arrow.up.on.square.fill",
+                                title: "تصدير ومشاركة",
+                                detail: "روابط Stremio ومستودعات Nuvio: نسخ، مشاركة، واستيراد"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 20)
+
                     SettingsSection(title: "النظام") {
                         NavigationLink {
                             DataSettings()
@@ -6267,6 +6281,9 @@ struct AddonsSettings: View {
                             .buttonStyle(.plain)
                         }
                         .contextMenu {
+                            ShareLink(item: addon.url) {
+                                Label("مشاركة الرابط", systemImage: "square.and.arrow.up")
+                            }
                             Button {
                                 Task { await move(addon, -1) }
                             } label: {
@@ -6987,6 +7004,13 @@ struct NuvioSettings: View {
                                     .foregroundStyle(CinemaTheme.muted)
                                 }
                                 Spacer()
+                                ShareLink(item: repo.url) {
+                                    Image(systemName: "square.and.arrow.up")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundStyle(CinemaTheme.accent)
+                                        .frame(width: 32, height: 32)
+                                        .background(CinemaTheme.elevated, in: Circle())
+                                }
                                 Button {
                                     Haptics.tap()
                                     Task { await remove(repo) }
@@ -7062,6 +7086,218 @@ struct NuvioSettings: View {
     private func toggle(_ provider: NuvioProviderRow, _ enabled: Bool) async {
         Haptics.select()
         repos = await CinemaAPI.shared.setNuvioProvider(provider.key, enabled: enabled)
+    }
+}
+
+/// Moving a setup between devices: the Stremio manifests and the Nuvio
+/// repositories as plain links, to copy, share or paste back in.
+struct SharingSettings: View {
+    @State private var addons: [InstalledAddonRow] = []
+    @State private var repos: [NuvioRepositoryRow] = []
+    @State private var importText = ""
+    @State private var working = false
+    @State private var message: String?
+    @State private var loading = true
+
+    private var stremioLinks: String {
+        addons.map(\.url).joined(separator: "\n")
+    }
+
+    private var nuvioLinks: String {
+        repos.map(\.url).joined(separator: "\n")
+    }
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 18) {
+                section(
+                    title: "روابط Stremio (\(addons.count))",
+                    detail: "كل رابط manifest لإضافة مثبتة، سطر لكل إضافة",
+                    links: stremioLinks,
+                    rows: addons.map { (name: $0.name, url: $0.url) }
+                )
+
+                section(
+                    title: "مستودعات Nuvio (\(repos.count))",
+                    detail: "روابط المستودعات المضافة، سطر لكل مستودع",
+                    links: nuvioLinks,
+                    rows: repos.map { (name: $0.name, url: $0.url) }
+                )
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("استيراد روابط Stremio")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.muted)
+                    TextField("الصق رابطًا أو أكثر، كل رابط في سطر", text: $importText, axis: .vertical)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white)
+                        .lineLimit(3...6)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .padding(12)
+                        .background(CinemaTheme.elevated.opacity(0.7), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    Button {
+                        Task { await importAddons() }
+                    } label: {
+                        Text(working ? "جارٍ التثبيت…" : "ثبّت الروابط")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.black)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(CinemaTheme.accent, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(working || importText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                    if let message {
+                        Text(message)
+                            .font(.system(size: 11))
+                            .foregroundStyle(message.contains("تعذّر") ? CinemaTheme.favourite : CinemaTheme.accent)
+                    }
+                }
+                .padding(14)
+                .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+                Text("المشاركة تفتح ورقة iOS، ومنها النسخ أو الإرسال أو الحفظ في الملفات. من يملك الروابط يستطيع تثبيت نفس الإضافات في Stremio أو إضافتها هنا.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(CinemaTheme.muted)
+                    .lineSpacing(4)
+            }
+            .padding(20)
+        }
+        .background(CinemaTheme.canvas.ignoresSafeArea())
+        .navigationTitle("تصدير ومشاركة")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await load() }
+    }
+
+    private func section(
+        title: String,
+        detail: String,
+        links: String,
+        rows: [(name: String, url: String)]
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(CinemaTheme.muted)
+            Text(detail)
+                .font(.system(size: 10))
+                .foregroundStyle(CinemaTheme.muted.opacity(0.8))
+
+            HStack(spacing: 10) {
+                Button {
+                    Haptics.tap()
+                    UIPasteboard.general.string = links
+                    message = "نُسخت \(rows.count) روابط"
+                } label: {
+                    Label("نسخ الكل", systemImage: "doc.on.doc")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
+                        .background(CinemaTheme.elevated, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(rows.isEmpty)
+
+                if !links.isEmpty {
+                    ShareLink(item: links) {
+                        Label("مشاركة الكل", systemImage: "square.and.arrow.up")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.accent)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 9)
+                            .background(CinemaTheme.accent.opacity(0.14), in: Capsule())
+                    }
+                }
+                Spacer()
+            }
+
+            if rows.isEmpty {
+                Text("لا شيء بعد.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(CinemaTheme.muted)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 8) {
+                                Text(row.name)
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .lineLimit(1)
+                                Spacer()
+                                Button {
+                                    Haptics.tap()
+                                    UIPasteboard.general.string = row.url
+                                    message = "نُسخ رابط \(row.name)"
+                                } label: {
+                                    Image(systemName: "doc.on.doc")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundStyle(CinemaTheme.muted)
+                                        .frame(width: 30, height: 30)
+                                        .background(CinemaTheme.elevated, in: Circle())
+                                }
+                                .buttonStyle(.plain)
+                                ShareLink(item: row.url) {
+                                    Image(systemName: "square.and.arrow.up")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundStyle(CinemaTheme.accent)
+                                        .frame(width: 30, height: 30)
+                                        .background(CinemaTheme.accent.opacity(0.14), in: Circle())
+                                }
+                            }
+                            Text(row.url)
+                                .font(.system(size: 10))
+                                .foregroundStyle(CinemaTheme.muted)
+                                .lineLimit(2)
+                                .textSelection(.enabled)
+                        }
+                        .padding(.vertical, 9)
+                        if index < rows.count - 1 {
+                            Divider().overlay(CinemaTheme.hairline)
+                        }
+                    }
+                }
+                .padding(.horizontal, 12)
+                .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+        }
+    }
+
+    private func load() async {
+        addons = await CinemaAPI.shared.installedAddons()
+        repos = await CinemaAPI.shared.nuvioRepositories()
+        loading = false
+    }
+
+    private func importAddons() async {
+        let links = importText
+            .split(whereSeparator: { $0 == "\n" || $0 == " " || $0 == "," })
+            .map { String($0).trimmingCharacters(in: .whitespaces) }
+            .filter { $0.hasPrefix("http") }
+        guard !links.isEmpty else {
+            message = "لا روابط صالحة في النص"
+            return
+        }
+        working = true
+        var installed = 0
+        var failed = 0
+        for link in Set(links) {
+            do {
+                _ = try await CinemaAPI.shared.installAddon(link)
+                installed += 1
+            } catch {
+                failed += 1
+            }
+        }
+        HomeModel.shared.resetCache()
+        addons = await CinemaAPI.shared.installedAddons()
+        importText = ""
+        working = false
+        message = failed == 0 ? "ثُبّت \(installed) إضافة" : "ثُبّت \(installed) وتعذّر \(failed)"
     }
 }
 
