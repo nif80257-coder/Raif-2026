@@ -279,6 +279,18 @@ final class MPVViewController: UIViewController {
         setString(mpv, "sub-font-size", String(max(20, min(120, size))))
     }
 
+    /// Raises the subtitle line from the bottom, 100 being libmpv's own place.
+    func setSubtitlePosition(_ value: Double) {
+        guard let mpv else { return }
+        setString(mpv, "sub-pos", String(Int(max(0, min(150, value)))))
+    }
+
+    /// Zooms the picture inside the window; 0 fits, positive values crop in.
+    func setVideoZoom(_ value: Double) {
+        guard let mpv else { return }
+        setString(mpv, "video-zoom", String(format: "%.2f", max(-1.0, min(1.0, value))))
+    }
+
     func setVolumeLevel(_ volume: Double) {
         guard let mpv else { return }
         setString(mpv, "volume", String(format: "%.0f", max(0.0, min(100.0, volume))))
@@ -401,6 +413,8 @@ final class MPVViewController: UIViewController {
         let cacheBytes = (storedCache == 0 ? 256 : storedCache) * 1024 * 1024
         setOption(ctx, "ao", "audiounit")
         setOption(ctx, "audio-channels", "auto")
+        // A quiet mix can be pushed past 100% from the panel.
+        setOption(ctx, "volume-max", "200")
         setOption(ctx, "keep-open", "yes")
         setOption(ctx, "config", "no")
         setOption(ctx, "terminal", "no")

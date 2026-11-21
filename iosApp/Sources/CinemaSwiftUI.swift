@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 import Network
 import SafariServices
+import UniformTypeIdentifiers
 import UserNotifications
 import CinemaxKit
 
@@ -1701,6 +1702,8 @@ struct PlayerScreen: View {
     @State private var loadingSubtitles = false
     @State private var volume: Double = 100
     @State private var aspect = ""
+    @State private var zoom: Double = 0
+    @State private var subtitlePosition: Double = 100
     @State private var brightness: Double = 0.6
     @State private var savedBrightness: Double = 0.6
     @State private var showEpisodes = false
@@ -1988,6 +1991,8 @@ struct PlayerScreen: View {
                     volume: volume,
                     brightness: brightness,
                     aspect: aspect,
+                    zoom: zoom,
+                    subtitlePosition: subtitlePosition,
                     sleepMinutes: sleepMinutes,
                     sleepRemaining: sleepRemaining,
                     onClose: { showOptions = false },
@@ -2035,6 +2040,15 @@ struct PlayerScreen: View {
                         aspect = value
                         player?.setVideoAspect(value)
                         Haptics.select()
+                    },
+                    onZoom: { value in
+                        zoom = value
+                        player?.setVideoZoom(value)
+                        Haptics.select()
+                    },
+                    onSubtitlePosition: { value in
+                        subtitlePosition = value
+                        player?.setSubtitlePosition(value)
                     },
                     onSleep: { minutes in
                         if let minutes {
@@ -2393,6 +2407,8 @@ struct PlayerOptionsPanel: View {
     let volume: Double
     let brightness: Double
     let aspect: String
+    let zoom: Double
+    let subtitlePosition: Double
     let sleepMinutes: Int?
     let sleepRemaining: Int
 
@@ -2405,6 +2421,8 @@ struct PlayerOptionsPanel: View {
     let onVolume: (Double) -> Void
     let onBrightness: (Double) -> Void
     let onAspect: (String) -> Void
+    let onZoom: (Double) -> Void
+    let onSubtitlePosition: (Double) -> Void
     let onSleep: (Int?) -> Void
     let onSubtitleLink: (String) -> Void
     let onNextSource: () -> Void
@@ -2627,6 +2645,57 @@ struct PlayerOptionsPanel: View {
                         }
                     }
 
+                    label("تكبير الصورة")
+                    HStack(spacing: 10) {
+                        Button {
+                            onZoom(max(-0.5, zoom - 0.05))
+                        } label: {
+                            Text("−")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 38, height: 32)
+                                .background(Color.white.opacity(0.1), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        Text("\(Int((1 + zoom) * 100))%")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.accent)
+                            .frame(minWidth: 54)
+                            .monospacedDigit()
+                        Button {
+                            onZoom(min(0.5, zoom + 0.05))
+                        } label: {
+                            Text("+")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 38, height: 32)
+                                .background(Color.white.opacity(0.1), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        Spacer()
+                        Button("ملاءمة") { onZoom(0) }
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.muted)
+                            .buttonStyle(.plain)
+                    }
+
+                    label("موضع الترجمة")
+                    HStack(spacing: 10) {
+                        Image(systemName: "arrow.up.and.down")
+                            .font(.system(size: 12))
+                            .foregroundStyle(CinemaTheme.muted)
+                        Slider(
+                            value: Binding(get: { subtitlePosition }, set: { onSubtitlePosition($0) }),
+                            in: 0...150
+                        )
+                        .tint(CinemaTheme.accent)
+                        Text("\(Int(subtitlePosition))")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.muted)
+                            .frame(width: 34)
+                            .monospacedDigit()
+                    }
+
                     label("الصوت")
                     HStack(spacing: 10) {
                         Image(systemName: "speaker.fill")
@@ -2634,7 +2703,7 @@ struct PlayerOptionsPanel: View {
                             .foregroundStyle(CinemaTheme.muted)
                         Slider(
                             value: Binding(get: { volume }, set: { onVolume($0) }),
-                            in: 0...100
+                            in: 0...200
                         )
                         .tint(CinemaTheme.accent)
                         Text("\(Int(volume))%")
@@ -3348,6 +3417,17 @@ struct DetailView: View {
                             .frame(width: 168)
                         }
                         .buttonStyle(CinemaPressStyle())
+                        .contextMenu {
+                            Button {
+                                Haptics.tap()
+                                toggleWatched(entry)
+                            } label: {
+                                Label(
+                                    watched(entry) ? "إلغاء تعليم المشاهدة" : "علّم كمشاهد",
+                                    systemImage: "checkmark.circle"
+                                )
+                            }
+                        }
                     }
                 }
                 .padding(.horizontal, 20)
@@ -3358,6 +3438,29 @@ struct DetailView: View {
     private func watched(_ episode: CinemaItem) -> Bool {
         LibraryModel.shared.progress.contains { entry in
             entry.item.id == item.id && entry.fraction >= 0.9 && entry.episodeLabel == episode.name
+        }
+    }
+
+    /// Marks one episode watched, or takes that mark back.
+    private func toggleWatched(_ entry: CinemaItem) {
+        if watched(entry) {
+            Task {
+                _ = await CinemaAPI.shared.removeProgress(
+                    itemId: item.id,
+                    videoLabel: entry.name
+                )
+                await LibraryModel.shared.load()
+            }
+        } else {
+            let minutes: Int64 = 100 * 60 * 1000
+            CinemaAPI.shared.saveProgress(
+                item: item,
+                positionMs: minutes,
+                durationMs: minutes,
+                videoId: entry.id,
+                videoLabel: entry.name
+            )
+            Task { await LibraryModel.shared.load() }
         }
     }
 
@@ -6773,6 +6876,22 @@ struct StatsSettings: View {
     }
 }
 
+/// A file handed to the system share sheet.
+struct ShareFile: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
+struct ShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
+}
+
 /// Library data: what is stored and a way to empty it.
 struct DataSettings: View {
     @State private var progress = 0
@@ -6780,6 +6899,8 @@ struct DataSettings: View {
     @State private var message: String?
     @AppStorage("cinemax.notifications") private var notifications = true
     @State private var confirming: String?
+    @State private var shareFile: ShareFile?
+    @State private var importing = false
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -6927,6 +7048,14 @@ struct DataSettings: View {
                         }
                     }
                     Divider().overlay(CinemaTheme.hairline)
+                    action("تصدير ملف نسخة", "ملف JSON يمكن حفظه في الملفات أو إرساله", destructive: false) {
+                        await exportFile()
+                    }
+                    Divider().overlay(CinemaTheme.hairline)
+                    action("استيراد من ملف", "اختر ملف نسخة محفوظة على جهازك", destructive: false) {
+                        importing = true
+                    }
+                    Divider().overlay(CinemaTheme.hairline)
                     action("حذف كل التنزيلات", downloadsLabel, destructive: true) {
                         for job in DownloadManager.shared.jobs {
                             DownloadManager.shared.remove(job)
@@ -6971,6 +7100,53 @@ struct DataSettings: View {
             let counts = await CinemaAPI.shared.libraryCounts()
             progress = counts.progress
             favorites = counts.favorites
+        }
+        .sheet(item: $shareFile) { file in
+            ShareSheet(items: [file.url])
+        }
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
+            importFile(result)
+        }
+    }
+
+    /// Writes the backup to a file so it can be saved in Files or sent anywhere.
+    private func exportFile() async {
+        let text = await CinemaAPI.shared.exportBackup()
+        let name = "CINEMAX-backup-\(Int(Date().timeIntervalSince1970)).json"
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
+        do {
+            try text.write(to: url, atomically: true, encoding: .utf8)
+            shareFile = ShareFile(url: url)
+            message = "جاهز للمشاركة أو الحفظ في الملفات"
+        } catch {
+            message = "تعذّر إنشاء ملف النسخة"
+        }
+    }
+
+    private func importFile(_ result: Result<URL, Error>) {
+        switch result {
+        case .failure:
+            message = "تعذّر فتح الملف"
+        case .success(let url):
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            guard let text = try? String(contentsOf: url, encoding: .utf8) else {
+                message = "الملف غير مقروء"
+                return
+            }
+            Task {
+                do {
+                    let summary = try await CinemaAPI.shared.importBackup(text)
+                    message = "استُعيدت: \(summary)"
+                    let counts = await CinemaAPI.shared.libraryCounts()
+                    progress = counts.progress
+                    favorites = counts.favorites
+                    HomeModel.shared.resetCache()
+                    await LibraryModel.shared.load()
+                } catch {
+                    message = error.localizedDescription
+                }
+            }
         }
     }
 
