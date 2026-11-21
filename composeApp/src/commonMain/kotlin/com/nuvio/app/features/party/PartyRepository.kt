@@ -244,7 +244,7 @@ object PartyRepository {
             presenceJob?.cancel()
             presenceJob = sessionScope?.launch {
                 delay(250)
-                runCatching { channel?.send("status", encodePresence(next)) }
+                sendQuietly { channel?.send("status", encodePresence(next)) }
             }
         }
     }
@@ -385,9 +385,9 @@ object PartyRepository {
         updateParty { it.copy(connected = true) }
         val party = _state.value.party ?: return
         val presence = encodePresence(ownPresence(party))
-        runCatching { channel?.track(presence) }
-        runCatching { channel?.send("status", presence) }
-        _playback.value?.let { current -> runCatching { channel?.send("state", encodePlayback(current)) } }
+        sendQuietly { channel?.track(presence) }
+        sendQuietly { channel?.send("status", presence) }
+        _playback.value?.let { current -> sendQuietly { channel?.send("state", encodePlayback(current)) } }
         if (party.isHost && party.sharing) _sharedStream.value?.let { sendStream(it) }
         requestState(party)
         PartyChat.refresh()
@@ -399,10 +399,10 @@ object PartyRepository {
             "state" -> decode(payload, PartyPlayback.serializer())?.let(::accept)
             "state_request" -> {
                 if (payload.string("member_id") == party.memberId) return
-                runCatching { channel?.send("status", encodePresence(ownPresence(party))) }
+                sendQuietly { channel?.send("status", encodePresence(ownPresence(party))) }
                 if (party.isHost && party.sharing) _sharedStream.value?.let { sendStream(it) }
                 val current = _playback.value ?: return
-                runCatching { channel?.send("state", encodePlayback(current)) }
+                sendQuietly { channel?.send("state", encodePlayback(current)) }
             }
             "status" -> decode(payload, PartyPresence.serializer())?.let(::applyStatus)
             "control" -> {
@@ -453,7 +453,7 @@ object PartyRepository {
     }
 
     private suspend fun requestState(party: ActiveParty) {
-        runCatching { channel?.send("state_request", buildJsonObject { put("member_id", party.memberId) }) }
+        sendQuietly { channel?.send("state_request", buildJsonObject { put("member_id", party.memberId) }) }
     }
 
     private fun applyStatus(status: PartyPresence) {
@@ -573,7 +573,7 @@ object PartyRepository {
         }
         if (!waiting) waitStartedAt = null
         _playback.value = next
-        runCatching { channel?.send("state", encodePlayback(next)) }
+        sendQuietly { channel?.send("state", encodePlayback(next)) }
         schedulePersist()
     }
 
@@ -626,7 +626,7 @@ object PartyRepository {
         repeat(CLOCK_SAMPLES) {
             delay(CLOCK_SAMPLE_GAP)
             val sentAt = clock.mark()
-            runCatching { PartyApi.clock() }.getOrNull()?.let { clock.addSample(it, sentAt) }
+            runRemote { PartyApi.clock() }?.let { clock.addSample(it, sentAt) }
         }
     }
 
@@ -701,7 +701,7 @@ object PartyRepository {
      */
     internal fun broadcastChat(payload: JsonObject) {
         scope.launch {
-            runCatching { channel?.send("chat", payload) }
+            sendQuietly { channel?.send("chat", payload) }
         }
     }
 
@@ -714,6 +714,16 @@ object PartyRepository {
             log.w(error) { "Watch party call failed" }
             null
         }
+
+    private suspend fun sendQuietly(block: suspend () -> Unit) {
+        try {
+            block()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Throwable) {
+            // A failed realtime send is dropped; the next state change resends it.
+        }
+    }
 
     private suspend fun identity(): PartyIdentity {
         val profile = ProfileRepository.state.value.activeProfile
@@ -735,7 +745,7 @@ object PartyRepository {
             put("member_id", party.memberId)
             put("stream", stream?.let { PartyApi.json.encodeToJsonElement(PartyStream.serializer(), it) } ?: JsonNull)
         }
-        runCatching { channel?.send("stream", payload) }
+        sendQuietly { channel?.send("stream", payload) }
     }
 
     private fun encodePlayback(playback: PartyPlayback): JsonObject =

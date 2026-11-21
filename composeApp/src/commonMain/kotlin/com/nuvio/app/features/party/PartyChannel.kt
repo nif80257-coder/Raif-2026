@@ -6,6 +6,7 @@ import io.github.jan.supabase.realtime.RealtimeChannel
 import io.github.jan.supabase.realtime.broadcastFlow
 import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.realtime
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
@@ -75,7 +76,13 @@ internal class PartyChannel(
         jobs = emptyList()
         val current = channel ?: return
         channel = null
-        runCatching { SupabaseProvider.client.realtime.removeChannel(current) }
+        try {
+            SupabaseProvider.client.realtime.removeChannel(current)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Throwable) {
+            // Closing an already-dropped realtime channel is not an error worth reporting.
+        }
     }
 
     companion object {
