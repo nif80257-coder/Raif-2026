@@ -1,6 +1,7 @@
 package com.nuvio.app.core.auth
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.core.concurrent.runCatchingCancellable
 import com.nuvio.app.core.network.SupabaseProvider
 import com.nuvio.app.core.storage.LocalAccountDataCleaner
 import com.nuvio.app.features.profiles.ProfileRepository
@@ -268,24 +269,24 @@ object AuthRepository {
     suspend fun signOut(): Result<Unit> {
         _error.value = null
         _passwordRecoveryPending.value = false
-        val anonymousRead = runCatching { AuthStorage.loadAnonymousUserId() }
+        val anonymousRead = runCatchingCancellable { AuthStorage.loadAnonymousUserId() }
         val wasAnonymous = anonymousRead.getOrNull() != null
-        val anonymousClear = runCatching { AuthStorage.clearAnonymousUserId() }
+        val anonymousClear = runCatchingCancellable { AuthStorage.clearAnonymousUserId() }
         validatedRemoteUserId = null
         lastRemoteUserId = null
         val remoteSignOut = if (wasAnonymous) {
             Result.success(Unit)
         } else {
-            runCatching { SupabaseProvider.client.auth.signOut() }
+            runCatchingCancellable { SupabaseProvider.client.auth.signOut() }
         }
 
         val fallbackSessionClear = if (remoteSignOut.isFailure) {
-            runCatching { SupabaseProvider.client.auth.clearSession() }
+            runCatchingCancellable { SupabaseProvider.client.auth.clearSession() }
                 .onFailure { error -> log.w(error) { "Failed to clear Supabase session after sign-out failure" } }
         } else {
             Result.success(Unit)
         }
-        val localCleanup = runCatching { LocalAccountDataCleaner.wipe() }
+        val localCleanup = runCatchingCancellable { LocalAccountDataCleaner.wipe() }
         _state.value = AuthState.Unauthenticated
 
         val failure = anonymousRead.exceptionOrNull()
@@ -303,7 +304,7 @@ object AuthRepository {
             Result.success(Unit)
         } else {
             log.e(failure) { "Sign-out did not complete cleanly; all local cleanup steps were attempted" }
-            _error.value = failure.message ?: runCatching {
+            _error.value = failure.message ?: runCatchingCancellable {
                 getString(Res.string.auth_sign_out_failed)
             }.getOrDefault("Sign out failed")
             Result.failure(failure)
@@ -313,10 +314,10 @@ object AuthRepository {
     suspend fun prepareForServerSwitch(): Result<Unit> {
         _error.value = null
         _passwordRecoveryPending.value = false
-        val anonymousClear = runCatching { AuthStorage.clearAnonymousUserId() }
+        val anonymousClear = runCatchingCancellable { AuthStorage.clearAnonymousUserId() }
         validatedRemoteUserId = null
         lastRemoteUserId = null
-        val sessionClear = runCatching { SupabaseProvider.client.auth.clearSession() }
+        val sessionClear = runCatchingCancellable { SupabaseProvider.client.auth.clearSession() }
         _state.value = AuthState.Unauthenticated
         val failure = anonymousClear.exceptionOrNull() ?: sessionClear.exceptionOrNull()
         val cancellation = anonymousClear.exceptionOrNull() as? CancellationException
@@ -349,7 +350,7 @@ object AuthRepository {
         AuthStorage.clearAnonymousUserId()
         validatedRemoteUserId = null
         lastRemoteUserId = null
-        val sessionClear = runCatching {
+        val sessionClear = runCatchingCancellable {
             SupabaseProvider.client.auth.clearSession()
         }
         sessionClear.onFailure { error ->
@@ -357,7 +358,7 @@ object AuthRepository {
                 log.w(error) { "Failed to clear Supabase session after remote invalidation; continuing local reset" }
             }
         }
-        val localCleanup = runCatching { LocalAccountDataCleaner.wipe() }
+        val localCleanup = runCatchingCancellable { LocalAccountDataCleaner.wipe() }
         _state.value = AuthState.Unauthenticated
         localCleanup.onFailure { error ->
             if (error !is CancellationException) {
@@ -455,7 +456,7 @@ internal data class SupabaseAuthCallback(
  * when the session arrives in the `#...` fragment handled by `parseSessionFromUrl`.
  */
 internal fun parseSupabaseAuthCallback(url: String): SupabaseAuthCallback {
-    val parsedUrl = runCatching { Url(url) }.getOrNull()
+    val parsedUrl = runCatchingCancellable { Url(url) }.getOrNull()
         ?: return SupabaseAuthCallback(null, null, null, null)
     return SupabaseAuthCallback(
         otpType = emailOtpType(parsedUrl.queryParameter("type")),

@@ -1,6 +1,7 @@
 package com.nuvio.app.features.player
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.core.concurrent.runCatchingCancellable
 import com.nuvio.app.features.addons.httpRequestRaw
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -50,7 +51,7 @@ internal object ParentalGuideRepository {
             }
         }
 
-        val result = runCatching {
+        val result = runCatchingCancellable {
             val response = httpRequestRaw(
                 method = "GET",
                 url = "$PARENTAL_GUIDE_BASE_URL/titles/$normalizedImdbId/parentsGuide",
@@ -58,7 +59,7 @@ internal object ParentalGuideRepository {
                 body = "",
             )
             if (response.status !in 200..299 || response.body.isBlank()) {
-                return@runCatching null
+                return@runCatchingCancellable null
             }
             val body = json.decodeFromString<ImdbApiParentsGuideResponse>(response.body)
             val categories = body.parentsGuide

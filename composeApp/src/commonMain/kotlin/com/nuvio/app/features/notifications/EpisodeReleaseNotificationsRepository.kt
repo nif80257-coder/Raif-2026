@@ -1,6 +1,7 @@
 package com.nuvio.app.features.notifications
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.core.concurrent.runCatchingCancellable
 import com.nuvio.app.core.deeplink.buildMetaDeepLinkUrl
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.details.MetaDetailsRepository
@@ -90,7 +91,7 @@ object EpisodeReleaseNotificationsRepository {
         trackedShowsByKey = emptyMap()
         _uiState.value = EpisodeReleaseNotificationsUiState()
         scope.launch {
-            runCatching { EpisodeReleaseNotificationPlatform.clearScheduledEpisodeReleaseNotifications() }
+            runCatchingCancellable { EpisodeReleaseNotificationPlatform.clearScheduledEpisodeReleaseNotifications() }
                 .onFailure { error ->
                     log.w { "Failed to clear scheduled episode release notifications: ${error.message}" }
                 }
@@ -119,7 +120,7 @@ object EpisodeReleaseNotificationsRepository {
         ensureLoaded()
         scope.launch {
             if (!enabled) {
-                runCatching { EpisodeReleaseNotificationPlatform.clearScheduledEpisodeReleaseNotifications() }
+                runCatchingCancellable { EpisodeReleaseNotificationPlatform.clearScheduledEpisodeReleaseNotifications() }
                     .onFailure { error ->
                         log.w { "Failed to clear episode release notifications: ${error.message}" }
                     }
@@ -139,7 +140,7 @@ object EpisodeReleaseNotificationsRepository {
                 errorMessage = null,
             )
 
-            val granted = runCatching { EpisodeReleaseNotificationPlatform.requestAuthorization() }
+            val granted = runCatchingCancellable { EpisodeReleaseNotificationPlatform.requestAuthorization() }
                 .onFailure { error ->
                     log.e(error) { "Failed to request episode release notification permission" }
                 }
@@ -189,7 +190,7 @@ object EpisodeReleaseNotificationsRepository {
                 errorMessage = null,
             )
 
-            val granted = runCatching { EpisodeReleaseNotificationPlatform.requestAuthorization() }
+            val granted = runCatchingCancellable { EpisodeReleaseNotificationPlatform.requestAuthorization() }
                 .onFailure { error ->
                     log.e(error) { "Failed to request permission for test notification" }
                 }
@@ -214,7 +215,7 @@ object EpisodeReleaseNotificationsRepository {
                 backdropUrl = target.banner ?: target.poster,
             )
 
-            runCatching {
+            runCatchingCancellable {
                 EpisodeReleaseNotificationPlatform.showTestNotification(request)
             }.onFailure { error ->
                 log.e(error) { "Failed to send test notification" }
@@ -258,7 +259,7 @@ object EpisodeReleaseNotificationsRepository {
         val payload = EpisodeReleaseNotificationsStorage.loadPayload().orEmpty().trim()
         val stored = payload.takeIf { it.isNotEmpty() }
             ?.let { rawPayload ->
-                runCatching {
+                runCatchingCancellable {
                     json.decodeFromString<StoredEpisodeReleaseNotificationsPayload>(rawPayload)
                 }.onFailure { error ->
                     log.w { "Failed to decode episode release notifications payload: ${error.message}" }
@@ -294,7 +295,7 @@ object EpisodeReleaseNotificationsRepository {
     }
 
     private suspend fun syncAuthorizationState(refreshIfEnabled: Boolean) {
-        val granted = runCatching { EpisodeReleaseNotificationPlatform.notificationsAuthorized() }
+        val granted = runCatchingCancellable { EpisodeReleaseNotificationPlatform.notificationsAuthorized() }
             .onFailure { error ->
                 log.w { "Failed to read episode release notification permission: ${error.message}" }
             }
@@ -355,14 +356,14 @@ object EpisodeReleaseNotificationsRepository {
                 persist()
             }
 
-            val permissionGranted = runCatching { EpisodeReleaseNotificationPlatform.notificationsAuthorized() }
+            val permissionGranted = runCatchingCancellable { EpisodeReleaseNotificationPlatform.notificationsAuthorized() }
                 .onFailure { error ->
                     log.w { "Failed to refresh episode release notification permission: ${error.message}" }
                 }
                 .getOrDefault(false)
 
             if (!_uiState.value.isEnabled || !permissionGranted) {
-                runCatching { EpisodeReleaseNotificationPlatform.clearScheduledEpisodeReleaseNotifications() }
+                runCatchingCancellable { EpisodeReleaseNotificationPlatform.clearScheduledEpisodeReleaseNotifications() }
                     .onFailure { error ->
                         log.w { "Failed to clear scheduled episode release notifications: ${error.message}" }
                     }
@@ -387,7 +388,7 @@ object EpisodeReleaseNotificationsRepository {
             )
 
             if (trackedShowsByKey.isEmpty()) {
-                runCatching { EpisodeReleaseNotificationPlatform.clearScheduledEpisodeReleaseNotifications() }
+                runCatchingCancellable { EpisodeReleaseNotificationPlatform.clearScheduledEpisodeReleaseNotifications() }
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     scheduledCount = 0,
@@ -411,7 +412,7 @@ object EpisodeReleaseNotificationsRepository {
                 }
             }.awaitAll().flatten()
 
-            runCatching {
+            runCatchingCancellable {
                 EpisodeReleaseNotificationPlatform.scheduleEpisodeReleaseNotifications(requests)
             }.onFailure { error ->
                 log.e(error) { "Failed to schedule episode release notifications" }
@@ -441,7 +442,7 @@ object EpisodeReleaseNotificationsRepository {
     }
 
     private suspend fun buildRequestsForShow(trackedShow: TrackedFollowedShow): List<EpisodeReleaseNotificationRequest> {
-        val meta = runCatching {
+        val meta = runCatchingCancellable {
             MetaDetailsRepository.fetch(
                 type = trackedShow.contentType,
                 id = trackedShow.contentId,

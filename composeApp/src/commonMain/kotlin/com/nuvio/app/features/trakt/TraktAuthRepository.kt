@@ -1,6 +1,7 @@
 package com.nuvio.app.features.trakt
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.core.concurrent.runCatchingCancellable
 import com.nuvio.app.features.addons.httpGetTextWithHeaders
 import com.nuvio.app.features.addons.httpPostJsonWithHeaders
 import com.nuvio.app.features.addons.httpRequestRaw
@@ -201,7 +202,7 @@ object TraktAuthRepository : TrackingAuthProvider {
     suspend fun refreshUserSettings(profileId: Int = currentProfileId): String? {
         ensureLoaded(profileId)
         val headers = authorizedHeaders(profileId) ?: return null
-        val response = runCatching {
+        val response = runCatchingCancellable {
             httpGetTextWithHeaders(
                 url = "$BASE_URL/users/settings",
                 headers = headers,
@@ -211,7 +212,7 @@ object TraktAuthRepository : TrackingAuthProvider {
             log.w { "Failed to fetch Trakt user settings: ${error.message}" }
         }.getOrNull() ?: return null
 
-        val parsed = runCatching {
+        val parsed = runCatchingCancellable {
             json.decodeFromString<TraktUserSettingsResponse>(response)
         }.getOrNull() ?: return null
 
@@ -234,7 +235,7 @@ object TraktAuthRepository : TrackingAuthProvider {
     private suspend fun completeAuthorizationFromCallback(callbackUrl: String, profileId: Int = currentProfileId) {
         publish(isLoading = true, errorMessage = null)
 
-        val parsedUrl = runCatching { Url(callbackUrl) }
+        val parsedUrl = runCatchingCancellable { Url(callbackUrl) }
             .onFailure {
                 log.w { "Invalid Trakt callback URL: ${it.message}" }
             }
@@ -299,7 +300,7 @@ object TraktAuthRepository : TrackingAuthProvider {
             ),
         )
 
-        val response = runCatching {
+        val response = runCatchingCancellable {
             httpPostJsonWithHeaders(
                 url = "$BASE_URL/oauth/token",
                 body = body,
@@ -317,7 +318,7 @@ object TraktAuthRepository : TrackingAuthProvider {
             return
         }
 
-        val parsed = runCatching {
+        val parsed = runCatchingCancellable {
             json.decodeFromString<TraktTokenResponse>(response)
         }.getOrNull()
 
@@ -358,7 +359,7 @@ object TraktAuthRepository : TrackingAuthProvider {
                     clientSecret = TraktConfig.CLIENT_SECRET,
                 ),
             )
-            runCatching {
+            runCatchingCancellable {
                 httpPostJsonWithHeaders(
                     url = "$BASE_URL/oauth/revoke",
                     body = body,
@@ -397,7 +398,7 @@ object TraktAuthRepository : TrackingAuthProvider {
             ),
         )
 
-        val response = runCatching {
+        val response = runCatchingCancellable {
             httpRequestRaw(
                 method = "POST",
                 url = "$BASE_URL/oauth/token",
@@ -431,7 +432,7 @@ object TraktAuthRepository : TrackingAuthProvider {
             TraktTokenRefreshResponseAction.ACCEPT -> Unit
         }
 
-        val parsed = runCatching {
+        val parsed = runCatchingCancellable {
             json.decodeFromString<TraktTokenResponse>(response.body)
         }.getOrNull() ?: return@withLock false
 
@@ -465,7 +466,7 @@ object TraktAuthRepository : TrackingAuthProvider {
         authState = if (payload.isBlank()) {
             TraktAuthState()
         } else {
-            runCatching { json.decodeFromString<TraktAuthState>(payload) }
+            runCatchingCancellable { json.decodeFromString<TraktAuthState>(payload) }
                 .getOrElse {
                     log.w { "Failed to parse Trakt auth payload: ${it.message}" }
                     TraktAuthState()

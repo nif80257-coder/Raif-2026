@@ -94,3 +94,21 @@
 **فحص الأثر:** كل الاختبارات الأخرى التي تستخدم مددًا قصيرة وتحسب الاكتمال تمرّر `isCompleted` أو `progressPercent` صراحة، أو تختبر تسجيل التقدّم لا الاكتمال، فلا تتأثر بالتعديل.
 
 **عيب آخر وُجد في هذه الجولة:** `.github/workflows/ios-test-build.yml` كان يشغّل `./scripts/build-ios-ipa.sh`، وهذا الملف لم يكن موجودًا في المستودع أصلًا، فأي تشغيل يدوي لسير «Build Test IPA» كان يفشل قبل أن يبني شيئًا. كُتب السكربت (`scripts/build-ios-ipa.sh`)، ويبني توزيعة `full` بلا توقيع ويحزم الناتج باسم `Raif-<version>-full-<configuration>.ipa` في `build/ios-ipa`، وهو المسار والاسم الذي يبحث عنه السير، ويُستدعى بـ`bash` كي لا يعتمد على بت التنفيذ. ولأن `.gitignore` يتجاهل `scripts/*` باستثناء قائمة قصيرة، أُضيف استثناء للسكربت.
+
+
+## تدقيق `runCatching` واحدًا واحدًا
+
+فُحص كل موضع في `commonMain` و`iosMain` و`fullCommonMain` و`iosFull` و`iosAppStore`: **394 موضعًا**. القاعدة: `runCatching` يلتقط `CancellationException` أيضًا، فيتحوّل «العمل أُلغي» إلى «فشل» — رسالة خطأ قديمة، إعادة محاولة لا تنتهي، أو كتابة حالة بعد أن غادر المستخدم الشاشة. الضرر مشروط بأن يصل البلوك إلى نقطة تعليق، فالتصنيف على ذلك:
+
+- **189** لا تستطيع التعليق (تحليل JSON، قراءة تخزين متزامن): لا ضرر إطلاقًا.
+- **16** تستطيع التعليق وتعيد رمي الإلغاء صراحة: سليمة.
+- **28** تستطيع التعليق وتحدّث حالة في مسار الفشل: الخطر الحقيقي.
+- **161** تستطيع التعليق والنتيجة تُعاد أو تُسجّل فقط: ضرر محدود.
+
+**ما أُصلح:** أُضيفت [`runCatchingCancellable`](../composeApp/src/commonMain/kotlin/com/nuvio/app/core/concurrent/CancellableRunCatching.kt) في `core/concurrent`، وحُوّلت إليها 43 موضعًا في ستة ملفات تحمل الخطر الأكبر: `EpisodeReleaseNotificationsRepository` (12)، `AuthRepository` (11)، `TraktAuthRepository` (9)، `ProfileRepository` (8)، `ProfileSettingsSync` (2)، `ParentalGuideRepository` (1). وقبلها `PartyRepository` و`PartyChannel` (13 موضعًا) عبر `sendQuietly`. الوظيفة المؤجَّلة في `features/streams` تبقى كما هي لأنها نسخة `suspend` تُعلن أن المستدعي قد يُعلَّق.
+
+**ما بقي من التصنيف B (11 موضعًا، لم تُلمس بعد):** `CollectionSyncService.kt` (تسعة مواضع: 49، 54، 70، 77، 82، 110، 111، 113، 114)، `PlaybackP2pSettings.kt:112`، و`TmdbCollectionSourceResolver.kt:365`. الثلاثة الأولى تحتاج تعديل `return@runCatching` إلى `return@runCatchingCancellable` معها، وهو ما تحقّق منه المترجم في الملفات المنجزة.
+
+**التصنيف C (161 موضعًا، أعلاها):** `TraktProgressRepository` (12)، `CollectionEditorRepository` (10)، `CollectionSyncService` (9)، `TraktWatchedSyncAdapter` (7)، `MetaDetailsScreen` (6)، `TraktAuthRepository` (6)، `PluginRepository` (6). يُصلح على دفعات مع تشغيل الاختبارات، لا دفعة واحدة.
+
+**الطريقة:** التحليل بسكربت يقرأ كل ملف، يجد كل `runCatching`، يصعد إلى تعريف الدالة المحيطة، ويسأل ثلاثة أسئلة: هل الدالة `suspend`؟ هل بين التعريف والموضع `launch`/`async`/`withContext`/`collect`؟ وهل الحالة تُحدَّث في `onFailure`/`getOrElse`؟ ثم يُرتّب على الجواب. الأرقام أعلاه من هذا السكربت، والتحقق من الإصلاحات بالمترجم (`compileKotlinIosSimulatorArm64` + `compileTestKotlinIosSimulatorArm64`) وبناء iOS.

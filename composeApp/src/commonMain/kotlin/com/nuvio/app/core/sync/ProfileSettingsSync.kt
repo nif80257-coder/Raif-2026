@@ -1,6 +1,7 @@
 package com.nuvio.app.core.sync
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.core.concurrent.runCatchingCancellable
 import com.nuvio.app.core.auth.AuthRepository
 import com.nuvio.app.core.auth.AuthState
 import com.nuvio.app.core.auth.isCurrentSupabaseAccount
@@ -152,7 +153,7 @@ object ProfileSettingsSync {
 
                 isApplyingRemoteBlob = true
                 try {
-                    val remoteBlob = runCatching {
+                    val remoteBlob = runCatchingCancellable {
                         json.decodeFromJsonElement(MobileProfileSettingsBlob.serializer(), remoteJson)
                     }.getOrElse { error ->
                         log.e(error) { "pull(profileId=$profileId) — failed to decode remote settings blob" }
@@ -290,7 +291,7 @@ object ProfileSettingsSync {
     ): Boolean {
         if (pending.accountId != userId || pending.profileId != profileId) return false
         if (ProfileRepository.activeProfileId != profileId || !isCurrentSupabaseAccount(userId)) return false
-        val blob = runCatching { json.decodeFromString<MobileProfileSettingsBlob>(pending.payload) }
+        val blob = runCatchingCancellable { json.decodeFromString<MobileProfileSettingsBlob>(pending.payload) }
             .getOrElse { error ->
                 log.e(error) { "Pending profile settings payload is invalid; clearing unusable local snapshot" }
                 AccountProfileSettingsSyncOutbox.clearIfMatches(pending)

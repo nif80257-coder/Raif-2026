@@ -1,6 +1,7 @@
 package com.nuvio.app.features.profiles
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.core.concurrent.runCatchingCancellable
 import com.nuvio.app.core.auth.AuthRepository
 import com.nuvio.app.core.auth.AuthState
 import com.nuvio.app.core.auth.isAnonymous
@@ -337,7 +338,7 @@ object ProfileRepository {
             return verifyPinLocally(profileIndex, pin)
         }
 
-        return runCatching {
+        return runCatchingCancellable {
             val params = buildJsonObject {
                 put("p_profile_id", profileIndex)
                 put("p_pin", pin)
@@ -363,7 +364,7 @@ object ProfileRepository {
             return PinVerifyResult(unlocked = false, message = getString(Res.string.profile_pin_set_requires_internet))
         }
 
-        return runCatching {
+        return runCatchingCancellable {
             val params = buildJsonObject {
                 put("p_profile_id", profileIndex)
                 put("p_pin", pin)
@@ -388,7 +389,7 @@ object ProfileRepository {
             return PinVerifyResult(unlocked = false, message = getString(Res.string.profile_pin_clear_requires_internet))
         }
 
-        return runCatching {
+        return runCatchingCancellable {
             val params = buildJsonObject {
                 put("p_profile_id", profileIndex)
                 currentPin?.let { put("p_current_pin", it) }
@@ -405,7 +406,7 @@ object ProfileRepository {
     }
 
     suspend fun clearPinWithPassword(profileIndex: Int, accountPassword: String) {
-        runCatching {
+        runCatchingCancellable {
             val params = buildJsonObject {
                 put("p_account_password", accountPassword)
                 put("p_profile_id", profileIndex)
@@ -424,7 +425,7 @@ object ProfileRepository {
                 ProfileLockState(profileIndex = profile.profileIndex, pinEnabled = profile.pinEnabled)
             }
         }
-        return runCatching {
+        return runCatchingCancellable {
             val result = SupabaseProvider.client.postgrest.rpc("sync_pull_profile_locks")
             result.decodeList<ProfileLockState>()
         }.getOrElse { e ->
@@ -509,7 +510,7 @@ object ProfileRepository {
         val payload = ProfileStorage.loadPayload().orEmpty().trim()
         if (payload.isEmpty()) return null
 
-        return runCatching {
+        return runCatchingCancellable {
             json.decodeFromString<StoredProfilePayload>(payload)
         }.getOrNull()
     }
@@ -553,7 +554,7 @@ object ProfileRepository {
             )
         }
 
-        val cached = runCatching {
+        val cached = runCatchingCancellable {
             json.decodeFromString<CachedProfilePinPayload>(payload)
         }.getOrNull() ?: return PinVerifyResult(
             unlocked = false,
@@ -592,7 +593,7 @@ object ProfileRepository {
             val raw = ProfilePinCacheStorage.loadPayload(profileIndex).orEmpty().trim()
             if (raw.isEmpty()) continue
 
-            val cached = runCatching {
+            val cached = runCatchingCancellable {
                 json.decodeFromString<CachedProfilePinPayload>(raw)
             }.getOrNull() ?: run {
                 ProfilePinCacheStorage.removePayload(profileIndex)
