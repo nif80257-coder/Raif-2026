@@ -6552,6 +6552,8 @@ struct AddonsSettings: View {
     @State private var checking = false
     @State private var updating: String?
     @State private var configTarget: SafariTarget?
+    @State private var showInstalled = true
+    @State private var showSuggested = true
 
     private var visibleSuggested: [SuggestedAddonRow] {
         let text = query.trimmingCharacters(in: .whitespaces)
@@ -6687,23 +6689,37 @@ struct AddonsSettings: View {
 
     private var installedSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("المثبّتة")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(CinemaTheme.muted)
-                Spacer()
+            HStack(spacing: 8) {
                 Button {
                     Haptics.select()
-                    ascending.toggle()
-                    Task { await load() }
+                    withAnimation(.easeInOut(duration: 0.2)) { showInstalled.toggle() }
                 } label: {
-                    Label(ascending ? "أ–ي" : "ي–أ", systemImage: "arrow.up.arrow.down")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(CinemaTheme.accent)
+                    HStack(spacing: 6) {
+                        Image(systemName: showInstalled ? "chevron.up" : "chevron.left")
+                            .font(.system(size: 11, weight: .bold))
+                        Text("المثبّتة (\(addons.count))")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .foregroundStyle(CinemaTheme.muted)
                 }
                 .buttonStyle(.plain)
+                Spacer()
+                if showInstalled {
+                    Button {
+                        Haptics.select()
+                        ascending.toggle()
+                        Task { await load() }
+                    } label: {
+                        Label(ascending ? "أ–ي" : "ي–أ", systemImage: "arrow.up.arrow.down")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.accent)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
-            if addons.isEmpty {
+            if !showInstalled {
+                EmptyView()
+            } else if addons.isEmpty {
                 Text("لا إضافة مثبتة بعد.")
                     .font(.system(size: 12))
                     .foregroundStyle(CinemaTheme.muted)
@@ -6817,9 +6833,21 @@ struct AddonsSettings: View {
 
     private var suggestedSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("المصادر الجاهزة")
-                .font(.system(size: 12, weight: .semibold))
+            Button {
+                Haptics.select()
+                withAnimation(.easeInOut(duration: 0.2)) { showSuggested.toggle() }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: showSuggested ? "chevron.up" : "chevron.left")
+                        .font(.system(size: 11, weight: .bold))
+                    Text("المصادر الجاهزة (\(suggested.count))")
+                        .font(.system(size: 12, weight: .semibold))
+                }
                 .foregroundStyle(CinemaTheme.muted)
+            }
+            .buttonStyle(.plain)
+
+            if showSuggested {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 12))
@@ -6865,6 +6893,7 @@ struct AddonsSettings: View {
             }
             .padding(.horizontal, 14)
             .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
         }
     }
 
@@ -7510,6 +7539,7 @@ struct NuvioSettings: View {
     @AppStorage("cinemax.nuvio.proxy") private var proxy = ""
     @AppStorage("cinemax.nuvio.proxyHosts") private var proxyHosts = "showbox,febbox,pstream"
     @AppStorage("cinemax.nuvio.showboxCookie") private var showboxCookie = ""
+    @State private var expanded: Set<String> = []
 
     private let sample = "https://raw.githubusercontent.com/tapframe/nuvio-providers/refs/heads/main"
 
@@ -7609,20 +7639,53 @@ struct NuvioSettings: View {
                         .foregroundStyle(CinemaTheme.muted)
                         .lineSpacing(4)
                 } else {
+                    if !repos.isEmpty {
+                        HStack {
+                            Button(expanded.count == repos.count ? "طيّ الكل" : "توسيع الكل") {
+                                Haptics.select()
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    expanded = expanded.count == repos.count
+                                        ? []
+                                        : Set(repos.map(\.url))
+                                }
+                            }
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.accent)
+                            .buttonStyle(.plain)
+                            Spacer()
+                        }
+                    }
                     ForEach(repos) { repo in
                         VStack(alignment: .leading, spacing: 10) {
                             HStack {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(repo.name)
-                                        .font(.system(size: 14, weight: .semibold))
-                                        .foregroundStyle(.white)
-                                    Text(
-                                        "\(repo.enabledCount) من \(repo.providers.count) مفعّل" +
-                                        (repo.version.isEmpty ? "" : " · \(repo.version)")
-                                    )
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(CinemaTheme.muted)
+                                Button {
+                                    Haptics.select()
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        if expanded.contains(repo.url) {
+                                            expanded.remove(repo.url)
+                                        } else {
+                                            expanded.insert(repo.url)
+                                        }
+                                    }
+                                } label: {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: expanded.contains(repo.url) ? "chevron.up" : "chevron.left")
+                                            .font(.system(size: 11, weight: .bold))
+                                            .foregroundStyle(CinemaTheme.muted)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(repo.name)
+                                                .font(.system(size: 14, weight: .semibold))
+                                                .foregroundStyle(.white)
+                                            Text(
+                                                "\(repo.enabledCount) من \(repo.providers.count) مفعّل" +
+                                                (repo.version.isEmpty ? "" : " · \(repo.version)")
+                                            )
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(CinemaTheme.muted)
+                                        }
+                                    }
                                 }
+                                .buttonStyle(.plain)
                                 Spacer()
                                 ShareLink(item: repo.url) {
                                     Image(systemName: "square.and.arrow.up")
@@ -7643,39 +7706,45 @@ struct NuvioSettings: View {
                                 }
                                 .buttonStyle(.plain)
                             }
-                            ForEach(repo.providers) { provider in
-                                Toggle(isOn: Binding(
-                                    get: { provider.enabled },
-                                    set: { value in Task { await toggle(provider, value) } }
-                                )) {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(provider.name)
-                                            .font(.system(size: 13, weight: .medium))
-                                            .foregroundStyle(.white)
-                                        HStack(spacing: 6) {
-                                            Text(provider.types.joined(separator: " · "))
-                                                .font(.system(size: 10))
-                                                .foregroundStyle(CinemaTheme.muted)
-                                            if provider.disabledOnIos == true {
-                                                Text("لا يدعم iOS")
-                                                    .font(.system(size: 9, weight: .semibold))
-                                                    .foregroundStyle(CinemaTheme.favourite)
-                                                    .padding(.horizontal, 6)
-                                                    .padding(.vertical, 2)
-                                                    .background(CinemaTheme.favourite.opacity(0.14), in: Capsule())
-                                            }
-                                            if provider.hasSettings == true {
-                                                Text("إعدادات داخلية")
-                                                    .font(.system(size: 9, weight: .semibold))
-                                                    .foregroundStyle(CinemaTheme.accent)
-                                                    .padding(.horizontal, 6)
-                                                    .padding(.vertical, 2)
-                                                    .background(CinemaTheme.accent.opacity(0.14), in: Capsule())
+                            if expanded.contains(repo.url) {
+                                ForEach(repo.providers) { provider in
+                                    Toggle(isOn: Binding(
+                                        get: { provider.enabled },
+                                        set: { value in Task { await toggle(provider, value) } }
+                                    )) {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(provider.name)
+                                                .font(.system(size: 13, weight: .medium))
+                                                .foregroundStyle(.white)
+                                            HStack(spacing: 6) {
+                                                Text(provider.types.joined(separator: " · "))
+                                                    .font(.system(size: 10))
+                                                    .foregroundStyle(CinemaTheme.muted)
+                                                if provider.disabledOnIos == true {
+                                                    Text("لا يدعم iOS")
+                                                        .font(.system(size: 9, weight: .semibold))
+                                                        .foregroundStyle(CinemaTheme.favourite)
+                                                        .padding(.horizontal, 6)
+                                                        .padding(.vertical, 2)
+                                                        .background(CinemaTheme.favourite.opacity(0.14), in: Capsule())
+                                                }
+                                                if provider.hasSettings == true {
+                                                    Text("إعدادات داخلية")
+                                                        .font(.system(size: 9, weight: .semibold))
+                                                        .foregroundStyle(CinemaTheme.accent)
+                                                        .padding(.horizontal, 6)
+                                                        .padding(.vertical, 2)
+                                                        .background(CinemaTheme.accent.opacity(0.14), in: Capsule())
+                                                }
                                             }
                                         }
                                     }
+                                    .tint(CinemaTheme.accent)
                                 }
-                                .tint(CinemaTheme.accent)
+                            } else if !repo.providers.isEmpty {
+                                Text("مطويّ — اضغط اسم المستودع لعرض مزوّديه")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(CinemaTheme.muted)
                             }
                         }
                         .padding(14)
@@ -7727,6 +7796,15 @@ struct NuvioSettings: View {
     }
 }
 
+/// The portable form of a setup: the Stremio manifests and the Nuvio
+/// repositories, in one JSON file that can be shared or kept.
+struct SourcesExport: Codable {
+    let version: Int
+    let exportedAt: String
+    let stremio: [String]
+    let nuvio: [String]
+}
+
 /// Moving a setup between devices: the Stremio manifests and the Nuvio
 /// repositories as plain links, to copy, share or paste back in.
 struct SharingSettings: View {
@@ -7736,6 +7814,8 @@ struct SharingSettings: View {
     @State private var working = false
     @State private var message: String?
     @State private var loading = true
+    @State private var shareFile: ShareFile?
+    @State private var importingFile = false
 
     private var stremioLinks: String {
         addons.map(\.url).joined(separator: "\n")
@@ -7761,6 +7841,47 @@ struct SharingSettings: View {
                     links: nuvioLinks,
                     rows: repos.map { (name: $0.name, url: $0.url) }
                 )
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("ملف JSON")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.muted)
+                    HStack(spacing: 10) {
+                        Button {
+                            Task { await exportJSON() }
+                        } label: {
+                            Label("تصدير ملف", systemImage: "square.and.arrow.up")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.black)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 9)
+                                .background(CinemaTheme.accent, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(working)
+
+                        Button {
+                            Haptics.tap()
+                            importingFile = true
+                        } label: {
+                            Label("استيراد ملف", systemImage: "square.and.arrow.down")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 9)
+                                .background(CinemaTheme.elevated, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(working)
+                        Spacer()
+                    }
+                    Text("ملف واحد يحمل كل روابط الإضافات ومستودعات Nuvio — للنقل بين الأجهزة أو المشاركة أو الحفظ.")
+                        .font(.system(size: 10))
+                        .foregroundStyle(CinemaTheme.muted)
+                        .lineSpacing(3)
+                }
+                .padding(14)
+                .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text("استيراد روابط Stremio")
@@ -7808,6 +7929,101 @@ struct SharingSettings: View {
         .navigationTitle("تصدير ومشاركة")
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
+        .sheet(item: $shareFile) { file in
+            ShareSheet(items: [file.url])
+        }
+        .fileImporter(isPresented: $importingFile, allowedContentTypes: [.json]) { result in
+            importJSON(result)
+        }
+    }
+
+    /// Writes both lists into one JSON file and offers it to the share sheet.
+    private func exportJSON() async {
+        addons = await CinemaAPI.shared.installedAddons()
+        repos = await CinemaAPI.shared.nuvioRepositories()
+        let payload = SourcesExport(
+            version: 1,
+            exportedAt: ISO8601DateFormatter().string(from: Date()),
+            stremio: addons.map(\.url),
+            nuvio: repos.map(\.url)
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(payload) else {
+            message = "تعذّر تكوين الملف"
+            return
+        }
+        let name = "CINEMAX-sources-\(Int(Date().timeIntervalSince1970)).json"
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
+        do {
+            try data.write(to: url, options: .atomic)
+            shareFile = ShareFile(url: url)
+            message = "ملف المصادر جاهز للمشاركة أو الحفظ"
+        } catch {
+            message = "تعذّر إنشاء الملف"
+        }
+    }
+
+    /// Accepts the app's own file, a plain array of links, or pasted text.
+    private func importJSON(_ result: Result<URL, Error>) {
+        guard case .success(let url) = result else {
+            message = "تعذّر فتح الملف"
+            return
+        }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        guard let data = try? Data(contentsOf: url) else {
+            message = "الملف غير مقروء"
+            return
+        }
+        var addonLinks: [String] = []
+        var repoSources: [String] = []
+        if let decoded = try? JSONDecoder().decode(SourcesExport.self, from: data) {
+            addonLinks = decoded.stremio
+            repoSources = decoded.nuvio
+        } else if let simple = try? JSONDecoder().decode([String].self, from: data) {
+            addonLinks = simple
+        } else if let text = String(data: data, encoding: .utf8) {
+            addonLinks = text
+                .split(whereSeparator: { $0 == "\n" || $0 == "," || $0 == " " })
+                .map { String($0).trimmingCharacters(in: .whitespaces) }
+                .filter { $0.hasPrefix("http") }
+        }
+        guard !addonLinks.isEmpty || !repoSources.isEmpty else {
+            message = "لا روابط في الملف"
+            return
+        }
+        Task { await apply(addons: addonLinks, repositories: repoSources) }
+    }
+
+    private func apply(addons links: [String], repositories: [String]) async {
+        working = true
+        var installed = 0
+        var failed = 0
+        var addedRepos = 0
+        for link in Set(links) {
+            do {
+                _ = try await CinemaAPI.shared.installAddon(link)
+                installed += 1
+            } catch {
+                failed += 1
+            }
+        }
+        for repo in Set(repositories) {
+            do {
+                _ = try await CinemaAPI.shared.addNuvioRepository(repo)
+                addedRepos += 1
+            } catch {
+                failed += 1
+            }
+        }
+        HomeModel.shared.resetCache()
+        self.addons = await CinemaAPI.shared.installedAddons()
+        self.repos = await CinemaAPI.shared.nuvioRepositories()
+        working = false
+        var summary = "ثُبّت \(installed) إضافة و\(addedRepos) مستودعًا"
+        if failed > 0 { summary += " · تعذّر \(failed)" }
+        message = summary
     }
 
     private func section(
