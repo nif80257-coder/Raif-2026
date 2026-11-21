@@ -212,9 +212,10 @@ private fun IntroDbApiKeyDialog(
             modifier = Modifier.fillMaxWidth(),
             isError = errorMessage != null,
         )
-        if (errorMessage != null) {
+        val shownError = errorMessage
+        if (shownError != null) {
             Text(
-                text = errorMessage!!,
+                text = shownError,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.padding(start = 4.dp)

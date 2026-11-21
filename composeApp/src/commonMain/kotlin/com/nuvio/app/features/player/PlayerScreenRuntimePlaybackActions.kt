@@ -152,7 +152,7 @@ internal fun PlayerScreenRuntime.resetIdentityStateIfNeeded() {
         speedBoostRestoreSpeed = null
         isHoldToSpeedGestureActive = false
         initialSeekApplied = activeInitialPositionMs <= 0L &&
-            (activeInitialProgressFraction == null || activeInitialProgressFraction!! <= 0f)
+            (activeInitialProgressFraction ?: 0f) <= 0f
         lastProgressPersistEpochMs = 0L
         previousIsPlaying = false
         pendingSeekScrobbleRestart = false

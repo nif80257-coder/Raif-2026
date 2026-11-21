@@ -395,7 +395,7 @@
     <string name="server_error_official_active">Официалният сървър вече е активен.</string>
     <string name="server_error_official_available">Официалният сървър не е наличен.</string>
     <string name="server_error_connection">Неуспешно свързване към сървъра.</string>
-    <string name="server_error_http">Сървърът върна HTTP грешка.</string>
+    <string name="server_error_http">Сървърът върна HTTP %1$d.</string>
     <string name="server_error_response_too_large">Отговорът от сървъра е твърде голям.</string>
     <string name="server_error_invalid_document">Сървърът върна невалиден документ.</string>
     <string name="server_error_version">Неподдържана версия на сървъра.</string>

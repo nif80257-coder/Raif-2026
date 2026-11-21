@@ -47,13 +47,15 @@ object ResumePromptRepository {
 
         EpisodeShuffleRepository.ensureLoaded()
         val settings = EpisodeShuffleRepository.uiState.value.settings(meta.id, meta.type)
+        val currentSeason = entry.seasonNumber ?: return null
+        val currentEpisode = entry.episodeNumber ?: return null
         val nextEpisode = if (settings.enabled) {
             WatchedRepository.ensureLoaded()
             EpisodeShuffleRepository.shuffle.select(
                 ProfileRepository.activeProfileId, meta.id, meta.videos, settings.includeWatched,
                 watchedShuffleEpisodes(meta.id, meta.type, meta.videos, WatchedRepository.uiState.value.watchedKeys),
                 shuffleEpisodeProgress(meta.id, WatchProgressRepository.uiState.value.entries),
-                ShuffleSurface.PLAYBACK, current = entry.seasonNumber!! to entry.episodeNumber!!,
+                ShuffleSurface.PLAYBACK, current = currentSeason to currentEpisode,
             )
         } else meta.nextReleasedEpisodeAfter(
             seasonNumber = entry.seasonNumber,

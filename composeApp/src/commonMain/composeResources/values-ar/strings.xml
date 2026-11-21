@@ -2863,4 +2863,16 @@
     <string name="addons_reset_confirm_action">إعادة الضبط</string>
     <string name="settings_stream_hide_junk_title">إخفاء النسخ الرديئة</string>
     <string name="settings_stream_hide_junk_description">يخفي نسخ الكام والتسجيل ونسخ إعادة الترميز المخصّصة للحجم مثل YIFY، ويرتّب نسخة الريماكس فوق إعادة ترميز الويب عند نفس الدقة.</string>
+    <string name="compose_player_audio_delay">تأخير الصوت</string>
+    <string name="compose_player_audio_amplification">مضاعفة الصوت</string>
+    <string name="compose_player_audio_amplification_keep">الاحتفاظ للمقاطع التالية</string>
+    <string name="compose_player_center_mix">مستوى صوت المركز</string>
+    <string name="settings_playback_remember_audio_delay">تذكّر تأخير الصوت لكل جهاز</string>
+    <string name="settings_playback_remember_audio_delay_description">يعيد تأخير الصوت الذي ضبطته في المشغّل عند تكرار التشغيل على المخرج نفسه، مثل سماعة الهاتف أو سماعة سلكية أو كل جهاز بلوتوث</string>
+    <string name="settings_playback_downmix_section">دمج القنوات</string>
+    <string name="settings_playback_downmix">تفعيل دمج القنوات</string>
+    <string name="settings_playback_downmix_description">يدمج الصوت المحيطي إلى عدد القنوات أدناه باستخدام مفكك ترميز FFmpeg في التطبيق. يتطلب أولوية مفكك الفيديو «تفضيل مفككات التطبيق (FFmpeg)». مخرج البلوتوث يُدمج دائمًا إلى 2.0.</string>
+    <string name="settings_playback_downmix_channels">عدد القنوات</string>
+    <string name="settings_playback_downmix_maintain_volume">الحفاظ على الصوت الأصلي عند الدمج</string>
+    <string name="settings_playback_downmix_maintain_volume_description">عند الإيقاف، قد يؤدي تطبيع الدمج إلى خفض مستوى الصوت العام.</string>
 </resources>

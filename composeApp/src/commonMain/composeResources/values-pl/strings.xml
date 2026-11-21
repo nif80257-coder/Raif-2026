@@ -647,9 +647,9 @@
     <string name="settings_debrid_provider_description">Połącz swoje konto %1$s.</string>
     <string name="settings_debrid_provider_device_description">Połącz konto %1$s w przeglądarce.</string>
     <string name="settings_debrid_provider_torbox_description">Połącz swoje konto Torbox.</string>
-    <string name="settings_debrid_dialog_title">Klucz API Torbox</string>
-    <string name="settings_debrid_dialog_subtitle">Wprowadź swój klucz API Torbox.</string>
-    <string name="settings_debrid_dialog_placeholder">Wprowadź klucz API Torbox</string>
+    <string name="settings_debrid_dialog_title">Klucz API %1$s</string>
+    <string name="settings_debrid_dialog_subtitle">Wprowadź swój klucz API %1$s.</string>
+    <string name="settings_debrid_dialog_placeholder">Wprowadź klucz API %1$s</string>
     <string name="settings_debrid_not_set">Nie ustawiono</string>
     <string name="settings_debrid_connected">Połączono</string>
     <string name="settings_debrid_connect_provider">Połącz %1$s</string>

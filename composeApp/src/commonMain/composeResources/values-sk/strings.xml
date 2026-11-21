@@ -105,7 +105,7 @@
     <string name="collections_editor_show_all_tab">Zobraziť kartu „Všetko“</string>
     <string name="collections_editor_show_gif_when_configured_desc">Prehrávať nakonfigurovaný GIF namiesto statického obalu, ak je dostupný.</string>
     <string name="collections_editor_show_gif_when_configured">Zobraziť GIF, ak je nakonfigurovaný</string>
-    <string name="collections_editor_source_count">%1$d zdrojov</string>
+    <string name="collections_editor_source_count">%1$d zdrojov · %2$s</string>
     <string name="collections_editor_tile_shape">Tvar dlaždice</string>
     <string name="collections_editor_view_mode_rows">Riadky</string>
     <string name="collections_editor_view_mode_tabs">Karty</string>

@@ -249,7 +249,7 @@ private fun MetaSectionReorderableList(
 
     // Count members per group for enforcing max 3
     val groupCounts: Map<Int, Int> = if (tabLayout) {
-        items.filter { it.tabGroup != null }.groupBy { it.tabGroup!! }.mapValues { it.value.size }
+        items.mapNotNull { item -> item.tabGroup }.groupingBy { it }.eachCount()
     } else {
         emptyMap()
     }

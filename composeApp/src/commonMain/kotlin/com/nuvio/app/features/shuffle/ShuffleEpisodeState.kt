@@ -25,8 +25,13 @@ internal fun shuffleEpisodeProgress(
     contentId: String,
     entries: Collection<WatchProgressEntry>,
 ): Map<Pair<Int, Int>, WatchProgressEntry> = entries
-    .filter { it.parentMetaId == contentId && it.seasonNumber != null && it.episodeNumber != null }
-    .groupBy { it.seasonNumber!! to it.episodeNumber!! }
+    .mapNotNull { progress ->
+        val season = progress.seasonNumber ?: return@mapNotNull null
+        val episode = progress.episodeNumber ?: return@mapNotNull null
+        if (progress.parentMetaId != contentId) return@mapNotNull null
+        (season to episode) to progress
+    }
+    .groupBy({ it.first }, { it.second })
     .mapValues { (_, progress) -> progress.maxBy { it.lastUpdatedEpochMs } }
 
 internal fun MetaDetails.shufflePrimaryAction(

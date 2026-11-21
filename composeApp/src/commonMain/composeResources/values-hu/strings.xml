@@ -596,9 +596,9 @@
     <string name="settings_debrid_enable_description">Lejátszható találatok megjelenítése a csatlakoztatott fiókokból.</string>
     <string name="settings_debrid_add_key_first">Először adj meg egy API-kulcsot.</string>
     <string name="settings_debrid_section_providers">FIÓK</string>
-    <string name="settings_debrid_dialog_title">Torbox API-kulcs</string>
-    <string name="settings_debrid_dialog_subtitle">Add meg a Torbox API-kulcsodat.</string>
-    <string name="settings_debrid_dialog_placeholder">Írd be a Torbox API-kulcsot</string>
+    <string name="settings_debrid_dialog_title">%1$s API-kulcs</string>
+    <string name="settings_debrid_dialog_subtitle">Add meg a(z) %1$s API-kulcsodat.</string>
+    <string name="settings_debrid_dialog_placeholder">Írd be a(z) %1$s API-kulcsot</string>
     <string name="settings_debrid_not_set">Nincs beállítva</string>
     <string name="settings_debrid_section_instant_playback">AZONNALI LEJÁTSZÁS</string>
     <string name="settings_debrid_prepare_instant_playback">Linkek előkészítése</string>
