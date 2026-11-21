@@ -55,7 +55,8 @@ suspend fun nuvioSourcesFrom(
                                         null
                                     } else {
                                         StremioProxyHeaders(request = stream.headers)
-                                    }
+                                    },
+                                    videoSizeLabel = stream.size?.takeIf { it.isNotBlank() }
                                 )
                             )
                         )

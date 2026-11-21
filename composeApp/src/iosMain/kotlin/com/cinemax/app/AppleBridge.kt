@@ -77,7 +77,9 @@ data class AppleStream(
     val title: String,
     val quality: String?,
     /** Referer / User-Agent the host demands; empty for an open link. */
-    val headers: Map<String, String> = emptyMap()
+    val headers: Map<String, String> = emptyMap(),
+    /** A file size in MB or GB, when the source reports one. */
+    val size: String? = null
 )
 
 @Serializable
@@ -585,7 +587,8 @@ class CinemaxAppleBridge {
                                         title = stream.title ?: stream.name ?: url,
                                         quality = streamBadges(stream.name, stream.title).firstOrNull(),
                                         headers = stream.behaviorHints.proxyHeaders?.request
-                                            ?: emptyMap()
+                                            ?: emptyMap(),
+                                        size = sizeLabel(stream.behaviorHints)
                                     )
                                 } ?: run {
                                     failures += "${addon.name}: لا يستجيب"
@@ -671,7 +674,8 @@ class CinemaxAppleBridge {
                 addon = option.addonName,
                 title = option.stream.title ?: option.stream.name ?: url,
                 quality = streamBadges(option.stream.name, option.stream.title).firstOrNull(),
-                headers = option.stream.behaviorHints.proxyHeaders?.request ?: emptyMap()
+                headers = option.stream.behaviorHints.proxyHeaders?.request ?: emptyMap(),
+                size = sizeLabel(option.stream.behaviorHints)
             )
         }
     }
@@ -708,8 +712,21 @@ class CinemaxAppleBridge {
         return if (parts.size >= 5) "$imdb:${parts[3]}:${parts[4]}" else imdb
     }
 
-    private fun qualityRank(quality: String?): Int = when (quality) {
-        "4K" -> 5
+    /** A short size label from the hints, or from the byte count when present. */
+    private fun sizeLabel(hints: com.cinemax.app.addons.StremioBehaviorHints): String? {
+        hints.videoSizeLabel?.takeIf { it.isNotBlank() }?.let { return it }
+        val bytes = hints.videoSize ?: return null
+        if (bytes <= 0L) return null
+        val mb = bytes / 1_048_576.0
+        return if (mb >= 1024) {
+            val gb = (mb / 1024.0 * 10).toInt() / 10.0
+            "$gb GB"
+        } else {
+            "${mb.toInt()} MB"
+        }
+    }
+
+    private fun qualityRank(quality: String?): Int = when (quality) {        "4K" -> 5
         "1080p" -> 4
         "720p" -> 3
         "480p" -> 2
@@ -887,6 +904,115 @@ class CinemaxAppleBridge {
         if (enabled) keys.add(key) else keys.remove(key)
         nuvioStore.saveEnabledProviders(keys)
         onDone(json.encodeToString(nuvioSnapshot()))
+    }
+
+    @Serializable
+    data class AppleCatalogPage(
+        val items: List<AppleItem>,
+        val hasMore: Boolean,
+        val genres: List<String> = emptyList()
+    )
+
+    @Serializable
+    data class AppleSubtitle(
+        val id: String,
+        val url: String,
+        val lang: String,
+        val label: String,
+        val addon: String
+    )
+
+    /**
+     * One page of a catalogue, which is what turns a home row into a browser: the
+     * `skip` extra walks the rest of the list and `genre` narrows it when the addon
+     * declares genres.
+     */
+    fun loadCatalogPage(
+        addonId: String,
+        catalogId: String,
+        type: String,
+        skip: Int,
+        genre: String?,
+        onDone: (String) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        scope.launch {
+            try {
+                val addon = addonStore.load().firstOrNull { it.id == addonId }
+                if (addon == null) {
+                    onError("الإضافة غير مثبتة بعد")
+                    return@launch
+                }
+                val catalog = addon.catalogs.firstOrNull { it.id == catalogId && it.type == type }
+                    ?: addon.catalogs.firstOrNull { it.id == catalogId }
+                if (catalog == null) {
+                    onError("لا كتالوج بهذا الاسم في الإضافة")
+                    return@launch
+                }
+                val extra = mutableMapOf<String, String>()
+                if (skip > 0 && catalog.supportsExtra("skip")) extra["skip"] = skip.toString()
+                if (!genre.isNullOrBlank() && catalog.supportsExtra("genre")) extra["genre"] = genre
+                val items = try {
+                    withTimeoutOrNull(15_000) {
+                        repository.loadCatalog(addon.manifestUrl, catalog.type, catalog.id, extra)
+                    } ?: emptyList()
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Throwable) {
+                    emptyList()
+                }
+                val genres = catalog.extra.firstOrNull { it.name == "genre" }?.options ?: emptyList()
+                onDone(
+                    json.encodeToString(
+                        AppleCatalogPage(
+                            items = items.take(60).map(::itemOf),
+                            hasMore = items.isNotEmpty(),
+                            genres = genres
+                        )
+                    )
+                )
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                onError(error.message ?: "تعذر تحميل الصفحة")
+            }
+        }
+    }
+
+    /** Subtitle addons that answer for this id, gathered in parallel. */
+    fun loadSubtitles(itemId: String, type: String, onDone: (String) -> Unit) {
+        scope.launch {
+            val addons = addonStore.load().filter { AddonCapabilities.supports(it, "subtitles", type) }
+            val found = coroutineScope {
+                addons.map { addon ->
+                    async {
+                        val subtitles = try {
+                            withTimeoutOrNull(12_000) {
+                                repository.loadSubtitles(addon.manifestUrl, type, itemId)
+                            } ?: emptyList()
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (_: Throwable) {
+                            emptyList()
+                        }
+                        subtitles.mapNotNull { subtitle ->
+                            val url = subtitle.url.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                            AppleSubtitle(
+                                id = addon.id + "|" + url,
+                                url = url,
+                                lang = subtitle.lang,
+                                label = subtitle.label?.takeIf { it.isNotBlank() } ?: subtitle.lang,
+                                addon = addon.name
+                            )
+                        }
+                    }
+                }.awaitAll().flatten()
+            }
+            val sorted = found
+                .distinctBy { it.url }
+                .sortedWith(compareByDescending<AppleSubtitle> { it.lang.lowercase().startsWith("ar") }
+                    .thenBy { it.lang })
+            onDone(json.encodeToString(sorted))
+        }
     }
 
     /** Another small snapshot, for the statistics screen. */

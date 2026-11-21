@@ -150,7 +150,9 @@ data class StremioBehaviorHints(
     val videoHash: String? = null,
     val videoSize: Long? = null,
     val bingeGroup: String? = null,
-    val proxyHeaders: StremioProxyHeaders? = null
+    val proxyHeaders: StremioProxyHeaders? = null,
+    /** A ready-made size label, for providers that return one as text. */
+    val videoSizeLabel: String? = null
 )
 
 @Serializable

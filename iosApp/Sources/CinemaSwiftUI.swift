@@ -167,8 +167,26 @@ struct StreamChoice: Identifiable, Codable, Hashable {
     let quality: String?
     /// Referer / User-Agent the host demands; nil for an open link.
     var headers: [String: String]? = nil
+    /// A file size label, when the source reports one.
+    var size: String? = nil
 
     var id: String { url }
+}
+
+/// One page of a catalogue, with the genres the addon offers for it.
+struct CatalogPagePayload: Codable {
+    let items: [CinemaItem]
+    let hasMore: Bool
+    let genres: [String]?
+}
+
+/// A subtitle one of the installed subtitle addons offers.
+struct SubtitleChoice: Identifiable, Codable, Hashable {
+    let id: String
+    let url: String
+    let lang: String
+    let label: String
+    let addon: String
 }
 
 struct InstalledAddonRow: Identifiable, Codable {
@@ -452,6 +470,45 @@ final class CinemaAPI {
                 continuation.resume(returning: value)
             })
         }
+    }
+
+    /// One page of a catalogue, with `skip` for the next one.
+    func catalogPage(
+        addonId: String,
+        catalogId: String,
+        type: String,
+        skip: Int,
+        genre: String?
+    ) async throws -> CatalogPagePayload {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<CatalogPagePayload, Error>) in
+            bridge.loadCatalogPage(
+                addonId: addonId,
+                catalogId: catalogId,
+                type: type,
+                skip: Int32(skip),
+                genre: genre,
+                onDone: { text in
+                    do {
+                        continuation.resume(returning: try self.decode(CatalogPagePayload.self, text))
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
+                },
+                onError: { message in
+                    continuation.resume(throwing: CinemaError(message: message))
+                }
+            )
+        }
+    }
+
+    /// Every subtitle the installed subtitle addons offer for this id.
+    func subtitles(itemId: String, type: String) async -> [SubtitleChoice] {
+        let payload = await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+            bridge.loadSubtitles(itemId: itemId, type: type, onDone: { text in
+                continuation.resume(returning: text)
+            })
+        }
+        return (try? JSONDecoder().decode([SubtitleChoice].self, from: Data(payload.utf8))) ?? []
     }
 
     // MARK: - Nuvio providers
@@ -1636,6 +1693,8 @@ struct PlayerScreen: View {
     @State private var subtitleSize = UserDefaults.standard.string(forKey: "cinemax.subtitleSize") ?? "medium"
     @State private var externalSubtitle: String?
     @State private var subtitleError = false
+    @State private var addonSubtitles: [SubtitleChoice] = []
+    @State private var loadingSubtitles = false
     @State private var volume: Double = 100
     @State private var aspect = ""
     @State private var brightness: Double = 0.6
@@ -1747,6 +1806,7 @@ struct PlayerScreen: View {
                     CircleButton(system: "captions.bubble") {
                         Haptics.tap()
                         loadTracks()
+                        if addonSubtitles.isEmpty { loadAddonSubtitles() }
                         showOptions = true
                     }
                 }
@@ -1919,6 +1979,8 @@ struct PlayerScreen: View {
                     externalSubtitle: externalSubtitle,
                     sourceLabel: currentSourceLabel,
                     canSwitchSource: pool.count > 1,
+                    addonSubtitles: addonSubtitles,
+                    loadingSubtitles: loadingSubtitles,
                     volume: volume,
                     brightness: brightness,
                     aspect: aspect,
@@ -1985,7 +2047,10 @@ struct PlayerScreen: View {
                     onSubtitleLink: { value in
                         applySubtitleLink(value)
                     },
-                    onNextSource: { playNextSource() }
+                    onNextSource: { playNextSource() },
+                    onAddonSubtitle: { choice in
+                        applySubtitleLink(choice.url)
+                    }
                 )
             }
         }
@@ -2216,6 +2281,17 @@ struct PlayerScreen: View {
         return parts.isEmpty ? sourceNote : parts.joined(separator: " · ")
     }
 
+    /// Asks the installed subtitle addons for this exact video.
+    private func loadAddonSubtitles() {
+        guard let id = currentVideoId ?? item?.id else { return }
+        loadingSubtitles = true
+        let kind = type
+        Task {
+            addonSubtitles = await CinemaAPI.shared.subtitles(itemId: id, type: kind)
+            loadingSubtitles = false
+        }
+    }
+
     /// Rebuilds the surface for the same link, for a stream that stalled on open.
     private func retryPlayback() {
         playerError = nil
@@ -2308,6 +2384,8 @@ struct PlayerOptionsPanel: View {
     let externalSubtitle: String?
     let sourceLabel: String?
     let canSwitchSource: Bool
+    let addonSubtitles: [SubtitleChoice]
+    let loadingSubtitles: Bool
     let volume: Double
     let brightness: Double
     let aspect: String
@@ -2326,6 +2404,7 @@ struct PlayerOptionsPanel: View {
     let onSleep: (Int?) -> Void
     let onSubtitleLink: (String) -> Void
     let onNextSource: () -> Void
+    let onAddonSubtitle: (SubtitleChoice) -> Void
 
     private let speeds: [Double] = [0.5, 0.75, 1, 1.25, 1.5, 2]
     @State private var subtitleLink = ""
@@ -2370,6 +2449,26 @@ struct PlayerOptionsPanel: View {
                         ForEach(audioTracks) { track in
                             Button { onAudio(track) } label: {
                                 optionRow(track.label, selected: track.selected)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+
+                    if loadingSubtitles {
+                        HStack(spacing: 8) {
+                            ProgressView().tint(CinemaTheme.accent)
+                            Text("جارٍ جلب الترجمات من إضافاتك…")
+                                .font(.system(size: 11))
+                                .foregroundStyle(CinemaTheme.muted)
+                        }
+                    } else if !addonSubtitles.isEmpty {
+                        label("ترجمات من إضافاتك (\(addonSubtitles.count))")
+                        ForEach(addonSubtitles.prefix(12)) { choice in
+                            Button { onAddonSubtitle(choice) } label: {
+                                optionRow(
+                                    "\(choice.label) · \(choice.addon)",
+                                    selected: externalSubtitle == choice.label
+                                )
                             }
                             .buttonStyle(.plain)
                         }
@@ -3518,6 +3617,9 @@ struct DetailView: View {
                         .lineLimit(2)
                 }
                 Spacer()
+                if let size = stream.size {
+                    CinemaPill(text: size, tint: CinemaTheme.muted)
+                }
                 if let speed = speeds[stream.url] {
                     CinemaPill(text: String(format: "⚡ %.1f MB/s", speed), tint: speed > 1.5 ? CinemaTheme.accent : CinemaTheme.muted)
                 }
@@ -7486,18 +7588,38 @@ enum CinemaxPrefs {
 }
 
 
-/// A whole shelf as a grid, opened from the "المزيد" action on a row.
+/// A whole shelf as a grid, opened from the "المزيد" action on a row. When the
+/// addon accepts `skip` and `genre`, the grid keeps walking the rest of the
+/// catalogue instead of stopping at the first page.
 struct ShelfGridScreen: View {
     let shelf: Shelf
     let onOpen: (CinemaItem) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
+    @State private var items: [CinemaItem] = []
+    @State private var genres: [String] = []
+    @State private var genre: String?
+    @State private var loadingMore = false
+    @State private var exhausted = false
 
-    private var items: [CinemaItem] {
+    private var addonId: String {
+        String(shelf.id.split(separator: ":", maxSplits: 1).first ?? "")
+    }
+
+    private var catalogId: String {
+        let parts = shelf.id.split(separator: ":", maxSplits: 1)
+        return parts.count > 1 ? String(parts[1]) : shelf.id
+    }
+
+    private var type: String {
+        shelf.items.first?.type ?? "movie"
+    }
+
+    private var visible: [CinemaItem] {
         let text = query.trimmingCharacters(in: .whitespaces)
-        guard !text.isEmpty else { return shelf.items }
-        return shelf.items.filter { $0.name.localizedCaseInsensitiveContains(text) }
+        guard !text.isEmpty else { return items }
+        return items.filter { $0.name.localizedCaseInsensitiveContains(text) }
     }
 
     private var columns: [GridItem] {
@@ -7516,14 +7638,29 @@ struct ShelfGridScreen: View {
                             .textFieldStyle(.plain)
                             .font(.system(size: 12))
                             .foregroundStyle(.white)
+                        Text("\(visible.count)")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.muted)
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
                     .background(CinemaTheme.surface, in: Capsule())
                     .padding(.horizontal, 20)
 
+                    if !genres.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                genreChip("الكل", nil)
+                                ForEach(genres, id: \.self) { value in
+                                    genreChip(value, value)
+                                }
+                            }
+                            .padding(.horizontal, 20)
+                        }
+                    }
+
                     LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
-                        ForEach(items) { item in
+                        ForEach(visible) { item in
                             PosterCard(
                                 item: item,
                                 width: CinemaxPrefs.posterMinWidth,
@@ -7533,6 +7670,30 @@ struct ShelfGridScreen: View {
                         }
                     }
                     .padding(.horizontal, 20)
+
+                    if !exhausted {
+                        Button {
+                            Haptics.select()
+                            Task { await loadPage(reset: false) }
+                        } label: {
+                            HStack(spacing: 8) {
+                                if loadingMore {
+                                    ProgressView().tint(CinemaTheme.accent)
+                                }
+                                Text(loadingMore ? "جارٍ التحميل…" : "تحميل المزيد")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(CinemaTheme.accent)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(CinemaTheme.surface, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(loadingMore)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 5)
+                    }
+
                     Spacer(minLength: 40)
                 }
                 .padding(.top, 10)
@@ -7546,8 +7707,57 @@ struct ShelfGridScreen: View {
                         .foregroundStyle(CinemaTheme.accent)
                 }
             }
+            .task {
+                items = shelf.items
+                await loadPage(reset: true)
+            }
         }
         .preferredColorScheme(.dark)
+    }
+
+    private func genreChip(_ title: String, _ value: String?) -> some View {
+        Button {
+            Haptics.select()
+            genre = value
+            Task { await loadPage(reset: true) }
+        } label: {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(genre == value ? .black : .white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background {
+                    Capsule().fill(genre == value ? CinemaTheme.accent : Color.white.opacity(0.08))
+                }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func loadPage(reset: Bool) async {
+        if !reset && (loadingMore || exhausted) { return }
+        loadingMore = true
+        do {
+            let page = try await CinemaAPI.shared.catalogPage(
+                addonId: addonId,
+                catalogId: catalogId,
+                type: type,
+                skip: reset ? 0 : items.count,
+                genre: genre
+            )
+            genres = page.genres ?? []
+            if reset {
+                items = page.items.isEmpty ? shelf.items : page.items
+                exhausted = page.items.isEmpty
+            } else {
+                let known = Set(items.map(\.id))
+                let added = page.items.filter { !known.contains($0.id) }
+                items.append(contentsOf: added)
+                exhausted = !page.hasMore || added.isEmpty
+            }
+        } catch {
+            exhausted = true
+        }
+        loadingMore = false
     }
 }
 
