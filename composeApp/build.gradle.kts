@@ -8,7 +8,6 @@ import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
 import org.gradle.process.CommandLineArgumentProvider
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.plugin.mpp.TestExecutable
 import org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeSimulatorTest
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
@@ -290,7 +289,6 @@ fun extractZip(archive: File, targetDirectory: File) {
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
-    alias(libs.plugins.androidKotlinMultiplatformLibrary)
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.kotlinxSerialization)
@@ -333,39 +331,6 @@ val fullCommonSourceDir = project.file("src/fullCommonMain/kotlin")
 val generatedRuntimeConfigDir = layout.buildDirectory.dir("generated/runtime-config/kotlin")
 val requestedGradleTasks = gradle.startParameter.taskNames.map { taskName ->
     taskName.substringAfterLast(':').lowercase()
-}
-val requestedAndroidDistributions = requestedGradleTasks.mapNotNull { taskName ->
-    when {
-        "playstore" in taskName -> "playstore"
-        "full" in taskName -> "full"
-        else -> null
-    }
-}.toSet()
-require(requestedAndroidDistributions.size <= 1) {
-    "Build Android full and playstore distributions separately, or set -Pnuvio.android.distribution=full|playstore."
-}
-val configuredAndroidDistribution = providers.gradleProperty("nuvio.android.distribution").orNull
-    ?: supabaseProps.getProperty("NUVIO_ANDROID_DISTRIBUTION")
-val isAmbiguousAndroidPackageTask = requestedGradleTasks.any { taskName ->
-    taskName == "build" ||
-        taskName.startsWith("assemble") ||
-        taskName.startsWith("bundle")
-} && requestedAndroidDistributions.isEmpty()
-require(configuredAndroidDistribution != null || !isAmbiguousAndroidPackageTask) {
-    "Set -Pnuvio.android.distribution=full|playstore for aggregate Android assemble/bundle tasks."
-}
-val androidDistribution = (
-    configuredAndroidDistribution
-        ?: requestedAndroidDistributions.singleOrNull()
-        ?: "playstore"
-    ).trim().lowercase()
-require(androidDistribution == "playstore" || androidDistribution == "full") {
-    "nuvio.android.distribution must be 'playstore' or 'full'."
-}
-val androidDistributionSourceDir = if (androidDistribution == "full") {
-    "src/androidFull/kotlin"
-} else {
-    "src/androidPlaystore/kotlin"
 }
 val runtimeLocalProperties = Properties().apply {
     val file = rootProject.file("local.properties")
@@ -412,21 +377,6 @@ tasks.withType<KotlinCompilationTask<*>>().configureEach {
 }
 
 kotlin {
-    android {
-        namespace = "com.nuvio.app"
-        compileSdk {
-            version = release(libs.versions.android.compileSdk.get().toInt()) {
-                minorApiLevel = libs.versions.android.compileSdkMinor.get().toInt()
-            }
-        }
-        minSdk = libs.versions.android.minSdk.get().toInt()
-        androidResources.enable = true
-        withHostTest { isIncludeAndroidResources = true }
-
-        compilerOptions {
-            jvmTarget.set(JvmTarget.JVM_11)
-        }
-    }
     
     val iosTargets = listOf(
         iosArm64(),
@@ -506,61 +456,6 @@ kotlin {
         val commonMain by getting {
             kotlin.srcDir(generatedRuntimeConfigDir)
         }
-        androidMain {
-            kotlin.srcDir(project.file(androidDistributionSourceDir))
-            if (androidDistribution == "full") {
-                kotlin.srcDir(fullCommonSourceDir)
-            }
-
-            dependencies {
-                implementation(libs.compose.uiToolingPreview)
-                implementation(libs.androidx.appcompat)
-                implementation(libs.androidx.activity.compose)
-                implementation(libs.androidx.core.splashscreen)
-                implementation(libs.androidx.work.runtime)
-                implementation(libs.coil.gif)
-                implementation("androidx.recyclerview:recyclerview:1.4.0")
-                implementation("com.squareup.okhttp3:okhttp:4.12.0")
-                implementation("com.google.code.gson:gson:2.11.0")
-                // libass - atlas-based subtitle rendering (from NuvioMedia/nuvio-libass)
-                implementation(files("libs/nuvio-libass-release.aar"))
-                implementation(libs.ktor.client.okhttp)
-                implementation(libs.sentry.android)
-                implementation(libs.androidx.media3.exoplayer.hls)
-                implementation(libs.androidx.media3.exoplayer.dash)
-                implementation(libs.androidx.media3.exoplayer.smoothstreaming)
-                implementation(libs.androidx.media3.exoplayer.rtsp)
-                implementation(libs.androidx.media3.datasource)
-                implementation(libs.androidx.media3.datasource.okhttp)
-                implementation(libs.androidx.media3.decoder)
-                implementation(libs.androidx.media3.session)
-                implementation(libs.androidx.media3.common)
-                implementation(libs.androidx.media3.container)
-                implementation(libs.androidx.media3.extractor)
-                implementation("com.google.guava:guava:33.3.1-android")
-                implementation("androidx.media3:media3-database:1.8.0")
-                implementation("androidx.media3:media3-effect:1.8.0")
-                implementation("androidx.annotation:annotation-experimental:1.3.1")
-                implementation(libs.mpv.android.lib)
-                implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("lib-*.aar"))))
-                if (androidDistribution == "full") {
-                    implementation(files("libs/quickjs-kt-android-1.0.5-nuvio.aar"))
-                    implementation(libs.ksoup)
-                }
-            }
-        }
-        val androidHostTest by getting {
-            dependencies {
-                implementation("org.robolectric:robolectric:4.16")
-                implementation("androidx.compose.ui:ui-test-junit4:${libs.versions.composeMultiplatform.get()}")
-                implementation("androidx.compose.ui:ui-test-manifest:${libs.versions.composeMultiplatform.get()}")
-                implementation("androidx.work:work-testing:${libs.versions.androidx.work.get()}")
-                implementation("com.squareup.okhttp3:mockwebserver:5.3.2")
-            }
-            if (androidDistribution == "full") {
-                kotlin.srcDir(project.file("src/androidFullHostTest/kotlin"))
-            }
-        }
         commonMain.dependencies {
             implementation("io.coil-kt.coil3:coil-compose:${libs.versions.coil.get()}") {
                 exclude(group = "org.jetbrains.skiko", module = "skiko")
@@ -622,14 +517,4 @@ tasks.withType<KotlinNativeSimulatorTest>().configureEach {
 
 configurations.matching { it.name == "iosMainImplementation" }.configureEach {
     project.dependencies.add(name, libs.ktor.client.darwin)
-}
-
-configurations.all {
-    exclude(group = "androidx.media3", module = "media3-exoplayer")
-    exclude(group = "androidx.media3", module = "media3-exoplayer-hls")
-    exclude(group = "androidx.media3", module = "media3-ui")
-    exclude(group = "androidx.media3", module = "media3-common")
-    exclude(group = "androidx.media3", module = "media3-datasource")
-    exclude(group = "androidx.media3", module = "media3-datasource-okhttp")
-    exclude(group = "androidx.media3", module = "media3-extractor")
 }
