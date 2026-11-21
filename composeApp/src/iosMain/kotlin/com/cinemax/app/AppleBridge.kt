@@ -100,7 +100,9 @@ data class AppleDetail(
     /** Episodes as catalogue entries; their id is the stream id ("tt1:1:2"). */
     val episodes: List<AppleItem> = emptyList(),
     /** Episode ids in the same order as [episodes], without their catalogue title. */
-    val episodeLabels: List<String> = emptyList()
+    val episodeLabels: List<String> = emptyList(),
+    /** Trailer links the meta addon offers, ready to open. */
+    val trailers: List<String> = emptyList()
 )
 
 /**
@@ -538,7 +540,12 @@ class CinemaxAppleBridge {
                     director = loaded.director,
                     cast = loaded.cast,
                     seasons = seasons,
-                    episodes = episodes
+                    episodes = episodes,
+                    trailers = loaded.trailers
+                        .map { it.source }
+                        .filter { it.startsWith("https://") }
+                        .distinct()
+                        .take(3)
                 )
                 onDone(json.encodeToString(detail))
             } catch (error: Throwable) {
@@ -825,7 +832,9 @@ class CinemaxAppleBridge {
         val description: String?,
         val version: String,
         val types: List<String>,
-        val enabled: Boolean
+        val enabled: Boolean,
+        val hasSettings: Boolean = false,
+        val disabledOnIos: Boolean = false
     )
 
     @Serializable
@@ -859,7 +868,11 @@ class CinemaxAppleBridge {
                         description = scraper.description,
                         version = scraper.version,
                         types = scraper.supportedTypes,
-                        enabled = scraper.enabled && key in enabled
+                        enabled = scraper.enabled && key in enabled,
+                        hasSettings = scraper.hasSettings,
+                        disabledOnIos = scraper.disabledPlatforms.any {
+                            it.equals("ios", ignoreCase = true)
+                        }
                     )
                 }
             )

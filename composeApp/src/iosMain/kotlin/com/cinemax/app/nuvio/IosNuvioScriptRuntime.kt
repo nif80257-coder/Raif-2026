@@ -7,6 +7,7 @@ import io.ktor.client.request.request
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpMethod
+import io.ktor.http.encodeURLParameter
 import kotlinx.cinterop.ByteVar
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.readBytes
@@ -27,6 +28,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 import platform.Foundation.NSBundle
 import platform.Foundation.NSData
+import platform.Foundation.NSUserDefaults
 import platform.Foundation.dataWithContentsOfFile
 import platform.JavaScriptCore.JSContext
 
@@ -136,8 +138,38 @@ class IosNuvioScriptRuntime(private val http: HttpClient) : NuvioScriptRuntime {
         return emptyList()
     }
 
+    /**
+     * Rewrites a request through the viewer's edge proxy when one is set and the
+     * host matches. The proxy URL is expected to end with `?destination=`.
+     */
+    private fun proxiedUrl(url: String): String {
+        val defaults = NSUserDefaults.standardUserDefaults
+        val prefix = defaults.stringForKey("cinemax.nuvio.proxy")?.trim().orEmpty()
+        if (prefix.isEmpty() || !prefix.startsWith("https://")) return url
+        val hosts = defaults.stringForKey("cinemax.nuvio.proxyHosts")?.trim().orEmpty()
+        val matches = hosts.isEmpty() || hosts.split(',').map { it.trim().lowercase() }
+            .filter { it.isNotEmpty() }
+            .any { it in url.lowercase() }
+        if (!matches) return url
+        return prefix + url.encodeURLParameter()
+    }
+
+    /** The ShowBox/FebBox cookie the viewer pasted, for the hosts that need it. */
+    private fun providerCookie(url: String): String? {
+        val cookie = NSUserDefaults.standardUserDefaults
+            .stringForKey("cinemax.nuvio.showboxCookie")?.trim().orEmpty()
+        if (cookie.isEmpty()) return null
+        val host = url.substringAfter("://", "").substringBefore('/').lowercase()
+        val needsIt = "febbox" in host || "showbox" in host || "pstream" in host
+        return if (needsIt) "ui=$cookie" else null
+    }
+
     private suspend fun performRequest(url: String, method: String, headers: JsonObject?, body: String?): JsonObject {
-        if (!NuvioUrls.isSecure(url)) {
+        // A provider that only answers through a user-supplied edge proxy gets that
+        // proxy here, and the cookie some hosts demand is added without the script
+        // having to know about it.
+        val target = proxiedUrl(url)
+        if (!NuvioUrls.isSecure(target)) {
             return buildJsonObject {
                 put("ok", false)
                 put("status", 0)
@@ -146,11 +178,12 @@ class IosNuvioScriptRuntime(private val http: HttpClient) : NuvioScriptRuntime {
             }
         }
         return try {
-            val response = http.request(url) {
+            val response = http.request(target) {
                 this.method = HttpMethod.parse(method.uppercase())
                 headers?.forEach { (name, value) ->
                     (value as? JsonPrimitive)?.contentOrNull?.let { header(name, it) }
                 }
+                providerCookie(url)?.let { header("Cookie", it) }
                 if (body != null) setBody(body)
             }
             val text = response.bodyAsText()

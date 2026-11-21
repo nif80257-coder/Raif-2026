@@ -103,7 +103,16 @@ data class StremioMeta(
     val genres: List<String> = emptyList(),
     val director: List<String> = emptyList(),
     val cast: List<String> = emptyList(),
-    val videos: List<StremioVideo> = emptyList()
+    val videos: List<StremioVideo> = emptyList(),
+    /** Trailers and clips the meta addon provides. */
+    val trailers: List<StremioTrailer> = emptyList()
+)
+
+/** One trailer or clip; `source` is usually a YouTube watch link. */
+@Serializable
+data class StremioTrailer(
+    val source: String,
+    val type: String? = null
 )
 
 /**

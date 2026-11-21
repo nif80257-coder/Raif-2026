@@ -29,7 +29,9 @@ data class NuvioScraperDescriptor(
     val enabled: Boolean = true,
     val logo: String? = null,
     @SerialName("contentLanguage") val contentLanguage: List<String> = emptyList(),
-    val hasSettings: Boolean = false
+    val hasSettings: Boolean = false,
+    /** Platforms the author excluded, e.g. ["ios"] for a provider built for Hermes. */
+    val disabledPlatforms: List<String> = emptyList()
 )
 
 /** A repository installed on the device, with its providers. */

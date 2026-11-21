@@ -158,6 +158,8 @@ struct DetailPayload: Codable {
     let cast: [String]
     let seasons: [Int]
     let episodes: [CinemaItem]
+    /// Trailer links the meta addon offers.
+    let trailers: [String]?
 }
 
 struct StreamChoice: Identifiable, Codable, Hashable {
@@ -204,6 +206,8 @@ struct NuvioProviderRow: Identifiable, Codable {
     let version: String
     let types: [String]
     let enabled: Bool
+    let hasSettings: Bool?
+    let disabledOnIos: Bool?
 
     var id: String { key }
 }
@@ -2889,6 +2893,7 @@ struct DetailView: View {
     @State private var episodeQuery = ""
     @State private var similar: [CinemaItem] = []
     @State private var similarPick: CinemaItem?
+    @State private var trailerTarget: SafariTarget?
 
     private var playlist: [CinemaItem] {
         guard let detail = model.detail, !detail.episodes.isEmpty else { return [] }
@@ -2971,6 +2976,10 @@ struct DetailView: View {
         }
         .fullScreenCover(item: $similarPick) { entry in
             DetailView(item: entry)
+        }
+        .sheet(item: $trailerTarget) { target in
+            SafariView(url: target.url)
+                .ignoresSafeArea()
         }
     }
 
@@ -3143,6 +3152,21 @@ struct DetailView: View {
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
                             .background(CinemaTheme.surface, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                if let trailer = model.detail?.trailers?.first, let url = URL(string: trailer) {
+                    Button {
+                        Haptics.tap()
+                        trailerTarget = SafariTarget(url: url)
+                    } label: {
+                        Label("الإعلان", systemImage: "film")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.accent)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(CinemaTheme.accent.opacity(0.14), in: Capsule())
                     }
                     .buttonStyle(.plain)
                 }
@@ -7036,6 +7060,9 @@ struct NuvioSettings: View {
     @State private var busy = false
     @State private var loading = true
     @State private var message: String?
+    @AppStorage("cinemax.nuvio.proxy") private var proxy = ""
+    @AppStorage("cinemax.nuvio.proxyHosts") private var proxyHosts = "showbox,febbox,pstream"
+    @AppStorage("cinemax.nuvio.showboxCookie") private var showboxCookie = ""
 
     private let sample = "https://raw.githubusercontent.com/tapframe/nuvio-providers/refs/heads/main"
 
@@ -7079,6 +7106,50 @@ struct NuvioSettings: View {
                             .font(.system(size: 11))
                             .foregroundStyle(message.contains("تعذّر") ? CinemaTheme.favourite : CinemaTheme.accent)
                     }
+                }
+                .padding(14)
+                .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("بروكسي وكوكي المزوّدين")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.muted)
+
+                    TextField("https://proxy.example.workers.dev/?destination=", text: $proxy)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white)
+                        .keyboardType(.URL)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(CinemaTheme.elevated.opacity(0.7), in: Capsule())
+
+                    TextField("النطاقات التي يمرّ بها البروكسي", text: $proxyHosts)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(CinemaTheme.elevated.opacity(0.7), in: Capsule())
+
+                    SecureField("كوكي FebBox (ui) — اختياري", text: $showboxCookie)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(CinemaTheme.elevated.opacity(0.7), in: Capsule())
+
+                    Text("بعض مزوّدي ShowBox لا يعملون إلا عبر بروكسي ينتهي بـ?destination=، وبعضهم يحتاج كوكي حسابك ليعطي جودة 4K وحصة أكبر. القيم تُحفظ على جهازك وتُضاف لطلبات السكربتات فقط.")
+                        .font(.system(size: 10))
+                        .foregroundStyle(CinemaTheme.muted)
+                        .lineSpacing(3)
                 }
                 .padding(14)
                 .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -7134,9 +7205,27 @@ struct NuvioSettings: View {
                                         Text(provider.name)
                                             .font(.system(size: 13, weight: .medium))
                                             .foregroundStyle(.white)
-                                        Text(provider.types.joined(separator: " · "))
-                                            .font(.system(size: 10))
-                                            .foregroundStyle(CinemaTheme.muted)
+                                        HStack(spacing: 6) {
+                                            Text(provider.types.joined(separator: " · "))
+                                                .font(.system(size: 10))
+                                                .foregroundStyle(CinemaTheme.muted)
+                                            if provider.disabledOnIos == true {
+                                                Text("لا يدعم iOS")
+                                                    .font(.system(size: 9, weight: .semibold))
+                                                    .foregroundStyle(CinemaTheme.favourite)
+                                                    .padding(.horizontal, 6)
+                                                    .padding(.vertical, 2)
+                                                    .background(CinemaTheme.favourite.opacity(0.14), in: Capsule())
+                                            }
+                                            if provider.hasSettings == true {
+                                                Text("إعدادات داخلية")
+                                                    .font(.system(size: 9, weight: .semibold))
+                                                    .foregroundStyle(CinemaTheme.accent)
+                                                    .padding(.horizontal, 6)
+                                                    .padding(.vertical, 2)
+                                                    .background(CinemaTheme.accent.opacity(0.14), in: Capsule())
+                                            }
+                                        }
                                     }
                                 }
                                 .tint(CinemaTheme.accent)
