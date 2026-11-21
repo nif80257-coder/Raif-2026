@@ -1118,7 +1118,7 @@ struct HeroCarousel: View {
     /// static; any swipe restarts the countdown.
     private func scheduleAdvance() {
         autoTimer?.invalidate()
-        guard items.count > 1, CinemaxPrefs.heroAutoRotate else { return }
+        guard items.count > 1, CinemaxPrefs.heroAutoRotate, !CinemaxPrefs.reduceMotion else { return }
         autoTimer = Timer.scheduledTimer(withTimeInterval: 8, repeats: false) { _ in
             Task { @MainActor in
                 let limit = min(items.count, 6)
@@ -1259,6 +1259,7 @@ struct FloatingTabBar: View {
                     }
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(Text(tab.title))
             }
         }
         .padding(6)
@@ -1312,7 +1313,7 @@ final class HomeModel: ObservableObject {
     /// Refetches at most once a minute unless forced; the personal rows (resume
     /// points, watchlist) refresh on every visit since they change while watching.
     func load(force: Bool = false) async {
-        if !force, let last = lastLoaded, Date().timeIntervalSince(last) < 60 {
+        if !force, CinemaxPrefs.autoRefresh, let last = lastLoaded, Date().timeIntervalSince(last) < 60 {
             await refreshPersonal()
             return
         }
@@ -1411,6 +1412,7 @@ struct CinematicHomeView: View {
     @Binding var selection: Int
     @ObservedObject private var model = HomeModel.shared
     @AppStorage("cinemax.showContinue") private var showContinue = true
+    @AppStorage("cinemax.showHero") private var showHero = true
     @State private var glow: [Color] = [CinemaTheme.accent]
     @State private var detailItem: CinemaItem?
     @State private var gridShelf: Shelf?
@@ -1431,17 +1433,19 @@ struct CinematicHomeView: View {
                 } else if model.heroItems.isEmpty {
                     emptyState("لا عناوين من النوع المختار. جرّب «الكل» أو ثبّت مصدرًا آخر.")
                 } else {
-                    HeroCarousel(
-                        items: model.heroItems,
-                        onOpen: { detailItem = $0 },
-                        onPalette: { glow = $0 },
-                        isSaved: { model.favorites.contains($0.id) },
-                        onToggleFavorite: { item in
-                            Haptics.tap()
-                            model.toggle(item)
-                        }
-                    )
+                    if showHero {
+                        HeroCarousel(
+                            items: model.heroItems,
+                            onOpen: { detailItem = $0 },
+                            onPalette: { glow = $0 },
+                            isSaved: { model.favorites.contains($0.id) },
+                            onToggleFavorite: { item in
+                                Haptics.tap()
+                                model.toggle(item)
+                            }
+                        )
                         .frame(height: 440)
+                    }
                     if showContinue, !model.continueWatching.isEmpty {
                         SectionHeader(title: "أكمل المشاهدة")
                         ScrollView(.horizontal, showsIndicators: false) {
@@ -1622,6 +1626,24 @@ struct CircleButton: View {
                 .overlay(Circle().strokeBorder(CinemaTheme.hairline, lineWidth: 1))
         }
         .buttonStyle(CinemaPressStyle())
+        .accessibilityLabel(Text(CircleButton.label(for: system)))
+    }
+
+    /// VoiceOver needs words, not SF Symbol names.
+    static func label(for system: String) -> String {
+        switch system {
+        case "xmark": return "إغلاق"
+        case "chevron.down": return "رجوع"
+        case "list.bullet": return "الحلقات"
+        case "speedometer": return "سرعة التشغيل"
+        case "captions.bubble": return "الترجمة والصوت"
+        case "square.and.arrow.up": return "مشاركة"
+        case "heart", "heart.fill": return "الحفظ"
+        case "textformat": return "نسخ الاسم"
+        case "rectangle.landscape.rotate": return "أفقي"
+        case "rectangle.portrait.rotate": return "رأسي"
+        default: return system
+        }
     }
 }
 
@@ -1707,10 +1729,13 @@ struct PlayerScreen: View {
     @State private var subtitleError = false
     @State private var addonSubtitles: [SubtitleChoice] = []
     @State private var loadingSubtitles = false
-    @State private var volume: Double = 100
-    @State private var aspect = ""
-    @State private var zoom: Double = 0
-    @State private var subtitlePosition: Double = 100
+    @State private var volume: Double = (UserDefaults.standard.object(forKey: "cinemax.volume") as? Double) ?? 100
+    @State private var aspect = UserDefaults.standard.string(forKey: "cinemax.aspect") ?? ""
+    @State private var zoom: Double = (UserDefaults.standard.object(forKey: "cinemax.zoom") as? Double) ?? 0
+    @State private var subtitlePosition: Double = (UserDefaults.standard.object(forKey: "cinemax.subPos") as? Double) ?? 100
+    @State private var buffering = false
+    @State private var appliedInitial = false
+    @State private var lastDoubleTap = Date.distantPast
     @State private var brightness: Double = 0.6
     @State private var savedBrightness: Double = 0.6
     @State private var showEpisodes = false
@@ -1763,7 +1788,27 @@ struct PlayerScreen: View {
                     .id(currentURL + "-" + String(startMs) + "-" + String(playToken))
                     .ignoresSafeArea()
                     .contentShape(Rectangle())
+                    .highPriorityGesture(
+                        SpatialTapGesture(count: 2)
+                            .onEnded { value in
+                                let width = UIScreen.main.bounds.width
+                                lastDoubleTap = Date()
+                                if value.location.x < width * 0.33 {
+                                    seek(by: -seekStep * 2)
+                                    Haptics.tap()
+                                } else if value.location.x > width * 0.67 {
+                                    seek(by: seekStep * 2)
+                                    Haptics.tap()
+                                } else {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        controlsVisible.toggle()
+                                    }
+                                }
+                            }
+                    )
                     .onTapGesture {
+                        // A double tap must not also flip the controls.
+                        guard Date().timeIntervalSince(lastDoubleTap) > 0.4 else { return }
                         withAnimation(.easeInOut(duration: 0.2)) {
                             controlsVisible.toggle()
                             if !controlsVisible { showOptions = false }
@@ -1782,6 +1827,11 @@ struct PlayerScreen: View {
                             .lineLimit(1)
                         if let sourceNote, !sourceNote.isEmpty {
                             Text(sourceNote)
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(CinemaTheme.muted)
+                                .lineLimit(1)
+                        } else if let label = currentVideoLabel, !label.isEmpty {
+                            Text(label)
                                 .font(.system(size: 10, weight: .medium))
                                 .foregroundStyle(CinemaTheme.muted)
                                 .lineLimit(1)
@@ -1889,6 +1939,11 @@ struct PlayerScreen: View {
                                 .foregroundStyle(.white)
                                 .frame(width: 44, height: 44)
                         }
+                        .simultaneousGesture(
+                            LongPressGesture(minimumDuration: 0.4).onEnded { _ in
+                                seek(by: -seekStep * 3)
+                            }
+                        )
 
                         Button {
                             playing.toggle()
@@ -1909,6 +1964,11 @@ struct PlayerScreen: View {
                                 .foregroundStyle(.white)
                                 .frame(width: 44, height: 44)
                         }
+                        .simultaneousGesture(
+                            LongPressGesture(minimumDuration: 0.4).onEnded { _ in
+                                seek(by: seekStep * 3)
+                            }
+                        )
 
                         Spacer()
                         if sleepDeadline != nil {
@@ -1995,6 +2055,18 @@ struct PlayerScreen: View {
                         .strokeBorder(CinemaTheme.hairline, lineWidth: 1)
                 )
             }
+            if buffering, duration > 1, playerError == nil {
+                HStack(spacing: 8) {
+                    ProgressView().tint(.white)
+                    Text("جارٍ التحميل…")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .background(.ultraThinMaterial, in: Capsule())
+                .transition(.opacity)
+            }
             if showOptions {
                 PlayerOptionsPanel(
                     subtitleTracks: subtitleTracks,                    audioTracks: audioTracks,
@@ -2050,6 +2122,7 @@ struct PlayerScreen: View {
                     },
                     onVolume: { value in
                         volume = value
+                        UserDefaults.standard.set(value, forKey: "cinemax.volume")
                         player?.setVolumeLevel(value)
                     },
                     onBrightness: { value in
@@ -2058,16 +2131,19 @@ struct PlayerScreen: View {
                     },
                     onAspect: { value in
                         aspect = value
+                        UserDefaults.standard.set(value, forKey: "cinemax.aspect")
                         player?.setVideoAspect(value)
                         Haptics.select()
                     },
                     onZoom: { value in
                         zoom = value
+                        UserDefaults.standard.set(value, forKey: "cinemax.zoom")
                         player?.setVideoZoom(value)
                         Haptics.select()
                     },
                     onSubtitlePosition: { value in
                         subtitlePosition = value
+                        UserDefaults.standard.set(value, forKey: "cinemax.subPos")
                         player?.setSubtitlePosition(value)
                     },
                     onRotate: { landscape in
@@ -2325,6 +2401,15 @@ struct PlayerScreen: View {
                 if !scrubbing {
                     position = Double(player.positionMs) / 1000
                 }
+                if !appliedInitial {
+                    // The panel's choices come back the way they were left.
+                    player.setVolumeLevel(volume)
+                    player.setVideoAspect(aspect)
+                    player.setVideoZoom(zoom)
+                    player.setSubtitlePosition(subtitlePosition)
+                    appliedInitial = true
+                }
+                buffering = player.buffering
                 duration = max(1, Double(player.durationMs) / 1000)
                 if player.ended {
                     saveProgress()
@@ -2968,9 +3053,18 @@ struct PlayerOptionsPanel: View {
 
                     label("الصوت")
                     HStack(spacing: 10) {
-                        Image(systemName: "speaker.fill")
-                            .font(.system(size: 12))
-                            .foregroundStyle(CinemaTheme.muted)
+                        Button {
+                            onVolume(volume > 0 ? 0 : 100)
+                        } label: {
+                            Image(systemName: volume <= 0
+                                  ? "speaker.slash.fill"
+                                  : (volume > 120 ? "speaker.wave.3.fill" : "speaker.wave.1.fill"))
+                                .font(.system(size: 13))
+                                .foregroundStyle(volume <= 0 ? CinemaTheme.favourite : CinemaTheme.muted)
+                                .frame(width: 28, height: 28)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
                         Slider(
                             value: Binding(get: { volume }, set: { onVolume($0) }),
                             in: 0...200
@@ -3265,6 +3359,7 @@ struct DetailView: View {
     @State private var similar: [CinemaItem] = []
     @State private var similarPick: CinemaItem?
     @State private var trailerTarget: SafariTarget?
+    @State private var copied: String?
 
     private var playlist: [CinemaItem] {
         guard let detail = model.detail, !detail.episodes.isEmpty else { return [] }
@@ -3319,8 +3414,24 @@ struct DetailView: View {
                     .background(CinemaTheme.accent.opacity(0.85), in: Capsule())
                     .padding(.top, 100)
             }
+            if let copied {
+                Text(copied)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .padding(.top, 100)
+                    .task {
+                        try? await Task.sleep(nanoseconds: 1_600_000_000)
+                        withAnimation(.easeInOut(duration: 0.2)) { self.copied = nil }
+                    }
+            }
         }
         .task { await model.load(item: item) }
+        .refreshable {
+            await model.loadStreams(id: episode?.id ?? item.id, type: item.type)
+        }
         .task(id: item.id) {
             similar = await CinemaAPI.shared.similar(item: item)
         }
@@ -3482,7 +3593,10 @@ struct DetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
                 Button {
-                    if let first = filteredStreams.first ?? model.streams.first { playing = first }
+                    if let first = filteredStreams.first ?? model.streams.first {
+                        remember(first)
+                        playing = first
+                    }
                 } label: {
                     Label(resumeEntry == nil ? "مشاهدة" : "أكمل", systemImage: "play.fill")
                         .font(.system(size: 15, weight: .bold))
@@ -3577,7 +3691,14 @@ struct DetailView: View {
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(CinemaTheme.muted)
                         ForEach(cast.prefix(8), id: \.self) { person in
-                            CinemaPill(text: person, tint: .white)
+                            Button {
+                                Haptics.select()
+                                UIPasteboard.general.string = person
+                                copied = "نُسخ \(person)"
+                            } label: {
+                                CinemaPill(text: person, tint: .white)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                 }
@@ -3587,6 +3708,7 @@ struct DetailView: View {
                 Text("إخراج: \(directors.prefix(3).joined(separator: "، "))")
                     .font(.system(size: 11))
                     .foregroundStyle(CinemaTheme.muted)
+                    .textSelection(.enabled)
             }
 
             if let overview = model.detail?.item.overview ?? item.overview, !overview.isEmpty {
@@ -3731,6 +3853,12 @@ struct DetailView: View {
                                     .font(.system(size: 12, weight: .medium))
                                     .foregroundStyle(.white)
                                     .lineLimit(1)
+                                if let date = entry.releaseInfo, !date.isEmpty {
+                                    Text(date)
+                                        .font(.system(size: 9))
+                                        .foregroundStyle(CinemaTheme.muted)
+                                        .lineLimit(1)
+                                }
                             }
                             .frame(width: 168)
                         }
@@ -3821,6 +3949,16 @@ struct DetailView: View {
                 }
         }
         .buttonStyle(.plain)
+    }
+
+    /// The link this title last played with, marked in the list.
+    private var lastPlayedURL: String? {
+        UserDefaults.standard.string(forKey: "cinemax.lastSource." + item.id)
+    }
+
+    /// Remembers the chosen link so the next visit marks it.
+    private func remember(_ stream: StreamChoice) {
+        UserDefaults.standard.set(stream.url, forKey: "cinemax.lastSource." + item.id)
     }
 
     private var qualityOrder: [String] {
@@ -4055,6 +4193,7 @@ struct DetailView: View {
     private func sourceRow(_ stream: StreamChoice) -> some View {
         Button {
             Haptics.tap()
+            remember(stream)
             withAnimation(.easeInOut(duration: 0.15)) { playing = stream }
         } label: {
             HStack(spacing: 10) {
@@ -4068,6 +4207,12 @@ struct DetailView: View {
                         .lineLimit(2)
                 }
                 Spacer()
+                if stream.url == filteredStreams.first?.url {
+                    CinemaPill(text: "موصى به")
+                }
+                if stream.url == lastPlayedURL {
+                    CinemaPill(text: "آخر ما شغّلت", tint: CinemaTheme.muted)
+                }
                 if let size = stream.size {
                     CinemaPill(text: size, tint: CinemaTheme.muted)
                 }
@@ -4213,6 +4358,8 @@ struct SearchView: View {
                             .textFieldStyle(.plain)
                             .foregroundStyle(.white)
                             .submitLabel(.search)
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
                             .onSubmit {
                                 Haptics.tap()
                                 searchTask?.cancel()
@@ -4283,6 +4430,7 @@ struct SearchView: View {
                 .padding(.top, 8)
             }
             .background(CinemaTheme.canvas.ignoresSafeArea())
+            .scrollDismissesKeyboard(.immediately)
             .navigationTitle("البحث")
             .onChange(of: query) { value in
                 searchTask?.cancel()
@@ -4330,6 +4478,15 @@ struct SearchView: View {
                                 .background(CinemaTheme.surface, in: Capsule())
                         }
                         .buttonStyle(.plain)
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                Haptics.tap()
+                                CinemaxPrefs.removeSearch(entry)
+                                history = CinemaxPrefs.searchHistory
+                            } label: {
+                                Label("حذف هذا البحث", systemImage: "trash")
+                            }
+                        }
                     }
                 }
                 .padding(.horizontal, 20)
@@ -5873,6 +6030,8 @@ struct LayoutSettings: View {
     @AppStorage("cinemax.design") private var design = "cinematic"
     @AppStorage("cinemax.heroAuto") private var heroAuto = true
     @AppStorage("cinemax.showContinue") private var showContinue = true
+    @AppStorage("cinemax.showHero") private var showHero = true
+    @AppStorage("cinemax.autoRefresh") private var autoRefresh = true
     @AppStorage("cinemax.maxShelves") private var maxShelves = 28
     @State private var posterWidth = Int(CinemaxPrefs.posterMinWidth)
 
@@ -5976,6 +6135,30 @@ struct LayoutSettings: View {
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(.white)
                         Text("يظهر أعلى الرئيسية حين يكون لك موضع توقف محفوظ")
+                            .font(.system(size: 11))
+                            .foregroundStyle(CinemaTheme.muted)
+                    }
+                }
+                .tint(CinemaTheme.accent)
+
+                Toggle(isOn: $showHero) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("الغلاف الكبير (الهيرو)")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.white)
+                        Text("إيقافه يجعل الرئيسية صفوفًا فقط، بلا غلاف في الأعلى")
+                            .font(.system(size: 11))
+                            .foregroundStyle(CinemaTheme.muted)
+                    }
+                }
+                .tint(CinemaTheme.accent)
+
+                Toggle(isOn: $autoRefresh) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("تحديث الكتالوجات عند كل زيارة")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.white)
+                        Text("إيقافه يجعل الكتالوج يبقى دقيقة كاملة قبل إعادة الجلب، لتوفير البيانات")
                             .font(.system(size: 11))
                             .foregroundStyle(CinemaTheme.muted)
                     }
@@ -6525,6 +6708,22 @@ struct StreamingSettings: View {
 
 struct AboutSettings: View {
     @AppStorage("cinemax.onboarded") private var onboarded = true
+    @State private var copied = false
+
+    private var diagnostics: String {
+        let device = UIDevice.current
+        let hardware = (UserDefaults.standard.object(forKey: "cinemax.hwdec") as? Bool) ?? true
+        let storedCache = UserDefaults.standard.integer(forKey: "cinemax.cacheMB")
+        let cache = storedCache == 0 ? 256 : storedCache
+        return [
+            "CINEMAX \(CinemaAPI.shared.versionLabel)",
+            "iOS \(device.systemVersion)",
+            device.model,
+            "المشغّل: \(CinemaxPrefs.playerEngine)",
+            "فك الترميز العتادي: " + (hardware ? "مفعّل" : "متوقف"),
+            "كاش البث: \(cache) MB"
+        ].joined(separator: "\n")
+    }
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -6598,6 +6797,34 @@ struct AboutSettings: View {
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(CinemaTheme.accent)
                 }
+
+                Divider().overlay(CinemaTheme.hairline)
+
+                Button {
+                    Haptics.tap()
+                    UIPasteboard.general.string = diagnostics
+                    withAnimation(.easeInOut(duration: 0.2)) { copied = true }
+                    Task {
+                        try? await Task.sleep(nanoseconds: 1_600_000_000)
+                        withAnimation(.easeInOut(duration: 0.2)) { copied = false }
+                    }
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("نسخ معلومات التشغيل")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(.white)
+                            Text(copied ? "نُسخت إلى الحافظة" : "الإصدار والنظام والمشغّل وإعداداته")
+                                .font(.system(size: 11))
+                                .foregroundStyle(CinemaTheme.muted)
+                        }
+                        Spacer()
+                        Image(systemName: "doc.on.doc")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.accent)
+                    }
+                }
+                .buttonStyle(.plain)
 
                 Divider().overlay(CinemaTheme.hairline)
 
@@ -8414,6 +8641,16 @@ enum CinemaxPrefs {
         (UserDefaults.standard.object(forKey: "cinemax.allowRotation") as? Bool) ?? true
     }
 
+    /// The system's reduce-motion switch, mirrored in the app's own settings.
+    static var reduceMotion: Bool {
+        (UserDefaults.standard.object(forKey: "cinemax.reduceMotion") as? Bool) ?? false
+    }
+
+    /// Refetches the catalogues on every visit instead of once a minute.
+    static var autoRefresh: Bool {
+        (UserDefaults.standard.object(forKey: "cinemax.autoRefresh") as? Bool) ?? true
+    }
+
     static var searchHistory: [String] {
         UserDefaults.standard.stringArray(forKey: historyKey) ?? []
     }
@@ -8428,6 +8665,12 @@ enum CinemaxPrefs {
 
     static func clearSearchHistory() {
         UserDefaults.standard.removeObject(forKey: historyKey)
+    }
+
+    /// Drops one remembered search, from the chip's own menu.
+    static func removeSearch(_ query: String) {
+        let items = searchHistory.filter { $0.caseInsensitiveCompare(query) != .orderedSame }
+        UserDefaults.standard.set(items, forKey: historyKey)
     }
 
     static var lastRefresh: Date? {
@@ -8601,6 +8844,7 @@ struct ShelfGridScreen: View {
             .background(CinemaTheme.canvas.ignoresSafeArea())
             .navigationTitle(shelf.title)
             .navigationBarTitleDisplayMode(.inline)
+            .refreshable { await loadPage(reset: true) }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("تم") { dismiss() }
@@ -8957,6 +9201,15 @@ struct DownloadsView: View {
                     Text(totalLabel)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(CinemaTheme.muted)
+                    Button {
+                        Haptics.tap()
+                        for job in manager.jobs { manager.remove(job) }
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.favourite)
+                    }
+                    .buttonStyle(.plain)
                 }
                 .padding(.bottom, 2)
 

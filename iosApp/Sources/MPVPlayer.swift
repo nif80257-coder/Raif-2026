@@ -250,6 +250,11 @@ final class MPVViewController: UIViewController {
     var durationMs: Int64 { cachedDurationMs }
     var ended: Bool { cachedEnded }
     var errorMessage: String { errorText }
+    /// True while libmpv has paused itself to fill the cache.
+    var buffering: Bool {
+        guard let mpv else { return false }
+        return getFlag(mpv, "paused-for-cache")
+    }
 
     func destroyPlayer() {
         pendingSeekWorkItem?.cancel()
