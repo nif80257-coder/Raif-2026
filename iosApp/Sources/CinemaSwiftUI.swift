@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import AVKit
 import Network
 import SafariServices
 import UniformTypeIdentifiers
@@ -2390,6 +2391,212 @@ struct PlayerScreen: View {
     }
 }
 
+/// The system player: AVPlayer with Apple's own controls, AirPlay and Picture in
+/// Picture. It plays HLS and MP4 natively and leaves odd containers to libmpv.
+struct SystemPlayerScreen: View {
+    let title: String
+    let url: String
+    var headers: [String: String] = [:]
+    var item: CinemaItem? = nil
+    var videoId: String? = nil
+    var videoLabel: String? = nil
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var player = AVPlayer()
+    @State private var startMs: Int64 = 0
+    @State private var ready = false
+    @State private var position: Double = 0
+    @State private var duration: Double = 0
+    @State private var errorText: String?
+    @State private var ticker: Timer?
+    @State private var finished = false
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            if ready {
+                SystemPlayerSurface(player: player)
+                    .ignoresSafeArea()
+            } else {
+                ProgressView().tint(CinemaTheme.accent)
+            }
+
+            VStack {
+                HStack(spacing: 12) {
+                    CircleButton(system: "xmark") { dismiss() }
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(title)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                        Text("مشغل النظام · PiP وAirPlay")
+                            .font(.system(size: 10))
+                            .foregroundStyle(CinemaTheme.muted)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+                Spacer()
+                if let errorText {
+                    VStack(spacing: 10) {
+                        Text("تعذّر تشغيل هذا المصدر في مشغل النظام")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(.white)
+                        Text(errorText)
+                            .font(.system(size: 11))
+                            .foregroundStyle(CinemaTheme.muted)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(3)
+                        Text("بدّل إلى مشغل libmpv من الإعدادات ← التشغيل.")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.accent)
+                    }
+                    .padding(20)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .padding(.bottom, 60)
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+        .task {
+            UIApplication.shared.isIdleTimerDisabled = true
+            if let item, CinemaxPrefs.autoResume {
+                startMs = await CinemaAPI.shared.resume(itemId: item.id, videoId: videoId)
+            }
+            prepare()
+            startTicker()
+        }
+        .onDisappear {
+            ticker?.invalidate()
+            UIApplication.shared.isIdleTimerDisabled = false
+            saveProgress()
+        }
+    }
+
+    private func prepare() {
+        guard let link = URL(string: url) else {
+            errorText = "الرابط غير صالح"
+            return
+        }
+        let asset = headers.isEmpty
+            ? AVURLAsset(url: link)
+            : AVURLAsset(url: link, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
+        let fresh = AVPlayer(playerItem: AVPlayerItem(asset: asset))
+        fresh.allowsExternalPlayback = true
+        player = fresh
+        if startMs > 0 {
+            fresh.seek(to: CMTime(value: startMs, timescale: 1000))
+        }
+        fresh.play()
+        ready = true
+    }
+
+    private func startTicker() {
+        ticker?.invalidate()
+        ticker = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
+            Task { @MainActor in
+                guard let current = player.currentItem else { return }
+                let total = current.duration.seconds
+                if total.isFinite, total > 0 { duration = total }
+                let now = player.currentTime().seconds
+                if now.isFinite { position = now }
+                if current.status == .failed {
+                    errorText = current.error?.localizedDescription ?? "فشل تحميل المصدر"
+                }
+                if duration > 1, position >= duration - 1.5, !finished {
+                    finished = true
+                    saveProgress()
+                    dismiss()
+                }
+            }
+        }
+    }
+
+    private func saveProgress() {
+        guard let item, duration > 0 else { return }
+        CinemaAPI.shared.saveProgress(
+            item: item,
+            positionMs: Int64(position * 1000),
+            durationMs: Int64(duration * 1000),
+            videoId: videoId,
+            videoLabel: videoLabel
+        )
+    }
+}
+
+struct SystemPlayerSurface: UIViewControllerRepresentable {
+    let player: AVPlayer
+
+    func makeUIViewController(context: Context) -> AVPlayerViewController {
+        let controller = AVPlayerViewController()
+        controller.player = player
+        controller.showsPlaybackControls = true
+        controller.allowsPictureInPicturePlayback = true
+        controller.canStartPictureInPictureAutomaticallyFromInline = true
+        controller.entersFullScreenWhenPlaybackBegins = false
+        return controller
+    }
+
+    func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {
+        if controller.player !== player {
+            controller.player = player
+        }
+    }
+}
+
+/// Hands the link to another installed app through the system share sheet.
+struct ExternalPlayerScreen: View {
+    let title: String
+    let url: String
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var sharing = false
+
+    var body: some View {
+        ZStack {
+            CinemaTheme.canvas.ignoresSafeArea()
+            VStack(spacing: 16) {
+                Image(systemName: "play.rectangle.on.rectangle")
+                    .font(.system(size: 34, weight: .light))
+                    .foregroundStyle(CinemaTheme.accent)
+                Text(title)
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                Text("المشغل الخارجي: تُمرَّر هذه الرابط إلى تطبيق آخر (VLC أو Infuse أو أي مشغل مثبّت) عبر ورقة المشاركة.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(CinemaTheme.muted)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(4)
+                Button {
+                    Haptics.tap()
+                    sharing = true
+                } label: {
+                    Text("اختر تطبيقًا")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 22)
+                        .padding(.vertical, 12)
+                        .background(CinemaTheme.accent, in: Capsule())
+                }
+                .buttonStyle(CinemaPressStyle())
+                Button("إغلاق") { dismiss() }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(CinemaTheme.muted)
+                    .buttonStyle(.plain)
+            }
+            .padding(24)
+        }
+        .preferredColorScheme(.dark)
+        .sheet(isPresented: $sharing) {
+            if let link = URL(string: url) {
+                ShareSheet(items: [link])
+            }
+        }
+    }
+}
+
 /// The player's own control panel: subtitle and audio tracks packed in the file,
 /// plus playback speed. Everything here talks straight to libmpv.
 struct PlayerOptionsPanel: View {
@@ -3030,18 +3237,34 @@ struct DetailView: View {
             }
         }
         .fullScreenCover(item: $playing, onDismiss: { playing = nil }) { choice in
-            PlayerScreen(
-                title: item.name,
-                url: choice.url,
-                item: item,
-                videoId: episode?.id,
-                videoLabel: episode?.name,
-                sourceNote: [choice.addon, choice.quality].compactMap { $0 }.joined(separator: " · "),
-                headers: choice.headers ?? [:],
-                sources: filteredStreams,
-                episodes: model.detail?.episodes ?? [],
-                type: item.type
-            )
+            Group {
+                switch CinemaxPrefs.playerEngine {
+                case "system":
+                    SystemPlayerScreen(
+                        title: item.name,
+                        url: choice.url,
+                        headers: choice.headers ?? [:],
+                        item: item,
+                        videoId: episode?.id,
+                        videoLabel: episode?.name
+                    )
+                case "external":
+                    ExternalPlayerScreen(title: item.name, url: choice.url)
+                default:
+                    PlayerScreen(
+                        title: item.name,
+                        url: choice.url,
+                        item: item,
+                        videoId: episode?.id,
+                        videoLabel: episode?.name,
+                        sourceNote: [choice.addon, choice.quality].compactMap { $0 }.joined(separator: " · "),
+                        headers: choice.headers ?? [:],
+                        sources: filteredStreams,
+                        episodes: model.detail?.episodes ?? [],
+                        type: item.type
+                    )
+                }
+            }
         }
         .fullScreenCover(item: $similarPick) { entry in
             DetailView(item: entry)
@@ -5844,7 +6067,12 @@ struct PlaybackSettings: View {
     @AppStorage("cinemax.autoResume") private var autoResume = true
     @AppStorage("cinemax.speedFirst") private var speedFirst = false
     @AppStorage("cinemax.prefQuality") private var prefQuality = "auto"
+    @AppStorage("cinemax.playerEngine") private var playerEngine = "mpv"
     @AppStorage("cinemax.defaultSpeed") private var defaultSpeed = 1.0
+
+    private let engines: [(id: String, title: String)] = [
+        ("mpv", "libmpv"), ("system", "مشغل النظام"), ("external", "تطبيق خارجي")
+    ]
 
     private let speeds: [Double] = [0.75, 1, 1.25, 1.5]
     private let steps: [Int] = [5, 10, 15, 30]
@@ -5878,6 +6106,38 @@ struct PlaybackSettings: View {
                     }
                 }
                 .tint(CinemaTheme.accent)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("المشغّل المستخدم عند فتح أي مصدر")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.muted)
+                    HStack(spacing: 8) {
+                        ForEach(engines, id: \.id) { entry in
+                            Button {
+                                Haptics.select()
+                                playerEngine = entry.id
+                            } label: {
+                                Text(entry.title)
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(playerEngine == entry.id ? .black : .white)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 8)
+                                    .background {
+                                        Capsule().fill(
+                                            playerEngine == entry.id
+                                                ? CinemaTheme.accent
+                                                : Color.white.opacity(0.08)
+                                        )
+                                    }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    Text(engineDetail)
+                        .font(.system(size: 11))
+                        .foregroundStyle(CinemaTheme.muted)
+                        .lineSpacing(3)
+                }
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text("الجودة المفضلة")
@@ -6024,8 +6284,19 @@ struct PlaybackSettings: View {
         .navigationTitle("التشغيل")
         .navigationBarTitleDisplayMode(.inline)
     }
-    private func orderChip(_ title: String, value: Bool) -> some View {
-        Button {
+    /// What the chosen engine brings, so the trade-off is not a mystery.
+    private var engineDetail: String {
+        switch playerEngine {
+        case "system":
+            return "AVPlayer من النظام: يشغّل HLS وMP4 بسلاسة، ويدعم الصورة داخل الصورة وAirPlay. الصيغ الغريبة (MKV/AV1) قد ترفضها."
+        case "external":
+            return "يفتح الرابط في مشغّل آخر مثبت على الجهاز عبر ورقة المشاركة (VLC أو Infuse أو أي مشغّل)."
+        default:
+            return "libmpv: يفتح كل الصيغ تقريبًا (MKV وHEVC وAV1) مع كل خيارات اللوحة، لكن الصورة داخل الصورة غير متاحة."
+        }
+    }
+
+    private func orderChip(_ title: String, value: Bool) -> some View {        Button {
             Haptics.select()
             speedFirst = value
         } label: {
@@ -7787,6 +8058,12 @@ enum CinemaxPrefs {
         UserDefaults.standard.string(forKey: "cinemax.prefQuality") ?? "auto"
     }
 
+    /// Which engine opens a link: libmpv (all formats), the system player
+    /// (Picture in Picture and AirPlay) or another app through the share sheet.
+    static var playerEngine: String {
+        UserDefaults.standard.string(forKey: "cinemax.playerEngine") ?? "mpv"
+    }
+
     static var searchHistory: [String] {
         UserDefaults.standard.stringArray(forKey: historyKey) ?? []
     }
@@ -7829,7 +8106,7 @@ enum CinemaxPrefs {
             "cinemax.autoplayNext", "cinemax.design", "cinemax.defaultSpeed",
             "cinemax.notifications", "cinemax.seekSeconds", "cinemax.autoHideControls",
             "cinemax.autoResume", "cinemax.heroAuto", "cinemax.skipIntro",
-            "cinemax.prefQuality", posterWidthKey
+            "cinemax.prefQuality", "cinemax.playerEngine", posterWidthKey
         ]
         let lines = keys.map { key in
             "\(key) = \(defaults.object(forKey: key).map { "\($0)" } ?? "—")"
@@ -7843,7 +8120,7 @@ enum CinemaxPrefs {
             "cinemax.design", posterWidthKey, "cinemax.defaultSpeed", "cinemax.notifications",
             "cinemax.seekSeconds", "cinemax.autoHideControls", "cinemax.autoResume",
             "cinemax.heroAuto", "cinemax.skipIntro", "cinemax.prefQuality",
-            "cinemax.subtitleLang", "cinemax.onboarded",
+            "cinemax.playerEngine", "cinemax.subtitleLang", "cinemax.onboarded",
             "cinemax.subtitleSize", "cinemax.subtitleAuto",
             historyKey, lastRefreshKey
         ] {

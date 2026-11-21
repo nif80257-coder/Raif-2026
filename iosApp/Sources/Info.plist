@@ -31,5 +31,11 @@
 	     from PlistSanityCheck unless this key is present and true. -->
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<!-- The system player can keep playing in Picture in Picture, which iOS
+	     only allows to an app that declares audio playback in the background. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
 </dict>
 </plist>
