@@ -29,6 +29,7 @@ import com.nuvio.app.features.streams.StreamLoadCompletion
 import com.nuvio.app.features.streams.StreamParser
 import com.nuvio.app.features.streams.StreamResponseCache
 import com.nuvio.app.features.streams.StreamsUiState
+import com.nuvio.app.features.streams.isJunkRelease
 import com.nuvio.app.features.streams.runCatchingUnlessCancelled
 import com.nuvio.app.features.streams.sortedForGroupedDisplay
 import com.nuvio.app.features.streams.streamAddonInstanceId
@@ -625,15 +626,20 @@ object PlayerStreamsRepository {
             }
 
             // All groups answered. Collapsing copies of the same file is the user's choice; off
-            // by default, so a source keeps every link it returned.
+            // by default, so a source keeps every link it returned. Camera copies and size-only
+            // re-encodes are hidden only when the user asked for that.
             val mergeDuplicates = StreamDisplayPreferences.mergeDuplicatesAcrossSources(streamCacheProfileId)
+            val hideJunk = StreamDisplayPreferences.hideJunkReleases(streamCacheProfileId)
             stateFlow.update { current ->
+                val visible = if (hideJunk) {
+                    current.groups.map { group ->
+                        group.copy(streams = group.streams.filterNot { it.isJunkRelease() })
+                    }
+                } else {
+                    current.groups
+                }
                 current.copy(
-                    groups = if (mergeDuplicates) {
-                        current.groups.deduplicatedAcrossSources()
-                    } else {
-                        current.groups
-                    },
+                    groups = if (mergeDuplicates) visible.deduplicatedAcrossSources() else visible,
                 )
             }
 

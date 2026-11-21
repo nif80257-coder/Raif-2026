@@ -716,15 +716,20 @@ object StreamsRepository {
 
             // Every group has answered. Whether the same file offered by several add-ons is
             // collapsed into one link is the user's choice: off by default, so each source keeps
-            // every link it returned.
+            // every link it returned. Hiding camera copies and size-only re-encodes is a choice
+            // too, and it is applied here so the count in each header matches what is listed.
             val mergeDuplicates = StreamDisplayPreferences.mergeDuplicatesAcrossSources(streamCacheProfileId)
+            val hideJunk = StreamDisplayPreferences.hideJunkReleases(streamCacheProfileId)
             _uiState.update { current ->
+                val visible = if (hideJunk) {
+                    current.groups.map { group ->
+                        group.copy(streams = group.streams.filterNot { it.isJunkRelease() })
+                    }
+                } else {
+                    current.groups
+                }
                 current.copy(
-                    groups = if (mergeDuplicates) {
-                        current.groups.deduplicatedAcrossSources()
-                    } else {
-                        current.groups
-                    },
+                    groups = if (mergeDuplicates) visible.deduplicatedAcrossSources() else visible,
                 )
             }
 

@@ -2861,4 +2861,6 @@
     <string name="addons_reset_confirm_title">إعادة ضبط المصادر المدمجة؟</string>
     <string name="addons_reset_confirm_message">تُزال وتُثبَّت من جديد بترتيبها الأصلي. المصادر التي أضفتها بنفسك تبقى كما هي.</string>
     <string name="addons_reset_confirm_action">إعادة الضبط</string>
+    <string name="settings_stream_hide_junk_title">إخفاء النسخ الرديئة</string>
+    <string name="settings_stream_hide_junk_description">يخفي نسخ الكام والتسجيل ونسخ إعادة الترميز المخصّصة للحجم مثل YIFY، ويرتّب نسخة الريماكس فوق إعادة ترميز الويب عند نفس الدقة.</string>
 </resources>

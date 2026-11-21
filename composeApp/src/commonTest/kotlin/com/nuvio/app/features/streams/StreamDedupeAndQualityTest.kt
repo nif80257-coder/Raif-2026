@@ -47,7 +47,8 @@ class StreamDedupeAndQualityTest {
             stream(label = "4K", url = "https://example.com/2160.mkv", addonId = "addon:a"),
         )
 
-        val sortedByPreference = streams.sortedForGroupedDisplay(preferredQualityRank = 300)
+        // 200 is the rank of the 720p copy, so the list is asked for 720p first.
+        val sortedByPreference = streams.sortedForGroupedDisplay(preferredQualityRank = 200)
         assertEquals("720p", sortedByPreference.first().streamLabel)
 
         val sortedDefault = streams.sortedForGroupedDisplay()

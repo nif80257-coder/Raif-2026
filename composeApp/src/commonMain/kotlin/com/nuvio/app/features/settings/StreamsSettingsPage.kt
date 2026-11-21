@@ -101,6 +101,8 @@ import nuvio.composeapp.generated.resources.settings_stream_addon_logo_title
 import nuvio.composeapp.generated.resources.settings_stream_addon_logo_description
 import nuvio.composeapp.generated.resources.settings_stream_merge_duplicates_title
 import nuvio.composeapp.generated.resources.settings_stream_merge_duplicates_description
+import nuvio.composeapp.generated.resources.settings_stream_hide_junk_title
+import nuvio.composeapp.generated.resources.settings_stream_hide_junk_description
 import nuvio.composeapp.generated.resources.settings_stream_display_section
 import nuvio.composeapp.generated.resources.settings_stream_background_title
 import nuvio.composeapp.generated.resources.settings_stream_background_description
@@ -202,6 +204,19 @@ internal fun LazyListScope.streamsSettingsContent(isTablet: Boolean) {
                     onCheckedChange = { value ->
                         mergeDuplicates = value
                         StreamDisplayPreferences.setMergeDuplicatesAcrossSources(profileId, value)
+                    },
+                )
+                var hideJunkReleases by remember(profileId) {
+                    mutableStateOf(StreamDisplayPreferences.hideJunkReleases(profileId))
+                }
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.settings_stream_hide_junk_title),
+                    description = stringResource(Res.string.settings_stream_hide_junk_description),
+                    checked = hideJunkReleases,
+                    isTablet = isTablet,
+                    onCheckedChange = { value ->
+                        hideJunkReleases = value
+                        StreamDisplayPreferences.setHideJunkReleases(profileId, value)
                     },
                 )
             }

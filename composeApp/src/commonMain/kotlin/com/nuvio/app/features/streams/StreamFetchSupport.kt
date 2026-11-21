@@ -289,14 +289,10 @@ internal fun StreamItem.qualityRank(): Int {
     } else {
         0
     }
-    val remux = if (
-        text.contains("remux") || text.contains("bluray") || text.contains("blu-ray")
-    ) {
-        1
-    } else {
-        0
-    }
-    return resolution * 100 + hdr * 10 + remux * 5
+    // How the file was made separates a remux from a web re-encode that carries the same
+    // resolution: the resolution alone would call both "4K".
+    val tier = ReleaseTier.of(text)
+    return resolution * 100 + hdr * 10 + (tier?.rank ?: 0) * 2
 }
 
 /** A source that plays right away outranks one that still needs a debrid or torrent resolve. */

@@ -2890,4 +2890,6 @@
     <string name="addons_reset_confirm_title">Reset the built-in sources?</string>
     <string name="addons_reset_confirm_message">They are removed and installed again in their original order. Sources you added yourself stay as they are.</string>
     <string name="addons_reset_confirm_action">Reset</string>
+    <string name="settings_stream_hide_junk_title">Hide low-quality releases</string>
+    <string name="settings_stream_hide_junk_description">Leaves out camera and screener recordings and size-only re-encodes such as YIFY, and ranks a remux above a web re-encode at the same resolution.</string>
 </resources>
