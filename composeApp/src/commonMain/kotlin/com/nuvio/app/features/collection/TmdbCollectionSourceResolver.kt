@@ -1,6 +1,7 @@
 package com.nuvio.app.features.collection
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.core.concurrent.runCatchingCancellable
 import com.nuvio.app.features.addons.httpGetText
 import com.nuvio.app.features.catalog.CatalogPage
 import com.nuvio.app.features.home.MetaPreview
@@ -362,7 +363,7 @@ object TmdbCollectionSourceResolver {
         query: Map<String, String> = emptyMap(),
     ): T? {
         val url = buildTmdbUrl(endpoint = endpoint, apiKey = apiKey, query = query)
-        return runCatching {
+        return runCatchingCancellable {
             json.decodeFromString<T>(httpGetText(url))
         }.onFailure { error ->
             log.w(error) { "TMDB source request failed for $endpoint" }

@@ -11,6 +11,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.app.core.concurrent.runCatchingCancellable
 import com.nuvio.app.features.p2p.P2pConsentDialog
 import com.nuvio.app.features.p2p.P2pCacheClearResult
 import com.nuvio.app.features.p2p.P2pCacheSize
@@ -109,7 +110,7 @@ internal fun PlaybackP2pSettings(
                         p2pCacheClearResult = null
                         p2pCacheClearFailed = false
                         coroutineScope.launch {
-                            runCatching { P2pStreamingEngine.clearCache() }
+                            runCatchingCancellable { P2pStreamingEngine.clearCache() }
                                 .onSuccess { p2pCacheClearResult = it }
                                 .onFailure { p2pCacheClearFailed = true }
                         }

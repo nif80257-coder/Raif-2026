@@ -1,6 +1,7 @@
 package com.nuvio.app.features.collection
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.core.concurrent.runCatchingCancellable
 import com.nuvio.app.core.auth.AuthRepository
 import com.nuvio.app.core.auth.AuthState
 import com.nuvio.app.core.network.SupabaseProvider
@@ -46,12 +47,12 @@ object CollectionSyncService {
 
     suspend fun pullFromServer(profileId: Int) {
         if (ProfileRepository.activeProfileId != profileId) return
-        runCatching {
+        runCatchingCancellable {
             val params = buildJsonObject {
                 put("p_profile_id", profileId)
             }
             val result = SupabaseProvider.client.postgrest.rpc("sync_pull_collections", params)
-            if (ProfileRepository.activeProfileId != profileId) return@runCatching
+            if (ProfileRepository.activeProfileId != profileId) return@runCatchingCancellable
             val blobs = result.decodeList<SupabaseCollectionBlob>()
             val blob = blobs.firstOrNull()
 
@@ -67,7 +68,7 @@ object CollectionSyncService {
             }
             val remoteJson = remoteCollectionsJson.toString()
             val localJson = CollectionRepository.exportToJson()
-            if (ProfileRepository.activeProfileId != profileId) return@runCatching
+            if (ProfileRepository.activeProfileId != profileId) return@runCatchingCancellable
 
             if (remoteJson == localJson) {
                 log.d { "pullFromServer — remote matches local, no update needed" }
@@ -79,7 +80,7 @@ object CollectionSyncService {
             }.getOrNull()
 
             if (remoteCollections != null) {
-                if (ProfileRepository.activeProfileId != profileId) return@runCatching
+                if (ProfileRepository.activeProfileId != profileId) return@runCatchingCancellable
                 isSyncingFromRemote = true
                 CollectionRepository.applyFromRemote(remoteCollections, remoteCollectionsJson)
                 isSyncingFromRemote = false
@@ -107,10 +108,10 @@ object CollectionSyncService {
     }
 
     private suspend fun pushToRemote(profileId: Int) {
-        runCatching {
-            if (ProfileRepository.activeProfileId != profileId) return@runCatching
+        runCatchingCancellable {
+            if (ProfileRepository.activeProfileId != profileId) return@runCatchingCancellable
             val collectionsJson = CollectionRepository.exportToJson()
-            if (ProfileRepository.activeProfileId != profileId) return@runCatching
+            if (ProfileRepository.activeProfileId != profileId) return@runCatchingCancellable
             val jsonElement = runCatching {
                 json.parseToJsonElement(collectionsJson)
             }.getOrDefault(JsonArray(emptyList()))

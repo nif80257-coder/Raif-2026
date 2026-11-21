@@ -107,7 +107,7 @@
 
 **ما أُصلح:** أُضيفت [`runCatchingCancellable`](../composeApp/src/commonMain/kotlin/com/nuvio/app/core/concurrent/CancellableRunCatching.kt) في `core/concurrent`، وحُوّلت إليها 43 موضعًا في ستة ملفات تحمل الخطر الأكبر: `EpisodeReleaseNotificationsRepository` (12)، `AuthRepository` (11)، `TraktAuthRepository` (9)، `ProfileRepository` (8)، `ProfileSettingsSync` (2)، `ParentalGuideRepository` (1). وقبلها `PartyRepository` و`PartyChannel` (13 موضعًا) عبر `sendQuietly`. الوظيفة المؤجَّلة في `features/streams` تبقى كما هي لأنها نسخة `suspend` تُعلن أن المستدعي قد يُعلَّق.
 
-**ما بقي من التصنيف B (11 موضعًا، لم تُلمس بعد):** `CollectionSyncService.kt` (تسعة مواضع: 49، 54، 70، 77، 82، 110، 111، 113، 114)، `PlaybackP2pSettings.kt:112`، و`TmdbCollectionSourceResolver.kt:365`. الثلاثة الأولى تحتاج تعديل `return@runCatching` إلى `return@runCatchingCancellable` معها، وهو ما تحقّق منه المترجم في الملفات المنجزة.
+**اكتمل التصنيف B:** أُنجزت المواضع الأحد عشر الأخيرة — `CollectionSyncService.kt` (تسعة، مع تحويل علامات `return@runCatching` الخمس إلى `return@runCatchingCancellable`)، و`PlaybackP2pSettings.kt:112` (مسح كاش P2P)، و`TmdbCollectionSourceResolver.kt:365`. المجموع المحوَّل إلى `runCatchingCancellable`/`sendQuietly`: **67 موضعًا** في 23 ملفًا.
 
 **التصنيف C (161 موضعًا، أعلاها):** `TraktProgressRepository` (12)، `CollectionEditorRepository` (10)، `CollectionSyncService` (9)، `TraktWatchedSyncAdapter` (7)، `MetaDetailsScreen` (6)، `TraktAuthRepository` (6)، `PluginRepository` (6). يُصلح على دفعات مع تشغيل الاختبارات، لا دفعة واحدة.
 
