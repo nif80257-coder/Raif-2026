@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import AVKit
+import AVFoundation
 import Network
 import SafariServices
 import UniformTypeIdentifiers
@@ -1693,6 +1694,9 @@ struct PlayerScreen: View {
     @State private var startMs: Int64 = 0
     @State private var ready = false
     @State private var showOptions = false
+    /// True while the viewer drags the scrubber, so the poller leaves the thumb alone.
+    @State private var scrubbing = false
+    @State private var scrubValue: Double = 0
     @State private var subtitleTracks: [TrackInfo] = []
     @State private var audioTracks: [TrackInfo] = []
     @State private var speed: Double = 1
@@ -1854,13 +1858,24 @@ struct PlayerScreen: View {
                 VStack(spacing: 10) {
                     Slider(
                         value: Binding(
-                            get: { position },
-                            set: { value in
-                                position = value
-                                player?.seekTo(Int64(value * 1000))
-                            }
+                            get: { scrubbing ? scrubValue : position },
+                            set: { scrubValue = $0 }
                         ),
-                        in: 0...max(1, duration)
+                        in: 0...max(1, duration),
+                        onEditingChanged: { editing in
+                            if editing {
+                                scrubValue = position
+                                scrubbing = true
+                            } else {
+                                position = scrubValue
+                                player?.seekTo(Int64(scrubValue * 1000))
+                                // Held a moment longer while libmpv catches up.
+                                Task {
+                                    try? await Task.sleep(nanoseconds: 700_000_000)
+                                    scrubbing = false
+                                }
+                            }
+                        }
                     )
                     .tint(CinemaTheme.accent)
 
@@ -2116,6 +2131,7 @@ struct PlayerScreen: View {
         }
         .task {
             UIApplication.shared.isIdleTimerDisabled = true
+            try? AVAudioSession.sharedInstance().setActive(true)
             OrientationManager.shared.setPlayerRotation(CinemaxPrefs.allowRotation)
             if sources.isEmpty {
                 currentURL = url
@@ -2144,6 +2160,10 @@ struct PlayerScreen: View {
             applyBrightness(savedBrightness)
             UIApplication.shared.isIdleTimerDisabled = false
             OrientationManager.shared.setPlayerRotation(false)
+            try? AVAudioSession.sharedInstance().setActive(
+                false,
+                options: .notifyOthersOnDeactivation
+            )
         }
         .onChange(of: duration) { value in
             // The track list is only reliable once the file is demuxed.
@@ -2302,7 +2322,9 @@ struct PlayerScreen: View {
                     }
                     playerError = player.errorMessage
                 }
-                position = Double(player.positionMs) / 1000
+                if !scrubbing {
+                    position = Double(player.positionMs) / 1000
+                }
                 duration = max(1, Double(player.durationMs) / 1000)
                 if player.ended {
                     saveProgress()
@@ -2483,6 +2505,7 @@ struct SystemPlayerScreen: View {
         .preferredColorScheme(.dark)
         .task {
             UIApplication.shared.isIdleTimerDisabled = true
+            try? AVAudioSession.sharedInstance().setActive(true)
             OrientationManager.shared.setPlayerRotation(CinemaxPrefs.allowRotation)
             if let item, CinemaxPrefs.autoResume {
                 startMs = await CinemaAPI.shared.resume(itemId: item.id, videoId: videoId)
@@ -2494,12 +2517,21 @@ struct SystemPlayerScreen: View {
             ticker?.invalidate()
             UIApplication.shared.isIdleTimerDisabled = false
             OrientationManager.shared.setPlayerRotation(false)
+            try? AVAudioSession.sharedInstance().setActive(
+                false,
+                options: .notifyOthersOnDeactivation
+            )
             saveProgress()
         }
     }
 
     private func prepare() {
-        guard let link = URL(string: url) else {
+        let link: URL
+        if url.hasPrefix("/") {
+            link = URL(fileURLWithPath: url)
+        } else if let remote = URL(string: url) {
+            link = remote
+        } else {
             errorText = "الرابط غير صالح"
             return
         }
@@ -4511,6 +4543,7 @@ struct LibraryView: View {
                     .background(CinemaTheme.surface, in: Capsule())
                     .padding(.horizontal, 20)
 
+                    if model.segment != 2 {
                     HStack(spacing: 8) {
                         ForEach(typeFilters, id: \.id) { filter in
                             Button {
@@ -4533,6 +4566,7 @@ struct LibraryView: View {
                         Spacer()
                     }
                     .padding(.horizontal, 20)
+                    }
 
                     if model.segment == 2 {
                         DownloadsView()
@@ -8422,7 +8456,11 @@ enum CinemaxPrefs {
             "cinemax.autoplayNext", "cinemax.design", "cinemax.defaultSpeed",
             "cinemax.notifications", "cinemax.seekSeconds", "cinemax.autoHideControls",
             "cinemax.autoResume", "cinemax.heroAuto", "cinemax.skipIntro",
-            "cinemax.prefQuality", "cinemax.playerEngine", posterWidthKey
+            "cinemax.prefQuality", "cinemax.playerEngine", "cinemax.hwdec",
+            "cinemax.mpvFast", "cinemax.cacheMB", "cinemax.allowRotation",
+            "cinemax.subCp1256", "cinemax.librarySort", "cinemax.searchKind",
+            "cinemax.showContinue", "cinemax.maxShelves",
+            posterWidthKey
         ]
         let lines = keys.map { key in
             "\(key) = \(defaults.object(forKey: key).map { "\($0)" } ?? "—")"
@@ -8437,7 +8475,11 @@ enum CinemaxPrefs {
             "cinemax.seekSeconds", "cinemax.autoHideControls", "cinemax.autoResume",
             "cinemax.heroAuto", "cinemax.skipIntro", "cinemax.prefQuality",
             "cinemax.playerEngine", "cinemax.subtitleLang", "cinemax.onboarded",
-            "cinemax.subtitleSize", "cinemax.subtitleAuto",
+            "cinemax.subtitleSize", "cinemax.subtitleAuto", "cinemax.hwdec",
+            "cinemax.mpvFast", "cinemax.cacheMB", "cinemax.allowRotation",
+            "cinemax.subCp1256", "cinemax.librarySort", "cinemax.searchKind",
+            "cinemax.showContinue", "cinemax.maxShelves", "cinemax.hiddenShelves",
+            "cinemax.homeFilter", "cinemax.sourcesCollapsed",
             historyKey, lastRefreshKey
         ] {
             UserDefaults.standard.removeObject(forKey: key)

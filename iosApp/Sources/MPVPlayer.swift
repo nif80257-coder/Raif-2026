@@ -483,6 +483,13 @@ final class MPVViewController: UIViewController {
             }
             pendingSeekWorkItem = work
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.7, execute: work)
+            // A slow source may not accept the first seek; one more attempt after
+            // the file has had time to open puts the viewer back where they were.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) { [weak self] in
+                guard let self, let ctx = self.mpv, self.isLoaded else { return }
+                if self.getDouble(ctx, "time-pos") > 0.5 { return }
+                self.seekTo(seekMs)
+            }
         }
     }
 

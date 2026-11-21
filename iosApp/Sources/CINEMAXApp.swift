@@ -37,16 +37,14 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-        // Without a playback audio session the silent switch mutes the player and
-        // Picture in Picture stops as soon as the app leaves the screen.
+        // The category is set once at launch; the players activate the session only
+        // while they are on screen, so opening the app never stops other audio.
         do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(
+            try AVAudioSession.sharedInstance().setCategory(
                 .playback,
                 mode: .moviePlayback,
                 options: [.allowAirPlay, .allowBluetoothA2DP]
             )
-            try session.setActive(true)
         } catch {
             // A failing audio session must never stop the app from opening.
         }
