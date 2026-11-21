@@ -25,6 +25,9 @@ final class MPVViewController: UIViewController {
     private var cachedDurationMs: Int64 = 0
     private var cachedPositionMs: Int64 = 0
     private var cachedEnded = false
+    /// Whether the viewer was watching when the app went to the background, so a
+    /// deliberate pause is not undone on the way back.
+    private var wasPlayingBeforeBackground = false
     /// The last warnings libmpv wrote, kept so a black picture can be explained.
     private var recentLog: [String] = []
 
@@ -70,6 +73,7 @@ final class MPVViewController: UIViewController {
 
     @objc private func appDidEnterBackground() {
         guard let mpv, isLoaded else { return }
+        wasPlayingBeforeBackground = !getFlag(mpv, "pause")
         pausePlayback()
         setString(mpv, "vid", "no")
     }
@@ -77,7 +81,9 @@ final class MPVViewController: UIViewController {
     @objc private func appWillEnterForeground() {
         guard let mpv, isLoaded else { return }
         setString(mpv, "vid", "auto")
-        playPlayback()
+        if wasPlayingBeforeBackground {
+            playPlayback()
+        }
     }
 
     deinit {
@@ -91,6 +97,7 @@ final class MPVViewController: UIViewController {
         pendingHeaders = Self.parseHeaders(headersJson)
         pendingStartMs = max(0, startMs)
         errorText = ""
+        recentLog.removeAll()
         isLoaded = false
         cachedPositionMs = 0
         cachedDurationMs = 0
@@ -419,6 +426,10 @@ final class MPVViewController: UIViewController {
         setOption(ctx, "config", "no")
         setOption(ctx, "terminal", "no")
         setOption(ctx, "sub-auto", "no")
+        // Arabic subtitle files are often still Windows-1256; auto lets libmpv
+        // guess, and the settings can force that encoding when the guess fails.
+        let arabicEncoding = (defaults.object(forKey: "cinemax.subCp1256") as? Bool) ?? false
+        setOption(ctx, "sub-codepage", arabicEncoding ? "cp1256" : "auto")
         // Embedded subtitle tracks stay off until the viewer picks one.
         setOption(ctx, "sid", "no")
 
@@ -481,6 +492,10 @@ final class MPVViewController: UIViewController {
         while true {
             guard let event = mpv_wait_event(ctx, 0) else { return }
             if event.pointee.event_id == MPV_EVENT_NONE { return }
+            if event.pointee.event_id == MPV_EVENT_FILE_LOADED {
+                // A file that opened clears whatever the last link complained about.
+                errorText = ""
+            }
             if event.pointee.event_id == MPV_EVENT_END_FILE, let data = event.pointee.data {
                 let endFile = UnsafePointer<mpv_event_end_file>(OpaquePointer(data)).pointee
                 if endFile.reason == MPV_END_FILE_REASON_ERROR {

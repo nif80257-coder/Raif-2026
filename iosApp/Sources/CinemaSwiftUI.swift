@@ -1427,6 +1427,8 @@ struct CinematicHomeView: View {
                     skeleton
                 } else if let error = model.error, model.heroItems.isEmpty {
                     emptyState(error)
+                } else if model.heroItems.isEmpty {
+                    emptyState("لا عناوين من النوع المختار. جرّب «الكل» أو ثبّت مصدرًا آخر.")
                 } else {
                     HeroCarousel(
                         items: model.heroItems,
@@ -1721,6 +1723,7 @@ struct PlayerScreen: View {
     @State private var poolIndex = 0
     @State private var playToken = 0
     @State private var autoTries = 0
+    @State private var loadTicks = 0
     @State private var playerError: String?
     @State private var diagnosticsText: String?
     @State private var currentURL = ""
@@ -1994,6 +1997,7 @@ struct PlayerScreen: View {
                     aspect: aspect,
                     zoom: zoom,
                     subtitlePosition: subtitlePosition,
+                    rotationAllowed: CinemaxPrefs.allowRotation,
                     sleepMinutes: sleepMinutes,
                     sleepRemaining: sleepRemaining,
                     onClose: { showOptions = false },
@@ -2050,6 +2054,10 @@ struct PlayerScreen: View {
                     onSubtitlePosition: { value in
                         subtitlePosition = value
                         player?.setSubtitlePosition(value)
+                    },
+                    onRotate: { landscape in
+                        Haptics.select()
+                        OrientationManager.shared.rotate(toLandscape: landscape)
                     },
                     onSleep: { minutes in
                         if let minutes {
@@ -2108,6 +2116,7 @@ struct PlayerScreen: View {
         }
         .task {
             UIApplication.shared.isIdleTimerDisabled = true
+            OrientationManager.shared.setPlayerRotation(CinemaxPrefs.allowRotation)
             if sources.isEmpty {
                 currentURL = url
                 currentHeaders = headers
@@ -2134,6 +2143,7 @@ struct PlayerScreen: View {
             saveProgress()
             applyBrightness(savedBrightness)
             UIApplication.shared.isIdleTimerDisabled = false
+            OrientationManager.shared.setPlayerRotation(false)
         }
         .onChange(of: duration) { value in
             // The track list is only reliable once the file is demuxed.
@@ -2191,7 +2201,7 @@ struct PlayerScreen: View {
     /// Writes the stop position back, so "أكمل المشاهدة" and resume stay accurate
     /// even when playback happened in this interface rather than the classic one.
     private func saveProgress() {
-        guard let item, duration > 0 else { return }
+        guard let item, duration > 5 else { return }
         CinemaAPI.shared.saveProgress(
             item: item,
             positionMs: Int64(position * 1000),
@@ -2274,6 +2284,16 @@ struct PlayerScreen: View {
                 // A link that never produced a duration is the one case worth
                 // reporting: the next source is tried on its own a couple of times
                 // first, then the viewer gets the error and the choice.
+                if player.durationMs == 0, player.errorMessage.isEmpty {
+                    // A source that says nothing at all still has to be stopped:
+                    // twenty seconds without a duration means it is not coming.
+                    loadTicks += 1
+                    if loadTicks > 40, playerError == nil {
+                        playerError = "لم يبدأ هذا المصدر بالبث خلال ٢٠ ثانية"
+                    }
+                } else {
+                    loadTicks = 0
+                }
                 if player.durationMs == 0, !player.errorMessage.isEmpty {
                     if pool.count > 1, autoTries < min(pool.count - 1, 3) {
                         autoTries += 1
@@ -2315,6 +2335,7 @@ struct PlayerScreen: View {
     private func retryPlayback() {
         playerError = nil
         autoTries = 0
+        loadTicks = 0
         playToken += 1
         Haptics.tap()
     }
@@ -2326,6 +2347,7 @@ struct PlayerScreen: View {
         poolIndex = (poolIndex + 1) % pool.count
         playerError = nil
         autoTries = 0
+        loadTicks = 0
         position = 0
         duration = 0
         startMs = 0
@@ -2461,6 +2483,7 @@ struct SystemPlayerScreen: View {
         .preferredColorScheme(.dark)
         .task {
             UIApplication.shared.isIdleTimerDisabled = true
+            OrientationManager.shared.setPlayerRotation(CinemaxPrefs.allowRotation)
             if let item, CinemaxPrefs.autoResume {
                 startMs = await CinemaAPI.shared.resume(itemId: item.id, videoId: videoId)
             }
@@ -2470,6 +2493,7 @@ struct SystemPlayerScreen: View {
         .onDisappear {
             ticker?.invalidate()
             UIApplication.shared.isIdleTimerDisabled = false
+            OrientationManager.shared.setPlayerRotation(false)
             saveProgress()
         }
     }
@@ -2484,6 +2508,9 @@ struct SystemPlayerScreen: View {
             : AVURLAsset(url: link, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
         let fresh = AVPlayer(playerItem: AVPlayerItem(asset: asset))
         fresh.allowsExternalPlayback = true
+        if #available(iOS 15.0, *) {
+            fresh.audiovisualBackgroundPlaybackPolicy = .continuesIfPossible
+        }
         player = fresh
         if startMs > 0 {
             fresh.seek(to: CMTime(value: startMs, timescale: 1000))
@@ -2589,6 +2616,8 @@ struct ExternalPlayerScreen: View {
             .padding(24)
         }
         .preferredColorScheme(.dark)
+        .task { OrientationManager.shared.setPlayerRotation(CinemaxPrefs.allowRotation) }
+        .onDisappear { OrientationManager.shared.setPlayerRotation(false) }
         .sheet(isPresented: $sharing) {
             if let link = URL(string: url) {
                 ShareSheet(items: [link])
@@ -2616,6 +2645,7 @@ struct PlayerOptionsPanel: View {
     let aspect: String
     let zoom: Double
     let subtitlePosition: Double
+    let rotationAllowed: Bool
     let sleepMinutes: Int?
     let sleepRemaining: Int
 
@@ -2630,6 +2660,7 @@ struct PlayerOptionsPanel: View {
     let onAspect: (String) -> Void
     let onZoom: (Double) -> Void
     let onSubtitlePosition: (Double) -> Void
+    let onRotate: (Bool) -> Void
     let onSleep: (Int?) -> Void
     let onSubtitleLink: (String) -> Void
     let onNextSource: () -> Void
@@ -2956,6 +2987,38 @@ struct PlayerOptionsPanel: View {
                         .padding(.vertical, 6)
                     }
 
+                    if rotationAllowed {
+                        label("اتجاه الشاشة")
+                        HStack(spacing: 8) {
+                            Button {
+                                onRotate(true)
+                            } label: {
+                                Label("أفقي", systemImage: "rectangle.landscape.rotate")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 7)
+                                    .background(Color.white.opacity(0.1), in: Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            Button {
+                                onRotate(false)
+                            } label: {
+                                Label("رأسي", systemImage: "rectangle.portrait.rotate")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 7)
+                                    .background(Color.white.opacity(0.1), in: Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            Spacer()
+                            Text("أو دوّر الجهاز")
+                                .font(.system(size: 10))
+                                .foregroundStyle(CinemaTheme.muted)
+                        }
+                    }
+
                     HStack(spacing: 6) {
                         label("مؤقت النوم")
                         Spacer()
@@ -2998,7 +3061,7 @@ struct PlayerOptionsPanel: View {
                 }
                 .padding(20)
             }
-            .frame(maxHeight: 420)
+            .frame(maxHeight: min(460, UIScreen.main.bounds.height * 0.82))
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 26, style: .continuous)
@@ -3881,6 +3944,12 @@ struct DetailView: View {
                     Text("لا يوجد رابط مباشر لهذا العنوان من إضافاتك.")
                         .font(.system(size: 13))
                         .foregroundStyle(CinemaTheme.muted)
+                    if !model.failures.isEmpty {
+                        Text(model.failures.prefix(4).joined(separator: " · "))
+                            .font(.system(size: 10))
+                            .foregroundStyle(CinemaTheme.favourite)
+                            .lineLimit(3)
+                    }
                     Button {
                         Haptics.tap()
                         Task {
@@ -6319,6 +6388,8 @@ struct StreamingSettings: View {
     @AppStorage("cinemax.hwdec") private var hardwareDecoding = true
     @AppStorage("cinemax.mpvFast") private var fastProfile = false
     @AppStorage("cinemax.cacheMB") private var cacheMB = 256
+    @AppStorage("cinemax.allowRotation") private var allowRotation = true
+    @AppStorage("cinemax.subCp1256") private var arabicSubtitleEncoding = false
 
     private let caches: [Int] = [128, 256, 512]
 
@@ -6343,6 +6414,30 @@ struct StreamingSettings: View {
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(.white)
                         Text("يخفف المعالجة لتشغيل 4K بسلاسة على الأجهزة الأضعف، بجودة رسم أقل قليلًا")
+                            .font(.system(size: 11))
+                            .foregroundStyle(CinemaTheme.muted)
+                    }
+                }
+                .tint(CinemaTheme.accent)
+
+                Toggle(isOn: $allowRotation) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("تدوير الشاشة في المشغّل")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.white)
+                        Text("يسمح للمشغّل بالدوران إلى الأفقي وحده؛ بقية التطبيق يبقى رأسيًا")
+                            .font(.system(size: 11))
+                            .foregroundStyle(CinemaTheme.muted)
+                    }
+                }
+                .tint(CinemaTheme.accent)
+
+                Toggle(isOn: $arabicSubtitleEncoding) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("ترميز عربي لملفات الترجمة (Windows-1256)")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.white)
+                        Text("فعّله إذا ظهرت الترجمة العربية رموزًا غريبة بدل الحروف")
                             .font(.system(size: 11))
                             .foregroundStyle(CinemaTheme.muted)
                     }
@@ -8278,6 +8373,11 @@ enum CinemaxPrefs {
     /// (Picture in Picture and AirPlay) or another app through the share sheet.
     static var playerEngine: String {
         UserDefaults.standard.string(forKey: "cinemax.playerEngine") ?? "mpv"
+    }
+
+    /// Lets the player turn the window to landscape while it is open.
+    static var allowRotation: Bool {
+        (UserDefaults.standard.object(forKey: "cinemax.allowRotation") as? Bool) ?? true
     }
 
     static var searchHistory: [String] {

@@ -31,6 +31,21 @@
 	     from PlistSanityCheck unless this key is present and true. -->
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<!-- The interface is portrait; the player asks the window for landscape while
+	     it is open, through supportedInterfaceOrientationsFor. -->
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
 	<!-- The system player can keep playing in Picture in Picture, which iOS
 	     only allows to an app that declares audio playback in the background. -->
 	<key>UIBackgroundModes</key>

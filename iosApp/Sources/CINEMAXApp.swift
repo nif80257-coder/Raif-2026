@@ -1,6 +1,33 @@
 import UIKit
 import SwiftUI
+import AVFoundation
 import CinemaxKit
+
+/// Which orientations the window allows right now. The app itself stays portrait;
+/// the player asks for landscape while it is on screen.
+final class OrientationManager {
+    static let shared = OrientationManager()
+
+    private(set) var mask: UIInterfaceOrientationMask = .portrait
+
+    var isPlayerActive: Bool { mask != .portrait }
+
+    /// Lets the player rotate (or locks the interface back to portrait) and asks
+    /// the window to follow immediately, so the picture turns with the phone.
+    func setPlayerRotation(_ allowed: Bool) {
+        mask = allowed ? .allButUpsideDown : .portrait
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
+        scene.keyWindow?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+        scene.requestGeometryUpdate(.iOS(interfaceOrientations: mask)) { _ in }
+    }
+
+    /// Turns the screen right now, for the player's own rotate button.
+    func rotate(toLandscape: Bool) {
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
+        let target: UIInterfaceOrientationMask = toLandscape ? .landscapeRight : .portrait
+        scene.requestGeometryUpdate(.iOS(interfaceOrientations: target)) { _ in }
+    }
+}
 
 /// UIKit entry point adopting the scene lifecycle. The window is created by the
 /// scene delegate, which is what iOS expects from an app built with a current SDK.
@@ -10,7 +37,27 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-        true
+        // Without a playback audio session the silent switch mutes the player and
+        // Picture in Picture stops as soon as the app leaves the screen.
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(
+                .playback,
+                mode: .moviePlayback,
+                options: [.allowAirPlay, .allowBluetoothA2DP]
+            )
+            try session.setActive(true)
+        } catch {
+            // A failing audio session must never stop the app from opening.
+        }
+        return true
+    }
+
+    func application(
+        _ application: UIApplication,
+        supportedInterfaceOrientationsFor window: UIWindow?
+    ) -> UIInterfaceOrientationMask {
+        OrientationManager.shared.mask
     }
 
     func application(
