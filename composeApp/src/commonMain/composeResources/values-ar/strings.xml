@@ -2664,6 +2664,7 @@
     <string name="addon_health_check_status_disabled">معطّلة</string>
     <string name="addon_health_check_status_unknown">لم تُفحص</string>
     <string name="addon_health_check_not_tested">لم تُفحص هذه الإضافة بعد.</string>
+    <string name="addon_health_check_checked_at">آخر فحص %1$s</string>
     <string name="addon_health_check_response_time">زمن الاستجابة: %1$d مللي ثانية</string>
     <string name="addon_health_check_manifest_version">إصدار Manifest: %1$s</string>
     <string name="addon_health_check_manifest_invalid">تعذّرت قراءة Manifest</string>

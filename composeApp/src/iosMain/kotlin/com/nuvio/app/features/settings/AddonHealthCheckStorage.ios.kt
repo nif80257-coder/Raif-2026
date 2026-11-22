@@ -10,6 +10,7 @@ actual object AddonHealthCheckStorage {
     private const val payloadKey = "addon_health_fingerprints"
     private const val alertShownDaysKey = "addon_health_alert_shown_days"
     private const val streamFailuresKey = "addon_stream_failures"
+    private const val checkResultsKey = "addon_health_check_results"
 
     private val json = Json { ignoreUnknownKeys = true }
     private val serializer = MapSerializer(String.serializer(), String.serializer())
@@ -59,6 +60,21 @@ actual object AddonHealthCheckStorage {
         NSUserDefaults.standardUserDefaults.setObject(
             json.encodeToString(serializer, failures),
             forKey = ProfileScopedKey.of(streamFailuresKey),
+        )
+    }
+
+    actual fun loadCheckResults(): Map<String, String> {
+        val payload = NSUserDefaults.standardUserDefaults
+            .stringForKey(ProfileScopedKey.of(checkResultsKey))
+            ?.takeIf { it.isNotBlank() }
+            ?: return emptyMap()
+        return runCatching { json.decodeFromString(serializer, payload) }.getOrDefault(emptyMap())
+    }
+
+    actual fun saveCheckResults(results: Map<String, String>) {
+        NSUserDefaults.standardUserDefaults.setObject(
+            json.encodeToString(serializer, results),
+            forKey = ProfileScopedKey.of(checkResultsKey),
         )
     }
 }

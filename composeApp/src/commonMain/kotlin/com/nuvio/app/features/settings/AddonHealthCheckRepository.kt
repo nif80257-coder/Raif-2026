@@ -45,6 +45,41 @@ internal object AddonHealthCheckRepository {
     private val _focusedAddonUrl = MutableStateFlow<String?>(null)
     val focusedAddonUrl: StateFlow<String?> = _focusedAddonUrl.asStateFlow()
 
+    private var hasLoadedStoredResults = false
+
+    /**
+     * Brings back the outcome of the last check.
+     *
+     * A check costs a manifest request and a known-title probe per source, so it is not repeated on
+     * every visit. Without this the screen would say "not tested" about every source as soon as the
+     * app is relaunched, forgetting answers that were paid for a minute earlier.
+     */
+    fun ensureLoaded() {
+        if (hasLoadedStoredResults) return
+        hasLoadedStoredResults = true
+        val stored = decodeAddonCheckResults(AddonHealthCheckStorage.loadCheckResults())
+        if (stored.isEmpty()) return
+        _results.update { current -> stored + current }
+    }
+
+    /**
+     * Writes the results back, keeping only sources that are still installed.
+     *
+     * A removed source would otherwise leave its result behind for good, and the stored map would
+     * grow with every source the user tried once.
+     */
+    private fun persistResults() {
+        val installed = AddonRepository.uiState.value.addons.mapTo(mutableSetOf()) { addon ->
+            addon.manifestUrl
+        }
+        val results = if (installed.isEmpty()) {
+            _results.value
+        } else {
+            _results.value.filterKeys(installed::contains)
+        }
+        AddonHealthCheckStorage.saveCheckResults(encodeAddonCheckResults(results))
+    }
+
     /** Asks the health check screen to open on a specific add-on. */
     fun requestFocus(manifestUrl: String) {
         _focusedAddonUrl.value = manifestUrl
@@ -58,6 +93,7 @@ internal object AddonHealthCheckRepository {
 
     fun checkAll() {
         AddonRepository.initialize()
+        ensureLoaded()
         val addons = AddonRepository.uiState.value.addons
         if (addons.isEmpty() || _isCheckingAll.value) return
         val urls = addons.mapTo(mutableSetOf()) { addon -> addon.manifestUrl }
@@ -78,12 +114,16 @@ internal object AddonHealthCheckRepository {
             } finally {
                 _checking.update { it - urls }
                 _isCheckingAll.value = false
+                // One write for the whole run: a run answers every source in a couple of seconds,
+                // and a write per answer would rewrite the map thirty times.
+                persistResults()
             }
         }
     }
 
     fun checkAddon(manifestUrl: String) {
         AddonRepository.initialize()
+        ensureLoaded()
         val addon = AddonRepository.uiState.value.addons
             .firstOrNull { it.manifestUrl == manifestUrl }
             ?: return
@@ -93,6 +133,7 @@ internal object AddonHealthCheckRepository {
             try {
                 val result = runCheck(addon)
                 _results.update { current -> current + (manifestUrl to result) }
+                persistResults()
             } catch (error: Throwable) {
                 log.w(error) { "Add-on health check failed for a single add-on" }
             } finally {
@@ -103,6 +144,7 @@ internal object AddonHealthCheckRepository {
 
     fun forget(manifestUrl: String) {
         _results.update { current -> current - manifestUrl }
+        persistResults()
         val addonId = AddonRepository.uiState.value.addons
             .firstOrNull { it.manifestUrl == manifestUrl }
             ?.manifest?.id

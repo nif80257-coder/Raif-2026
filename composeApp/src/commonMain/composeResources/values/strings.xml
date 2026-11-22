@@ -2693,6 +2693,7 @@
     <string name="addon_health_check_status_disabled">Disabled</string>
     <string name="addon_health_check_status_unknown">Not checked</string>
     <string name="addon_health_check_not_tested">This add-on has not been checked yet.</string>
+    <string name="addon_health_check_checked_at">last checked %1$s</string>
     <string name="addon_health_check_response_time">Response time: %1$d ms</string>
     <string name="addon_health_check_manifest_version">Manifest version: %1$s</string>
     <string name="addon_health_check_manifest_invalid">The manifest could not be read</string>

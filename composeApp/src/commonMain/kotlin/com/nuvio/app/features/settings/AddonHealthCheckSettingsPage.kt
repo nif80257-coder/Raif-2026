@@ -53,6 +53,8 @@ internal fun AddonHealthCheckContent(isTablet: Boolean) {
     var focusedAddonUrl by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
         AddonRepository.initialize()
+        // The last run is read once here, so the cards show what it found instead of "not tested".
+        AddonHealthCheckRepository.ensureLoaded()
         val pendingFocus = AddonHealthCheckRepository.consumeFocusedAddonUrl()
         if (pendingFocus != null) {
             focusedAddonUrl = pendingFocus
@@ -406,6 +408,13 @@ private fun AddonHealthCard(
                     color = tokens.colors.textMuted,
                 )
             } else {
+                failureAgeLabel(result.checkedAtEpochMs)?.let { age ->
+                    Text(
+                        text = stringResource(Res.string.addon_health_check_checked_at, age),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = tokens.colors.textMuted,
+                    )
+                }
                 result.responseTimeMs?.let { elapsed ->
                     Text(
                         text = stringResource(Res.string.addon_health_check_response_time, elapsed),
