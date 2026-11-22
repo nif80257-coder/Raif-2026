@@ -52,5 +52,8 @@
 	<array>
 		<string>audio</string>
 	</array>
+	<!-- The optional app lock asks for the device passcode or Face ID. -->
+	<key>NSFaceIDUsageDescription</key>
+	<string>يُستخدم Face ID لفتح CINEMAX عندما يُفعّل قفل التطبيق.</string>
 </dict>
 </plist>

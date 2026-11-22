@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 import AVKit
 import AVFoundation
+import LocalAuthentication
 import Network
 import SafariServices
 import UniformTypeIdentifiers
@@ -799,9 +800,13 @@ struct AmbientGlow: View {
                 }
             }
             .opacity(appear ? 1 : 0)
-            .animation(.easeInOut(duration: 1.1), value: palette)
+            .animation(CinemaxPrefs.reduceMotion ? nil : .easeInOut(duration: 1.1), value: palette)
             .onAppear {
-                withAnimation(.easeInOut(duration: 1.6)) { appear = true }
+                if CinemaxPrefs.reduceMotion {
+                    appear = true
+                } else {
+                    withAnimation(.easeInOut(duration: 1.6)) { appear = true }
+                }
             }
         }
         .allowsHitTesting(false)
@@ -1833,6 +1838,7 @@ struct PlayerScreen: View {
     @State private var lastDoubleTap = Date.distantPast
     @State private var locked = false
     @State private var bufferTicks = 0
+    @State private var didAutoSkipIntro = false
     @State private var resumeHint: String?
     @AppStorage("cinemax.playerHints") private var hintsShown = false
     @State private var brightness: Double = 0.6
@@ -1878,6 +1884,11 @@ struct PlayerScreen: View {
 
     /// The step the ±buttons take, chosen in Settings → التشغيل.
     private var seekStep: Double { Double(CinemaxPrefs.seekSeconds) }
+
+    /// Jumps past an opening sequence without a tap, when the viewer asked for it.
+    private var autoSkipIntro: Bool {
+        (UserDefaults.standard.object(forKey: "cinemax.autoSkipIntro") as? Bool) ?? false
+    }
 
     var body: some View {
         ZStack {
@@ -1946,9 +1957,10 @@ struct PlayerScreen: View {
                             Haptics.tap()
                             playNext()
                         } label: {
-                            Label("التالي", systemImage: "forward.end.fill")
+                            Label(upNext?.name ?? "التالي", systemImage: "forward.end.fill")
                                 .font(.system(size: 12, weight: .semibold))
                                 .foregroundStyle(.white)
+                                .lineLimit(1)
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 7)
                                 .background(CinemaTheme.elevated, in: Capsule())
@@ -2367,6 +2379,22 @@ struct PlayerScreen: View {
                     onCopyLink: {
                         Haptics.select()
                         UIPasteboard.general.string = currentURL
+                    },
+                    onMarkWatched: {
+                        Haptics.tap()
+                        if let item {
+                            let minutes: Int64 = 100 * 60 * 1000
+                            CinemaAPI.shared.saveProgress(
+                                item: item,
+                                positionMs: minutes,
+                                durationMs: minutes,
+                                videoId: currentVideoId,
+                                videoLabel: currentVideoLabel
+                            )
+                            Task { await LibraryModel.shared.load() }
+                        }
+                        resumeHint = "عُلم كمكتمل"
+                        showOptions = false
                     }
                 )
             }
@@ -2631,6 +2659,11 @@ struct PlayerScreen: View {
                     bufferTicks = 0
                 }
                 duration = max(1, Double(player.durationMs) / 1000)
+                if autoSkipIntro, !didAutoSkipIntro, duration > 300, position > 25, position < 80 {
+                    didAutoSkipIntro = true
+                    position = min(85, duration - 2)
+                    player.seekTo(Int64(position * 1000))
+                }
                 if player.ended {
                     saveProgress()
                     if autoplayNext, playNext() { return }
@@ -2675,6 +2708,7 @@ struct PlayerScreen: View {
         playerError = nil
         autoTries = 0
         loadTicks = 0
+        didAutoSkipIntro = false
         position = 0
         duration = 0
         startMs = 0
@@ -3013,6 +3047,7 @@ struct PlayerOptionsPanel: View {
     let onAddonSubtitle: (SubtitleChoice) -> Void
     let onDownload: () -> Void
     let onCopyLink: () -> Void
+    let onMarkWatched: () -> Void
 
     private let speeds: [Double] = [0.5, 0.75, 1, 1.25, 1.5, 2]
     @State private var subtitleLink = ""
@@ -3037,6 +3072,18 @@ struct PlayerOptionsPanel: View {
                         Spacer()
                         CircleButton(system: "xmark") { onClose() }
                     }
+
+                    Button {
+                        onMarkWatched()
+                    } label: {
+                        Label("علّم هذا التشغيل كمكتمل", systemImage: "checkmark.circle")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.accent)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(CinemaTheme.accent.opacity(0.12), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
 
                     if !subtitleTracks.isEmpty {
                         label("الترجمة")
@@ -5558,6 +5605,9 @@ struct OnboardingView: View {
 
 struct CinemaRootView: View {
     @AppStorage("cinemax.tab") private var selection = 0
+    @AppStorage("cinemax.appLock") private var appLock = false
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var unlocked = false
     @AppStorage("cinemax.accent") private var accent = "raif"
     @AppStorage("cinemax.oled") private var oled = false
     @AppStorage("cinemax.onboarded") private var onboarded = false
@@ -5603,6 +5653,43 @@ struct CinemaRootView: View {
         .tint(CinemaTheme.accent)
         .task {
             if !onboarded { showOnboarding = true }
+            if appLock { authenticate() }
+        }
+        .onChange(of: scenePhase) { phase in
+            if phase == .active, appLock { authenticate() }
+        }
+        .overlay {
+            if appLock, !unlocked {
+                ZStack {
+                    CinemaTheme.canvas.ignoresSafeArea()
+                    VStack(spacing: 14) {
+                        Image(systemName: "lock.shield.fill")
+                            .font(.system(size: 40, weight: .light))
+                            .foregroundStyle(CinemaTheme.accent)
+                        Text("CINEMAX مقفل")
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundStyle(.white)
+                        Text("افتح بقفل الجهاز أو Face ID للمتابعة")
+                            .font(.system(size: 12))
+                            .foregroundStyle(CinemaTheme.muted)
+                            .multilineTextAlignment(.center)
+                        Button {
+                            Haptics.tap()
+                            authenticate()
+                        } label: {
+                            Text("فتح")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(.black)
+                                .padding(.horizontal, 26)
+                                .padding(.vertical, 11)
+                                .background(CinemaTheme.accent, in: Capsule())
+                        }
+                        .buttonStyle(CinemaPressStyle())
+                    }
+                    .padding(24)
+                }
+                .transition(.opacity)
+            }
         }
         .sheet(isPresented: $showOnboarding) {
             OnboardingView(
@@ -5616,6 +5703,23 @@ struct CinemaRootView: View {
                     showOnboarding = false
                 }
             )
+        }
+    }
+
+    /// Asks for the device passcode or Face ID; a device with neither stays open
+    /// rather than locking the viewer out of their own app.
+    private func authenticate() {
+        let context = LAContext()
+        var failure: NSError?
+        guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &failure) else {
+            unlocked = true
+            return
+        }
+        context.evaluatePolicy(
+            .deviceOwnerAuthentication,
+            localizedReason: "لفتح CINEMAX"
+        ) { success, _ in
+            Task { @MainActor in unlocked = success }
         }
     }
 }
@@ -6632,6 +6736,7 @@ struct SubtitleSettings: View {
 struct PlaybackSettings: View {
     @AppStorage("cinemax.autoplayNext") private var autoplayNext = true
     @AppStorage("cinemax.skipIntro") private var skipIntro = true
+    @AppStorage("cinemax.autoSkipIntro") private var autoSkipIntro = false
     @AppStorage("cinemax.seekSeconds") private var seekSeconds = 10
     @AppStorage("cinemax.autoHideControls") private var autoHideControls = true
     @AppStorage("cinemax.autoResume") private var autoResume = true
@@ -6671,6 +6776,18 @@ struct PlaybackSettings: View {
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(.white)
                         Text("يظهر في أول دقيقة ونصف من الأفلام والمسلسلات الطويلة")
+                            .font(.system(size: 11))
+                            .foregroundStyle(CinemaTheme.muted)
+                    }
+                }
+                .tint(CinemaTheme.accent)
+
+                Toggle(isOn: $autoSkipIntro) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("تخطي المقدمة تلقائيًا")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.white)
+                        Text("ينتقل إلى الدقيقة الأولى ونصف وحده في العناوين الطويلة")
                             .font(.system(size: 11))
                             .foregroundStyle(CinemaTheme.muted)
                     }
@@ -7880,6 +7997,7 @@ struct DataSettings: View {
     @State private var favorites = 0
     @State private var message: String?
     @AppStorage("cinemax.notifications") private var notifications = true
+    @AppStorage("cinemax.appLock") private var appLock = false
     @State private var confirming: String?
     @State private var shareFile: ShareFile?
     @State private var importing = false
@@ -7923,6 +8041,21 @@ struct DataSettings: View {
                 .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
 
                 VStack(spacing: 0) {
+                    Toggle(isOn: $appLock) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("قفل التطبيق")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(.white)
+                            Text("يُطلب قفل الجهاز أو Face ID عند كل فتح — لحماية مكتبتك ممن يفتح الهاتف")
+                                .font(.system(size: 11))
+                                .foregroundStyle(CinemaTheme.muted)
+                        }
+                    }
+                    .tint(CinemaTheme.accent)
+                    .padding(.vertical, 12)
+
+                    Divider().overlay(CinemaTheme.hairline)
+
                     Toggle(isOn: $notifications) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("تنبيهات الحلقات")
@@ -9079,6 +9212,10 @@ enum CinemaxPrefs {
             "cinemax.subCp1256", "cinemax.librarySort", "cinemax.searchKind",
             "cinemax.showContinue", "cinemax.maxShelves", "cinemax.hiddenShelves",
             "cinemax.homeFilter", "cinemax.sourcesCollapsed",
+            "cinemax.appLock", "cinemax.autoSkipIntro", "cinemax.searchSort",
+            "cinemax.rowOrder", "cinemax.volume", "cinemax.aspect", "cinemax.zoom",
+            "cinemax.subPos", "cinemax.showHero", "cinemax.autoRefresh",
+            "cinemax.playerHints",
             historyKey, lastRefreshKey
         ] {
             UserDefaults.standard.removeObject(forKey: key)
