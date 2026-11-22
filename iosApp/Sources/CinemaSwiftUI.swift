@@ -3938,6 +3938,54 @@ final class DetailModel: ObservableObject {
     }
 }
 
+/// What the viewer decided about sources once, kept for every title: links they hid,
+/// addons they switched off and groups they folded. An addon switched off here is
+/// not even asked next time, which is the fastest source of all.
+enum SourcePrefs {
+    private static let hiddenKey = "cinemax.hiddenSources"
+    private static let offKey = "cinemax.offSourceAddons"
+    private static let foldedKey = "cinemax.foldedSourceGroups"
+
+    static var hidden: Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: hiddenKey) ?? [])
+    }
+
+    static func hide(_ url: String, _ value: Bool) {
+        var current = hidden
+        if value { current.insert(url) } else { current.remove(url) }
+        UserDefaults.standard.set(Array(current), forKey: hiddenKey)
+    }
+
+    static func resetHiding() {
+        UserDefaults.standard.removeObject(forKey: hiddenKey)
+    }
+
+    static var offAddons: Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: offKey) ?? [])
+    }
+
+    /// The native side reads the same key, so a switched-off addon is skipped at fetch.
+    static func setAddon(_ name: String, on: Bool) {
+        var current = offAddons
+        if on { current.remove(name) } else { current.insert(name) }
+        UserDefaults.standard.set(Array(current), forKey: offKey)
+    }
+
+    static func resetAddons() {
+        UserDefaults.standard.removeObject(forKey: offKey)
+    }
+
+    static var folded: Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: foldedKey) ?? [])
+    }
+
+    static func fold(_ group: String, _ value: Bool) {
+        var current = folded
+        if value { current.insert(group) } else { current.remove(group) }
+        UserDefaults.standard.set(Array(current), forKey: foldedKey)
+    }
+}
+
 struct DetailView: View {
     let item: CinemaItem
     var onFavorite: () -> Void = {}
@@ -3961,6 +4009,10 @@ struct DetailView: View {
     @State private var trailerTarget: SafariTarget?
     @State private var copied: String?
     @State private var listPicker = false
+    @State private var hiddenSources: Set<String> = SourcePrefs.hidden
+    @State private var offAddons: Set<String> = SourcePrefs.offAddons
+    @State private var foldedGroups: Set<String> = SourcePrefs.folded
+    @AppStorage("cinemax.sourcesCompact") private var compactSources = false
 
     private var playlist: [CinemaItem] {
         guard let detail = model.detail, !detail.episodes.isEmpty else { return [] }
@@ -4039,6 +4091,13 @@ struct DetailView: View {
         }
         .refreshable {
             await model.loadStreams(id: episode?.id ?? item.id, type: item.type)
+        }
+        .onAppear {
+            // The source decisions are shared by every title, so they are re-read
+            // whenever the page opens instead of only once.
+            hiddenSources = SourcePrefs.hidden
+            offAddons = SourcePrefs.offAddons
+            foldedGroups = SourcePrefs.folded
         }
         .task(id: item.id) {
             similar = await CinemaAPI.shared.similar(item: item)
@@ -4560,9 +4619,10 @@ struct DetailView: View {
         return "شوهدت \(seen) من \(inSeason.count) حلقة في هذا الموسم"
     }
 
-    /// The addons that returned a source here, for the filter chips.
+    /// The addons that returned a source here, for the filter chips. A switched-off
+    /// addon leaves the chips row with its links.
     private var addonNames: [String] {
-        Array(Set(model.streams.map(\.addon))).sorted()
+        Array(Set(model.streams.filter { !offAddons.contains($0.addon) }.map(\.addon))).sorted()
     }
 
     private func addonChip(_ title: String, _ value: String?) -> some View {
@@ -4582,6 +4642,98 @@ struct DetailView: View {
                 }
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            if let value {
+                Button {
+                    toggleAddon(value)
+                } label: {
+                    Label("إطفاء \(value)", systemImage: "power")
+                }
+            }
+        }
+    }
+
+    // MARK: - Source controls
+
+    /// One menu for everything the viewer can do to the list itself.
+    private var sourcesMenu: some View {
+        Menu {
+            Button {
+                Haptics.tap()
+                Task { await model.loadStreams(id: episode?.id ?? item.id, type: item.type) }
+            } label: {
+                Label("إعادة جلب المصادر", systemImage: "arrow.clockwise")
+            }
+            if !hiddenSources.isEmpty {
+                Button {
+                    Haptics.tap()
+                    showAllSources()
+                } label: {
+                    Label("إظهار \(hiddenSources.count) رابطًا مخفيًا", systemImage: "eye")
+                }
+            }
+            if !offAddons.isEmpty {
+                Button {
+                    Haptics.tap()
+                    offAddons = []
+                    SourcePrefs.resetAddons()
+                } label: {
+                    Label("تشغيل \(offAddons.count) إضافة متوقفة", systemImage: "power")
+                }
+            }
+            Button {
+                Haptics.select()
+                compactSources.toggle()
+            } label: {
+                Label(
+                    compactSources ? "عرض عريض" : "عرض مضغوط",
+                    systemImage: compactSources ? "rectangle.expand.vertical" : "rectangle.compress.vertical"
+                )
+            }
+        } label: {
+            Label("خيارات المصادر", systemImage: "slider.horizontal.3")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(CinemaTheme.accent)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(CinemaTheme.accent.opacity(0.14), in: Capsule())
+        }
+    }
+
+    private func groupKey(_ quality: String) -> String { "quality:" + quality }
+
+    private func foldGroup(_ quality: String) {
+        let key = groupKey(quality)
+        if foldedGroups.contains(key) {
+            foldedGroups.remove(key)
+        } else {
+            foldedGroups.insert(key)
+        }
+        SourcePrefs.fold(key, foldedGroups.contains(key))
+    }
+
+    private func hide(_ stream: StreamChoice) {
+        Haptics.tap()
+        hiddenSources.insert(stream.url)
+        SourcePrefs.hide(stream.url, true)
+    }
+
+    private func showAllSources() {
+        hiddenSources = []
+        SourcePrefs.resetHiding()
+    }
+
+    /// Switches one addon's links on or off everywhere, and stops asking it.
+    private func toggleAddon(_ name: String) {
+        Haptics.select()
+        let turningOff = !offAddons.contains(name)
+        if turningOff {
+            offAddons.insert(name)
+        } else {
+            offAddons.remove(name)
+        }
+        SourcePrefs.setAddon(name, on: !turningOff)
+        if turningOff, addonFilter == name { addonFilter = nil }
     }
 
     /// The link this title last played with, marked in the list.
@@ -4643,6 +4795,8 @@ struct DetailView: View {
     private var filteredStreams: [StreamChoice] {
         let known = ["4K", "1080p", "720p", "480p"]
         let list = model.streams.filter { stream in
+            if hiddenSources.contains(stream.url) { return false }
+            if offAddons.contains(stream.addon) { return false }
             if let addonFilter, stream.addon != addonFilter { return false }
             guard let qualityFilter else { return true }
             let tier = stream.quality.flatMap { known.contains($0) ? $0 : nil } ?? "أخرى"
@@ -4735,6 +4889,25 @@ struct DetailView: View {
                     Spacer()
                 }
                 .padding(.horizontal, 20)
+
+                HStack(spacing: 10) {
+                    sourcesMenu
+                    Text(compactSources ? "عرض مضغوط" : "عرض عريض")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.muted)
+                    if !hiddenSources.isEmpty {
+                        Text("· \(hiddenSources.count) مخفي")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(CinemaTheme.muted)
+                    }
+                    if !offAddons.isEmpty {
+                        Text("· \(offAddons.count) إضافة متوقفة")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(CinemaTheme.favourite)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 20)
                 if !model.failures.isEmpty {
                     Text(model.failures.prefix(3).joined(separator: " · "))
                         .font(.system(size: 10))
@@ -4784,6 +4957,42 @@ struct DetailView: View {
                     .buttonStyle(CinemaPressStyle())
                 }
                 .padding(.horizontal, 20)
+            } else if filteredStreams.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("كل الروابط مخفية أو إضافتها متوقفة.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(CinemaTheme.muted)
+                    HStack(spacing: 8) {
+                        Button {
+                            Haptics.tap()
+                            showAllSources()
+                        } label: {
+                            Text("إظهار كل الروابط")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.black)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(CinemaTheme.accent, in: Capsule())
+                        }
+                        .buttonStyle(CinemaPressStyle())
+                        if !offAddons.isEmpty {
+                            Button {
+                                Haptics.tap()
+                                offAddons = []
+                                SourcePrefs.resetAddons()
+                            } label: {
+                                Text("تشغيل كل الإضافات")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(CinemaTheme.accent)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 8)
+                                    .background(CinemaTheme.accent.opacity(0.14), in: Capsule())
+                            }
+                            .buttonStyle(CinemaPressStyle())
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
@@ -4807,12 +5016,37 @@ struct DetailView: View {
                 }
                 ForEach(groupedStreams) { group in
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("\(group.id) · \(group.streams.count)")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(CinemaTheme.muted)
+                        Button {
+                            Haptics.select()
+                            withAnimation(.easeInOut(duration: 0.15)) { foldGroup(group.id) }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(
+                                    systemName: foldedGroups.contains(groupKey(group.id))
+                                        ? "chevron.left"
+                                        : "chevron.down"
+                                )
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(CinemaTheme.muted)
+                                Text("\(group.id) · \(group.streams.count)")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(CinemaTheme.muted)
+                                Spacer()
+                                if foldedGroups.contains(groupKey(group.id)) {
+                                    Text("فتح")
+                                        .font(.system(size: 10, weight: .semibold))
+                                        .foregroundStyle(CinemaTheme.accent)
+                                }
+                            }
                             .padding(.horizontal, 20)
-                        ForEach(group.streams) { stream in
-                            sourceRow(stream)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+
+                        if !foldedGroups.contains(groupKey(group.id)) {
+                            ForEach(group.streams) { stream in
+                                sourceRow(stream)
+                            }
                         }
                     }
                 }
@@ -4881,7 +5115,7 @@ struct DetailView: View {
                         .foregroundStyle(CinemaTheme.accent)
                 }
             }
-            .padding(14)
+            .padding(compactSources ? 10 : 14)
             .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -4893,6 +5127,18 @@ struct DetailView: View {
         }
         .buttonStyle(CinemaPressStyle())
         .contextMenu {
+            Button {
+                Haptics.tap()
+                hide(stream)
+            } label: {
+                Label("إخفاء هذا الرابط", systemImage: "eye.slash")
+            }
+            Button {
+                toggleAddon(stream.addon)
+            } label: {
+                Label("إطفاء \(stream.addon)", systemImage: "power")
+            }
+            Divider()
             Button {
                 DownloadManager.shared.start(title: item.name, urlString: stream.url)
                 Haptics.tap()
@@ -6669,6 +6915,7 @@ struct SettingsView: View {
             Destination(id: "appearance", title: "المظهر واللغة", detail: "لون، أنماط جاهزة، زوايا، اهتزاز", icon: "paintpalette.fill", keywords: "لون مظهر نمط زوايا اهتزاز oled accent theme"),
             Destination(id: "layout", title: "التخطيط", detail: "تصميم الرئيسية، الهيرو، الصفوف", icon: "rectangle.3.group.fill", keywords: "تخطيط رئيسية صفوف هيرو بوستر home layout"),
             Destination(id: "addons", title: "الإضافات", detail: "تثبيت، فحص، تحديث، ترتيب، إعدادات كل إضافة", icon: "puzzlepiece.extension.fill", keywords: "اضافات ستريميو addons stremio manifest"),
+            Destination(id: "sources", title: "المصادر", detail: "تشغيل إضافة أو إطفاؤها، المخفي، العرض", icon: "slider.horizontal.3", keywords: "مصادر اطفاء تشغيل اخفاء طي عرض sources hide off"),
             Destination(id: "nuvio", title: "مزوّدو Nuvio", detail: "مستودعات، مزوّدون، بروكسي وكوكي", icon: "bolt.horizontal.circle.fill", keywords: "نيفيو مزود مستودع بروكسي كوكي nuvio provider repo"),
             Destination(id: "tmdb", title: "TMDB", detail: "مفتاح الكتالوج العربي", icon: "star.bubble.fill", keywords: "tmdb مفتاح كتالوج"),
             Destination(id: "sharing", title: "تصدير ومشاركة", detail: "روابط، ملف JSON، استيراد", icon: "square.and.arrow.up.on.square.fill", keywords: "تصدير استيراد مشاركة json نسخة روابط share"),
@@ -6698,6 +6945,7 @@ struct SettingsView: View {
         case "appearance": AppearanceSettings()
         case "layout": LayoutSettings()
         case "addons": AddonsSettings()
+        case "sources": SourcesControlSettings()
         case "nuvio": NuvioSettings()
         case "tmdb": TmdbSettings()
         case "sharing": SharingSettings()
@@ -6842,6 +7090,17 @@ struct SettingsView: View {
                                 icon: "puzzlepiece.extension.fill",
                                 title: "الإضافات",
                                 detail: "ثبّت المصادر الجاهزة، أضف رابطًا، أو أزل إضافة"
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        NavigationLink {
+                            SourcesControlSettings()
+                        } label: {
+                            SettingsRow(
+                                icon: "slider.horizontal.3",
+                                title: "المصادر",
+                                detail: "إطفاء إضافة أو تشغيلها، الروابط المخفية، وشكل القائمة"
                             )
                         }
                         .buttonStyle(.plain)
@@ -9505,6 +9764,251 @@ struct AddonDetailView: View {
             message = error.localizedDescription
         }
         updating = false
+    }
+}
+
+/// The control panel for the sources list: which addons may answer, what the viewer
+/// hid, and how the list itself is shown.
+struct SourcesControlSettings: View {
+    @State private var addons: [InstalledAddonRow] = []
+    @State private var offAddons: Set<String> = SourcePrefs.offAddons
+    @State private var hiddenCount = SourcePrefs.hidden.count
+    @State private var foldedCount = SourcePrefs.folded.count
+    @AppStorage("cinemax.sourcesCompact") private var compact = false
+    @AppStorage("cinemax.speedFirst") private var speedFirst = false
+    @AppStorage("cinemax.prefQuality") private var prefQuality = "auto"
+
+    private let qualities: [(id: String, title: String)] = [
+        ("auto", "تلقائي"), ("4K", "4K"), ("1080p", "1080p"), ("720p", "720p")
+    ]
+
+    private var onCount: Int {
+        addons.filter { !offAddons.contains($0.name) }.count
+    }
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(spacing: 10) {
+                    tile("\(onCount)", "تعمل", tint: CinemaTheme.accent)
+                    tile("\(offAddons.count)", "متوقفة", tint: CinemaTheme.favourite)
+                    tile("\(hiddenCount)", "روابط مخفية", tint: CinemaTheme.muted)
+                }
+
+                Text("الإضافة المتوقفة لا تُسأل أصلًا، فلا تستهلك وقتًا في جلب المصادر. الروابط المخفية تُستبعد من القائمة فقط.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(CinemaTheme.muted)
+                    .lineSpacing(4)
+
+                addonSection
+                displaySection
+                manageSection
+            }
+            .padding(20)
+        }
+        .background(CinemaTheme.canvas.ignoresSafeArea())
+        .navigationTitle("المصادر")
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            addons = await CinemaAPI.shared.installedAddons()
+            offAddons = SourcePrefs.offAddons
+            hiddenCount = SourcePrefs.hidden.count
+            foldedCount = SourcePrefs.folded.count
+        }
+    }
+
+    private func tile(_ value: String, _ title: String, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(value)
+                .font(.system(size: 20, weight: .heavy))
+                .foregroundStyle(tint)
+            Text(title)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(CinemaTheme.muted)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    @ViewBuilder
+    private var addonSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("الإضافات والمزوّدون")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(CinemaTheme.muted)
+
+            if addons.isEmpty {
+                Text("لا إضافة مثبتة بعد.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(CinemaTheme.muted)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(addons.enumerated()), id: \.element.id) { index, addon in
+                        HStack(spacing: 10) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(addon.name)
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .lineLimit(1)
+                                Text("الإصدار \(addon.version)")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(CinemaTheme.muted)
+                            }
+                            Spacer()
+                            Toggle("", isOn: Binding(
+                                get: { !offAddons.contains(addon.name) },
+                                set: { on in setAddon(addon.name, on: on) }
+                            ))
+                            .labelsHidden()
+                            .tint(CinemaTheme.accent)
+                        }
+                        .padding(.vertical, 9)
+                        if index < addons.count - 1 {
+                            Divider().overlay(CinemaTheme.hairline)
+                        }
+                    }
+                }
+                .padding(.horizontal, 14)
+                .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+        }
+    }
+
+    private var displaySection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("طريقة العرض والترتيب")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(CinemaTheme.muted)
+
+            Toggle(isOn: $compact) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("عرض مضغوط للمصادر")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Text("صفوف أقصر بلا وسوم إضافية، لرؤية روابط أكثر في الشاشة")
+                        .font(.system(size: 10))
+                        .foregroundStyle(CinemaTheme.muted)
+                }
+            }
+            .tint(CinemaTheme.accent)
+
+            Toggle(isOn: $speedFirst) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("السرعة قبل الجودة")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Text("يُقاس الرابط بتحميل جزء صغير، والأسرع يظهر أولًا")
+                        .font(.system(size: 10))
+                        .foregroundStyle(CinemaTheme.muted)
+                }
+            }
+            .tint(CinemaTheme.accent)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("الجودة المفضلة")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(CinemaTheme.muted)
+                HStack(spacing: 8) {
+                    ForEach(qualities, id: \.id) { entry in
+                        Button {
+                            Haptics.select()
+                            prefQuality = entry.id
+                        } label: {
+                            Text(entry.title)
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(prefQuality == entry.id ? .black : .white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                                .background {
+                                    Capsule().fill(
+                                        prefQuality == entry.id
+                                            ? CinemaTheme.accent
+                                            : Color.white.opacity(0.08)
+                                    )
+                                }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private var manageSection: some View {
+        VStack(spacing: 10) {
+            Button {
+                Haptics.tap()
+                offAddons = []
+                SourcePrefs.resetAddons()
+            } label: {
+                actionLabel(
+                    "تشغيل كل الإضافات",
+                    icon: "power",
+                    tint: offAddons.isEmpty ? CinemaTheme.muted : .white
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(offAddons.isEmpty)
+
+            Button {
+                Haptics.tap()
+                hiddenCount = 0
+                SourcePrefs.resetHiding()
+            } label: {
+                actionLabel(
+                    "إظهار كل الروابط المخفية (\(hiddenCount))",
+                    icon: "eye",
+                    tint: hiddenCount == 0 ? CinemaTheme.muted : .white
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(hiddenCount == 0)
+
+            Button {
+                Haptics.tap()
+                foldedCount = 0
+                for quality in ["4K", "1080p", "720p", "480p", "أخرى"] {
+                    SourcePrefs.fold("quality:" + quality, false)
+                }
+            } label: {
+                actionLabel(
+                    "فتح كل المجموعات المطويّة",
+                    icon: "chevron.down",
+                    tint: CinemaTheme.muted
+                )
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func actionLabel(_ title: String, icon: String, tint: Color) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 24)
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(tint)
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 13)
+        .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .contentShape(Rectangle())
+    }
+
+    private func setAddon(_ name: String, on: Bool) {
+        Haptics.select()
+        if on {
+            offAddons.remove(name)
+        } else {
+            offAddons.insert(name)
+        }
+        SourcePrefs.setAddon(name, on: on)
     }
 }
 

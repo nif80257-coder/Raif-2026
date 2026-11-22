@@ -576,7 +576,8 @@ class CinemaxAppleBridge {
                 } else {
                     itemId
                 }
-                val addons = addonStore.load().filter { AddonCapabilities.supportsStreams(it, type, queryId) }
+                val addons = addonStore.load()
+                    .filter { AddonCapabilities.supportsStreams(it, type, queryId) && it.name !in offSourceNames() }
                 val failures = mutableListOf<String>()
                 val found = coroutineScope {
                     addons.map { addon ->
@@ -699,7 +700,7 @@ class CinemaxAppleBridge {
                     itemId
                 }
                 val addons = addonStore.load()
-                    .filter { AddonCapabilities.supportsStreams(it, type, queryId) }
+                    .filter { AddonCapabilities.supportsStreams(it, type, queryId) && it.name !in offSourceNames() }
 
                 val workers = addons.map { addon ->
                     launch {
@@ -749,6 +750,17 @@ class CinemaxAppleBridge {
         }
     }
 
+    /**
+     * Addons and providers the viewer switched off in the sources list. They are not
+     * merely hidden: they are never asked, which also shortens the wait.
+     */
+    private fun offSourceNames(): Set<String> =
+        NSUserDefaults.standardUserDefaults
+            .stringArrayForKey("cinemax.offSourceAddons")
+            ?.filterIsInstance<String>()
+            ?.toSet()
+            ?: emptySet()
+
     /** Runs every enabled Nuvio provider and returns its links, reporting failures. */
     private suspend fun nuvioStreams(
         itemId: String,
@@ -771,7 +783,9 @@ class CinemaxAppleBridge {
                         )
                     }
             }
-        if (providers.isEmpty()) return emptyList()
+        // A provider the viewer switched off is never asked, so it costs no time.
+        val active = providers.filter { it.displayName !in offSourceNames() }
+        if (active.isEmpty()) return emptyList()
         val (season, episode) = seasonEpisodeOf(itemId, type)
         val request = try {
             tmdbResolver.request(itemId, type, season, episode)
@@ -784,7 +798,7 @@ class CinemaxAppleBridge {
             return emptyList()
         }
         val report = try {
-            nuvioSourcesFrom(nuvioClient, nuvioRuntime, providers, request)
+            nuvioSourcesFrom(nuvioClient, nuvioRuntime, active, request)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
