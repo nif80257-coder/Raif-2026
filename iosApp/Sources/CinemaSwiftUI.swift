@@ -1633,6 +1633,17 @@ struct CinematicHomeView: View {
                 .background(.ultraThinMaterial, in: Capsule())
             Button {
                 Haptics.tap()
+                Task { await model.load(force: true) }
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(CinemaTheme.muted)
+                    .frame(width: 34, height: 34)
+                    .background(.ultraThinMaterial, in: Circle())
+            }
+            .buttonStyle(.plain)
+            Button {
+                Haptics.tap()
                 if let pick = model.heroItems.randomElement() { detailItem = pick }
             } label: {
                 Image(systemName: "dice")
@@ -1885,6 +1896,16 @@ struct PlayerScreen: View {
     /// The step the ±buttons take, chosen in Settings → التشغيل.
     private var seekStep: Double { Double(CinemaxPrefs.seekSeconds) }
 
+    /// Episodes of this title already watched to the end, for the sheet's ticks.
+    private var watchedEpisodeLabels: Set<String> {
+        guard let item else { return [] }
+        return Set(
+            LibraryModel.shared.progress
+                .filter { $0.item.id == item.id && $0.fraction >= 0.9 }
+                .compactMap(\.episodeLabel)
+        )
+    }
+
     /// Jumps past an opening sequence without a tap, when the viewer asked for it.
     private var autoSkipIntro: Bool {
         (UserDefaults.standard.object(forKey: "cinemax.autoSkipIntro") as? Bool) ?? false
@@ -2099,17 +2120,23 @@ struct PlayerScreen: View {
 
                         Spacer()
                         if sleepDeadline != nil {
-                            HStack(spacing: 4) {
-                                Image(systemName: "moon.zzz.fill")
-                                    .font(.system(size: 10, weight: .semibold))
-                                Text(clock(Double(sleepRemaining)))
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .monospacedDigit()
+                            Button {
+                                Haptics.tap()
+                                showOptions = true
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "moon.zzz.fill")
+                                        .font(.system(size: 10, weight: .semibold))
+                                    Text(clock(Double(sleepRemaining)))
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .monospacedDigit()
+                                }
+                                .foregroundStyle(CinemaTheme.accent)
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 5)
+                                .background(CinemaTheme.accent.opacity(0.14), in: Capsule())
                             }
-                            .foregroundStyle(CinemaTheme.accent)
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 5)
-                            .background(CinemaTheme.accent.opacity(0.14), in: Capsule())
+                            .buttonStyle(.plain)
                         }
                         Button {
                             Haptics.select()
@@ -2404,6 +2431,7 @@ struct PlayerScreen: View {
             PlayerEpisodeSheet(
                 episodes: episodes,
                 currentVideoId: currentVideoId,
+                watchedLabels: watchedEpisodeLabels,
                 onPick: { episode in
                     showEpisodes = false
                     play(episode: episode)
@@ -3524,8 +3552,17 @@ struct PlayerOptionsPanel: View {
 struct PlayerEpisodeSheet: View {
     let episodes: [CinemaItem]
     let currentVideoId: String?
+    var watchedLabels: Set<String> = []
     let onPick: (CinemaItem) -> Void
     let onClose: () -> Void
+
+    @State private var query = ""
+
+    private var visible: [CinemaItem] {
+        let text = query.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return episodes }
+        return episodes.filter { $0.name.localizedCaseInsensitiveContains(text) }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -3544,44 +3581,84 @@ struct PlayerEpisodeSheet: View {
             }
             .padding(.horizontal, 20)
             .padding(.top, 18)
-            .padding(.bottom, 12)
+            .padding(.bottom, 10)
 
-            ScrollView(showsIndicators: false) {
-                LazyVStack(spacing: 8) {
-                    ForEach(episodes) { episode in
-                        Button {
-                            Haptics.select()
-                            onPick(episode)
-                        } label: {
-                            HStack(spacing: 10) {
-                                Text(episode.name)
-                                    .font(.system(
-                                        size: 14,
-                                        weight: episode.id == currentVideoId ? .bold : .regular
-                                    ))
-                                    .foregroundStyle(episode.id == currentVideoId ? CinemaTheme.accent : .white)
-                                    .lineLimit(2)
-                                    .multilineTextAlignment(.leading)
-                                Spacer(minLength: 8)
-                                if episode.id == currentVideoId {
-                                    Image(systemName: "play.fill")
-                                        .font(.system(size: 11, weight: .bold))
-                                        .foregroundStyle(CinemaTheme.accent)
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 12))
+                    .foregroundStyle(CinemaTheme.muted)
+                TextField("ابحث عن حلقة", text: $query)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white)
+                    .autocorrectionDisabled()
+                if !query.isEmpty {
+                    Button {
+                        query = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 12))
+                            .foregroundStyle(CinemaTheme.muted)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(CinemaTheme.surface, in: Capsule())
+            .padding(.horizontal, 20)
+            .padding(.bottom, 10)
+
+            ScrollViewReader { proxy in
+                ScrollView(showsIndicators: false) {
+                    LazyVStack(spacing: 8) {
+                        ForEach(visible) { episode in
+                            Button {
+                                Haptics.select()
+                                onPick(episode)
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Text(episode.name)
+                                        .font(.system(
+                                            size: 14,
+                                            weight: episode.id == currentVideoId ? .bold : .regular
+                                        ))
+                                        .foregroundStyle(episode.id == currentVideoId ? CinemaTheme.accent : .white)
+                                        .lineLimit(2)
+                                        .multilineTextAlignment(.leading)
+                                    if watchedLabels.contains(episode.name) {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .font(.system(size: 12))
+                                            .foregroundStyle(CinemaTheme.accent.opacity(0.8))
+                                    }
+                                    Spacer(minLength: 8)
+                                    if episode.id == currentVideoId {
+                                        Image(systemName: "play.fill")
+                                            .font(.system(size: 11, weight: .bold))
+                                            .foregroundStyle(CinemaTheme.accent)
+                                    }
                                 }
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 12)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(
+                                    CinemaTheme.elevated.opacity(0.6),
+                                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                )
                             }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 12)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(
-                                CinemaTheme.elevated.opacity(0.6),
-                                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            )
+                            .buttonStyle(.plain)
+                            .id(episode.id)
                         }
-                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 24)
+                }
+                .onAppear {
+                    // Opening on the episode that is playing saves a long scroll.
+                    if let current = currentVideoId {
+                        proxy.scrollTo(current, anchor: .center)
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 24)
             }
         }
         .background(CinemaTheme.canvas.ignoresSafeArea())
@@ -3873,6 +3950,9 @@ struct DetailView: View {
                     }
                     if let runtime = model.detail?.runtime {
                         CinemaPill(text: runtime, tint: CinemaTheme.muted)
+                    }
+                    if let episodes = model.detail?.episodes, !episodes.isEmpty {
+                        CinemaPill(text: "\(episodes.count) حلقة", tint: CinemaTheme.muted)
                     }
                 }
             }
