@@ -713,7 +713,8 @@ struct RemoteImage: View {
         }
         .task(id: url) {
             guard let url else { return }
-            image = await CinemaImageStore.shared.image(for: url)
+            let loaded = await CinemaImageStore.shared.image(for: url)
+            withAnimation(.easeInOut(duration: 0.25)) { image = loaded }
         }
     }
 }
@@ -958,6 +959,16 @@ struct PosterCard: View {
                             .padding(.vertical, 3)
                             .background(Color.black.opacity(0.55), in: Capsule())
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                            .padding(7)
+                    }
+                    if item.type == "movie" || item.type == "series" {
+                        Text(item.type == "movie" ? "فيلم" : "مسلسل")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(.white.opacity(0.85))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(Color.black.opacity(0.55), in: Capsule())
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                             .padding(7)
                     }
                     if saved {
@@ -1359,6 +1370,7 @@ final class HomeModel: ObservableObject {
             if let data = try? JSONEncoder().encode(loaded) {
                 UserDefaults.standard.set(data, forKey: cacheKey)
             }
+            prefetchPosters(loaded)
             lastLoaded = Date()
             CinemaxPrefs.markRefreshed()
             if loaded.isEmpty {
@@ -1368,6 +1380,18 @@ final class HomeModel: ObservableObject {
             self.error = error.localizedDescription
         }
         loading = false
+    }
+
+    /// Warms the poster cache for the rows a viewer sees first, so the home paints
+    /// its artwork instead of grey blocks.
+    private func prefetchPosters(_ shelves: [Shelf]) {
+        let urls = shelves.prefix(3).flatMap { $0.items.prefix(6) }.compactMap(\.posterURL)
+        guard !urls.isEmpty else { return }
+        Task.detached(priority: .utility) {
+            for url in urls {
+                _ = await CinemaImageStore.shared.image(for: url)
+            }
+        }
     }
 
     /// Forgets the cached catalogues and forces the next visit to refetch, used
@@ -1809,6 +1833,8 @@ struct PlayerScreen: View {
     @State private var lastDoubleTap = Date.distantPast
     @State private var locked = false
     @State private var bufferTicks = 0
+    @State private var resumeHint: String?
+    @AppStorage("cinemax.playerHints") private var hintsShown = false
     @State private var brightness: Double = 0.6
     @State private var savedBrightness: Double = 0.6
     @State private var showEpisodes = false
@@ -2175,6 +2201,59 @@ struct PlayerScreen: View {
                 .background(.ultraThinMaterial, in: Capsule())
                 .transition(.opacity)
             }
+            if let resumeHint {
+                VStack {
+                    Text(resumeHint)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .padding(.top, 56)
+                    Spacer()
+                }
+                .task {
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                    withAnimation(.easeInOut(duration: 0.3)) { self.resumeHint = nil }
+                }
+            }
+            if !hintsShown {
+                VStack(spacing: 12) {
+                    Text("إيماءات المشغّل")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(.white)
+                    ForEach([
+                        "نقرة مزدوجة على يمين الصورة: تقديم",
+                        "نقرة مزدوجة على يسارها: تأخير",
+                        "ضغط مطوّل على ±: قفزة ثلاثة أضعاف",
+                        "نقرة واحدة: إخفاء الأدوات وإظهارها"
+                    ], id: \.self) { line in
+                        Text("• " + line)
+                            .font(.system(size: 12))
+                            .foregroundStyle(CinemaTheme.muted)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    Button {
+                        Haptics.tap()
+                        withAnimation(.easeInOut(duration: 0.2)) { hintsShown = true }
+                    } label: {
+                        Text("فهمت")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 9)
+                            .background(CinemaTheme.accent, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(20)
+                .frame(maxWidth: 320)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .strokeBorder(CinemaTheme.hairline, lineWidth: 1)
+                )
+            }
             if showOptions {
                 PlayerOptionsPanel(
                     subtitleTracks: subtitleTracks,                    audioTracks: audioTracks,
@@ -2346,9 +2425,17 @@ struct PlayerScreen: View {
             brightness = savedBrightness
             if let item, CinemaxPrefs.autoResume {
                 startMs = await CinemaAPI.shared.resume(itemId: item.id, videoId: videoId)
+                if startMs > 30_000 {
+                    resumeHint = "استؤنف من \(clock(Double(startMs) / 1000))"
+                }
             }
             ready = true
             startTicker()
+        }
+        .task(id: currentVideoId) {
+            // Warms the next episode's links so the roll-over is instant.
+            guard let next = upNext else { return }
+            _ = try? await CinemaAPI.shared.streamsReport(for: next.id, type: type)
         }
         .onDisappear {
             ticker?.invalidate()
@@ -3580,7 +3667,14 @@ struct DetailView: View {
                     }
             }
         }
-        .task { await model.load(item: item) }
+        .task {
+            await model.load(item: item)
+            // A season the viewer was on last time comes back with the page.
+            let saved = UserDefaults.standard.integer(forKey: "cinemax.season." + item.id)
+            if saved > 0, let seasons = model.detail?.seasons, seasons.contains(saved) {
+                season = saved
+            }
+        }
         .refreshable {
             await model.loadStreams(id: episode?.id ?? item.id, type: item.type)
         }
@@ -3921,6 +4015,7 @@ struct DetailView: View {
                                 Haptics.select()
                                 season = value
                                 episode = nil
+                                UserDefaults.standard.set(value, forKey: "cinemax.season." + item.id)
                             } label: {
                                 Text("الموسم \(value)")
                                     .font(.system(size: 12, weight: .semibold))
@@ -4328,7 +4423,7 @@ struct DetailView: View {
                 }
                 ForEach(groupedStreams) { group in
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(group.id)
+                        Text("\(group.id) · \(group.streams.count)")
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(CinemaTheme.muted)
                             .padding(.horizontal, 20)
@@ -4444,6 +4539,13 @@ final class SearchModel: ObservableObject {
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard text.count >= 2 else {
             results = []
+            lastQuery = nil
+            return
+        }
+        // The same search within a minute is answered from memory.
+        if let last = lastQuery, last.text == text.lowercased(),
+           Date().timeIntervalSince(last.at) < 60 {
+            results = last.results
             return
         }
         loading = true
@@ -4451,12 +4553,15 @@ final class SearchModel: ObservableObject {
         do {
             let shelves = try await CinemaAPI.shared.search(text)
             results = shelves.flatMap(\.items)
+            lastQuery = (text.lowercased(), results, Date())
         } catch {
             self.error = error.localizedDescription
             results = []
         }
         loading = false
     }
+
+    private var lastQuery: (text: String, results: [CinemaItem], at: Date)?
 }
 
 struct SearchView: View {
@@ -4466,7 +4571,7 @@ struct SearchView: View {
     @State private var searchTask: Task<Void, Never>?
     @State private var history: [String] = CinemaxPrefs.searchHistory
     @AppStorage("cinemax.searchKind") private var kind = "all"
-    @State private var sort = "best"
+    @AppStorage("cinemax.searchSort") private var sort = "best"
 
     private var columns: [GridItem] {
         [GridItem(.adaptive(minimum: CinemaxPrefs.posterMinWidth), spacing: 12)]
@@ -5452,7 +5557,7 @@ struct OnboardingView: View {
 }
 
 struct CinemaRootView: View {
-    @State private var selection = 0
+    @AppStorage("cinemax.tab") private var selection = 0
     @AppStorage("cinemax.accent") private var accent = "raif"
     @AppStorage("cinemax.oled") private var oled = false
     @AppStorage("cinemax.onboarded") private var onboarded = false
@@ -7942,7 +8047,13 @@ struct DataSettings: View {
                     Divider().overlay(CinemaTheme.hairline)
                     action("إفراغ كاش الصور", "يحرّر الذاكرة التي تحتفظ بالبوسترات", destructive: false) {
                         CinemaImageStore.shared.clear()
-                        message = "أُفرغ كاش الصور"
+                        URLCache.shared.removeAllCachedResponses()
+                        message = "أُفرغ كاش الصور والطلبات"
+                    }
+                    Divider().overlay(CinemaTheme.hairline)
+                    action("تفريغ ذاكرة المصادر", "يمسح قوائم الروابط المحفوظة لمدة دقيقة", destructive: false) {
+                        CinemaAPI.streamCache.removeAll()
+                        message = "أُفرغت ذاكرة المصادر"
                     }
                 }
                 .padding(.horizontal, 14)
