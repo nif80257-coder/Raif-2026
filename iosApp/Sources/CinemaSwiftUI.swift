@@ -220,6 +220,69 @@ struct InstalledAddonRow: Identifiable, Codable {
     let version: String
 }
 
+/// One catalogue an installed addon brings, as that addon's own page lists it.
+struct AddonCatalogInfo: Codable, Hashable {
+    let id: String
+    let type: String
+    let name: String
+    var genres: [String]? = nil
+
+    /// The same catalogue id can exist for several types, so both make the key.
+    var key: String { id + "|" + type }
+}
+
+/// What one addon page shows: its capabilities, catalogues, version and age.
+struct AddonProfile: Identifiable, Codable {
+    let id: String
+    let name: String
+    let url: String
+    let version: String
+    let about: String
+    let installedAt: Int64
+    let resources: [String]
+    let types: [String]
+    let catalogs: [AddonCatalogInfo]
+    let configurable: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, url, version
+        case about = "description"
+        case installedAt, resources, types, catalogs, configurable
+    }
+}
+
+extension AddonProfile {
+    /// A short list of what the addon answers, for the manager's rows.
+    var capabilitySummary: String {
+        let names: [String: String] = [
+            "catalog": "كتالوجات", "stream": "مصادر",
+            "subtitles": "ترجمة", "meta": "تفاصيل"
+        ]
+        var seen = Set<String>()
+        let unique = resources.compactMap { names[$0] }.filter { seen.insert($0).inserted }
+        return unique.isEmpty ? "بلا قدرات معلنة" : unique.joined(separator: " · ")
+    }
+}
+
+/// A manifest read before installing, so a pasted link is checked first.
+struct AddonPreview: Codable {
+    let name: String
+    let id: String
+    let version: String
+    let about: String
+    let resources: [String]
+    let types: [String]
+    let catalogs: Int
+    let configurable: Bool
+    let installed: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case name, id, version
+        case about = "description"
+        case resources, types, catalogs, configurable, installed
+    }
+}
+
 /// One provider inside an installed Nuvio repository.
 struct NuvioProviderRow: Identifiable, Codable {
     let key: String
@@ -651,6 +714,30 @@ final class CinemaAPI {
             bridge.updateAllAddons(onDone: { json in
                 let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
                 continuation.resume(returning: (object?["updated"] as? NSNumber)?.intValue ?? 0)
+            })
+        }
+    }
+
+    /// Every installed addon with what it can answer and its catalogues.
+    func addonProfiles() async -> [AddonProfile] {
+        await withCheckedContinuation { (continuation: CheckedContinuation<[AddonProfile], Never>) in
+            bridge.addonProfiles(onDone: { json in
+                continuation.resume(returning: (try? self.decode([AddonProfile].self, json)) ?? [])
+            })
+        }
+    }
+
+    /// Reads a manifest without installing it, so the link can be seen first.
+    func previewAddon(_ url: String) async throws -> AddonPreview {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<AddonPreview, Error>) in
+            bridge.previewAddon(url: url, onDone: { json in
+                if let preview = try? self.decode(AddonPreview.self, json) {
+                    continuation.resume(returning: preview)
+                } else {
+                    continuation.resume(throwing: CinemaError(message: "تعذر قراءة الإضافة"))
+                }
+            }, onError: { message in
+                continuation.resume(throwing: CinemaError(message: message))
             })
         }
     }
@@ -7710,7 +7797,7 @@ struct AddonsSettings: View {
     @State private var busy = false
     @State private var message: String?
     @State private var installing: String?
-    @State private var ascending = true
+    @State private var order = "az"
     @State private var checks: [String: AddonCheckRow] = [:]
     @State private var checking = false
     @State private var updating: String?
@@ -7718,11 +7805,67 @@ struct AddonsSettings: View {
     @State private var showInstalled = true
     @State private var showSuggested = true
     @State private var installedQuery = ""
+    @State private var profiles: [AddonProfile] = []
+    @State private var filter = "all"
+    @State private var preview: AddonPreview?
+    @State private var previewURL = ""
+    @State private var previewing = false
+    @State private var showCatalogs = false
+    @State private var browsing: AddonBrowseTarget?
 
+    private let orders: [(id: String, title: String)] = [
+        ("az", "أ–ي"), ("za", "ي–أ"), ("fastest", "الأسرع"), ("recent", "الأحدث")
+    ]
+
+    private let filters: [(id: String, title: String)] = [
+        ("all", "الكل"), ("stream", "مصادر"), ("catalog", "كتالوجات"),
+        ("subtitles", "ترجمة"), ("meta", "تفاصيل")
+    ]
+
+    /// Filtered and ordered the way the viewer asked, from the profiles the bridge
+    /// reports, so a capability filter is answered by each manifest itself.
     private var visibleInstalled: [InstalledAddonRow] {
         let text = installedQuery.trimmingCharacters(in: .whitespaces)
-        guard !text.isEmpty else { return addons }
-        return addons.filter { $0.name.localizedCaseInsensitiveContains(text) }
+        var list = addons
+        if !text.isEmpty {
+            list = list.filter { $0.name.localizedCaseInsensitiveContains(text) }
+        }
+        if filter != "all" {
+            let matching = Set(profiles.filter { profile in
+                profile.resources.contains(filter)
+                    || (filter == "catalog" && !profile.catalogs.isEmpty)
+            }.map(\.url))
+            list = list.filter { matching.contains($0.url) }
+        }
+        switch order {
+        case "za":
+            return list.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedDescending }
+        case "fastest":
+            return list.sorted { (checks[$0.url]?.ms ?? .max) < (checks[$1.url]?.ms ?? .max) }
+        case "recent":
+            let dates = Dictionary(profiles.map { ($0.url, $0.installedAt) }, uniquingKeysWith: { first, _ in first })
+            return list.sorted { (dates[$0.url] ?? 0) > (dates[$1.url] ?? 0) }
+        default:
+            return list.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        }
+    }
+
+    /// The addon the manager knows most about: a profile, or a bare row until the
+    /// profiles arrive.
+    private func profile(for addon: InstalledAddonRow) -> AddonProfile {
+        profiles.first { $0.url == addon.url || $0.id == addon.id }
+            ?? AddonProfile(
+                id: addon.id,
+                name: addon.name,
+                url: addon.url,
+                version: addon.version,
+                about: "",
+                installedAt: 0,
+                resources: [],
+                types: [],
+                catalogs: [],
+                configurable: false
+            )
     }
 
     private var visibleSuggested: [SuggestedAddonRow] {
@@ -7771,6 +7914,8 @@ struct AddonsSettings: View {
                     .disabled(checking || updating != nil || addons.isEmpty)
                 }
 
+                healthLine
+
                 Button {
                     Task { await installAll() }
                 } label: {
@@ -7808,6 +7953,39 @@ struct AddonsSettings: View {
                     .disabled(busy || addonURL.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
 
+                HStack(spacing: 16) {
+                    Button {
+                        Task { await preparePreview() }
+                    } label: {
+                        HStack(spacing: 5) {
+                            if previewing { ProgressView().tint(CinemaTheme.accent) }
+                            Text(previewing ? "جارٍ القراءة…" : "معاينة قبل التثبيت")
+                                .font(.system(size: 11, weight: .semibold))
+                        }
+                        .foregroundStyle(CinemaTheme.accent)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(previewing || addonURL.trimmingCharacters(in: .whitespaces).isEmpty)
+
+                    Button {
+                        Haptics.tap()
+                        let pasted = UIPasteboard.general.string ?? ""
+                        if let range = pasted.range(of: "http") {
+                            addonURL = String(pasted[range.lowerBound...])
+                                .trimmingCharacters(in: .whitespacesAndNewlines)
+                            message = "لُصق الرابط من الحافظة"
+                        } else {
+                            message = "لا رابط في الحافظة"
+                        }
+                    } label: {
+                        Label("لصق", systemImage: "doc.on.clipboard")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.85))
+                    }
+                    .buttonStyle(.plain)
+                    Spacer()
+                }
+
                 if let message {
                     Text(message)
                         .font(.system(size: 12))
@@ -7815,6 +7993,7 @@ struct AddonsSettings: View {
                 }
 
                 installedSection
+                catalogSection
                 suggestedSection
             }
             .padding(20)
@@ -7832,6 +8011,12 @@ struct AddonsSettings: View {
                     HomeModel.shared.resetCache()
                     Task { await load() }
                 }
+        }
+        .sheet(isPresented: Binding(get: { preview != nil }, set: { if !$0 { preview = nil } })) {
+            if let preview { previewSheet(preview) }
+        }
+        .sheet(item: $browsing) { target in
+            AddonCatalogBrowser(shelf: target.shelf, type: target.type)
         }
     }
 
@@ -7875,16 +8060,26 @@ struct AddonsSettings: View {
                 .buttonStyle(.plain)
                 Spacer()
                 if showInstalled {
-                    Button {
-                        Haptics.select()
-                        ascending.toggle()
-                        Task { await load() }
+                    Menu {
+                        ForEach(orders, id: \.id) { entry in
+                            Button {
+                                Haptics.select()
+                                order = entry.id
+                            } label: {
+                                Label(
+                                    entry.title,
+                                    systemImage: order == entry.id ? "checkmark" : "arrow.up.arrow.down"
+                                )
+                            }
+                        }
                     } label: {
-                        Label(ascending ? "أ–ي" : "ي–أ", systemImage: "arrow.up.arrow.down")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(CinemaTheme.accent)
+                        Label(
+                            orders.first { $0.id == order }?.title ?? "ترتيب",
+                            systemImage: "arrow.up.arrow.down"
+                        )
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.accent)
                     }
-                    .buttonStyle(.plain)
                 }
             }
             if !showInstalled {
@@ -7912,79 +8107,84 @@ struct AddonsSettings: View {
                 .padding(.vertical, 9)
                 .background(CinemaTheme.surface, in: Capsule())
 
-                VStack(spacing: 0) {
-                    ForEach(Array(visibleInstalled.enumerated()), id: \.element.id) { index, addon in
-                        HStack(spacing: 10) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(addon.name)
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundStyle(.white)
-                                    .lineLimit(1)
-                                HStack(spacing: 6) {
-                                    if let check = checks[addon.url] {
-                                        Circle()
-                                            .fill(check.ok ? CinemaTheme.accent : CinemaTheme.favourite)
-                                            .frame(width: 6, height: 6)
-                                        Text(check.ok ? "\(check.ms) مللي" : "لا يستجيب")
-                                            .font(.system(size: 10))
-                                            .foregroundStyle(CinemaTheme.muted)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(filters, id: \.id) { entry in
+                            Button {
+                                Haptics.select()
+                                filter = entry.id
+                            } label: {
+                                Text(entry.title)
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(filter == entry.id ? .black : .white)
+                                    .padding(.horizontal, 11)
+                                    .padding(.vertical, 6)
+                                    .background {
+                                        Capsule().fill(
+                                            filter == entry.id
+                                                ? CinemaTheme.accent
+                                                : Color.white.opacity(0.08)
+                                        )
                                     }
-                                    Text("الإصدار \(addon.version)")
-                                        .font(.system(size: 10))
-                                        .foregroundStyle(CinemaTheme.muted)
-                                }
-                            }
-                            Spacer()
-                            if updating == addon.url {
-                                ProgressView().tint(CinemaTheme.accent)
-                            } else if checks[addon.url]?.hasUpdate == true {
-                                Button("تحديث") {
-                                    Task { await updateOne(addon) }
-                                }
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(CinemaTheme.accent)
-                            }
-                            Button {
-                                Haptics.tap()
-                                UIPasteboard.general.string = addon.url
-                                message = "نُسخ رابط \(addon.name)"
-                            } label: {
-                                Image(systemName: "doc.on.doc")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundStyle(CinemaTheme.muted)
-                                    .frame(width: 32, height: 32)
-                                    .background(CinemaTheme.elevated, in: Circle())
-                            }
-                            .buttonStyle(.plain)
-                            if let configure = addonConfigureURL(addon.url) {
-                                Button {
-                                    Haptics.tap()
-                                    configTarget = SafariTarget(url: configure)
-                                } label: {
-                                    Image(systemName: "gearshape")
-                                        .font(.system(size: 12, weight: .semibold))
-                                        .foregroundStyle(CinemaTheme.accent)
-                                        .frame(width: 32, height: 32)
-                                        .background(CinemaTheme.elevated, in: Circle())
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            Button {
-                                Haptics.tap()
-                                CinemaAPI.shared.removeAddon(addon.url)
-                                addons.removeAll { $0.url == addon.url }
-                                message = "أُزيلت \(addon.name)"
-                                HomeModel.shared.resetCache()
-                            } label: {
-                                Image(systemName: "trash")
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(CinemaTheme.favourite)
-                                    .frame(width: 32, height: 32)
-                                    .background(CinemaTheme.elevated, in: Circle())
                             }
                             .buttonStyle(.plain)
                         }
+                    }
+                }
+
+                VStack(spacing: 0) {
+                    ForEach(Array(visibleInstalled.enumerated()), id: \.element.id) { index, addon in
+                        NavigationLink {
+                            AddonDetailView(profile: profile(for: addon), onChange: {
+                                Task { await load() }
+                            })
+                        } label: {
+                            HStack(spacing: 10) {
+                                avatar(addon.name)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(addon.name)
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .foregroundStyle(.white)
+                                        .lineLimit(1)
+                                    HStack(spacing: 6) {
+                                        if let check = checks[addon.url] {
+                                            Circle()
+                                                .fill(check.ok ? CinemaTheme.accent : CinemaTheme.favourite)
+                                                .frame(width: 6, height: 6)
+                                            Text(check.ok ? "\(check.ms) مللي" : "لا يستجيب")
+                                                .font(.system(size: 10))
+                                                .foregroundStyle(CinemaTheme.muted)
+                                        }
+                                        Text(profile(for: addon).capabilitySummary)
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(CinemaTheme.muted)
+                                            .lineLimit(1)
+                                    }
+                                    if checks[addon.url]?.hasUpdate == true {
+                                        Text("إصدار أحدث متاح")
+                                            .font(.system(size: 10, weight: .semibold))
+                                            .foregroundStyle(CinemaTheme.accent)
+                                    }
+                                }
+                                Spacer(minLength: 8)
+                                if updating == addon.url {
+                                    ProgressView().tint(CinemaTheme.accent)
+                                }
+                                Image(systemName: "chevron.left")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(CinemaTheme.muted)
+                            }
+                            .padding(.vertical, 10)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
                         .contextMenu {
+                            Button {
+                                UIPasteboard.general.string = addon.url
+                                message = "نُسخ رابط \(addon.name)"
+                            } label: {
+                                Label("نسخ الرابط", systemImage: "doc.on.doc")
+                            }
                             ShareLink(item: addon.url) {
                                 Label("مشاركة الرابط", systemImage: "square.and.arrow.up")
                             }
@@ -7998,8 +8198,12 @@ struct AddonsSettings: View {
                             } label: {
                                 Label("نقل للأسفل", systemImage: "arrow.down")
                             }
+                            Button(role: .destructive) {
+                                remove(addon)
+                            } label: {
+                                Label("حذف الإضافة", systemImage: "trash")
+                            }
                         }
-                        .padding(.vertical, 10)
                         if index < visibleInstalled.count - 1 {
                             Divider().overlay(CinemaTheme.hairline)
                         }
@@ -8065,12 +8269,23 @@ struct AddonsSettings: View {
                                 .font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(CinemaTheme.accent)
                         } else {
-                            Button("تثبيت") {
-                                Task { await install(source.url) }
+                            HStack(spacing: 10) {
+                                Button {
+                                    Haptics.tap()
+                                    Task { await previewSuggested(source) }
+                                } label: {
+                                    Image(systemName: "eye")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundStyle(CinemaTheme.muted)
+                                }
+                                .buttonStyle(.plain)
+                                Button("تثبيت") {
+                                    Task { await install(source.url) }
+                                }
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(CinemaTheme.accent)
+                                .disabled(busy)
                             }
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(CinemaTheme.accent)
-                            .disabled(busy)
                         }
                     }
                     .padding(.vertical, 9)
@@ -8132,14 +8347,11 @@ struct AddonsSettings: View {
         async let availableTask = CinemaAPI.shared.suggestedAddons()
         let installed = await installedTask
         let available = await availableTask
-        addons = installed.sorted {
-            let result = $0.name.localizedCaseInsensitiveCompare($1.name)
-            return ascending ? result == .orderedAscending : result == .orderedDescending
-        }
+        addons = installed
         suggested = available.sorted {
-            let result = $0.name.localizedCaseInsensitiveCompare($1.name)
-            return ascending ? result == .orderedAscending : result == .orderedDescending
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         }
+        profiles = await CinemaAPI.shared.addonProfiles()
     }
 
     private func install(_ url: String) async {
@@ -8172,6 +8384,766 @@ struct AddonsSettings: View {
         HomeModel.shared.resetCache()
         await load()
         busy = false
+    }
+
+    // MARK: - Addon manager helpers
+
+    private var fastestCheck: AddonCheckRow? {
+        checks.values.filter { $0.ok }.min { $0.ms < $1.ms }
+    }
+
+    private var deadCount: Int {
+        checks.values.filter { !$0.ok }.count
+    }
+
+    private var healthText: String {
+        guard let fastest = fastestCheck else { return "لا إضافة تستجيب الآن" }
+        return "أسرع: \(fastest.name) — \(fastest.ms) مللي"
+    }
+
+    @ViewBuilder
+    private var healthLine: some View {
+        if !checks.isEmpty {
+            HStack(spacing: 8) {
+                Image(systemName: deadCount > 0 ? "exclamationmark.triangle.fill" : "bolt.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(deadCount > 0 ? CinemaTheme.favourite : CinemaTheme.accent)
+                Text(healthText)
+                    .font(.system(size: 11))
+                    .foregroundStyle(CinemaTheme.muted)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                if deadCount > 0 {
+                    Text("\(deadCount) لا تستجيب")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.favourite)
+                }
+            }
+        }
+    }
+
+    /// Reads the manifest of the pasted link before anything is installed.
+    private func preparePreview() async {
+        let trimmed = addonURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        previewing = true
+        message = nil
+        do {
+            let result = try await CinemaAPI.shared.previewAddon(trimmed)
+            previewURL = trimmed
+            preview = result
+        } catch {
+            message = error.localizedDescription
+        }
+        previewing = false
+    }
+
+    private func previewSheet(_ result: AddonPreview) -> some View {
+        let capabilities = result.resources.compactMap(capabilityName)
+        let types = result.types.map(typeName)
+        return NavigationStack {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack(spacing: 12) {
+                        avatar(result.name, size: 48)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(result.name)
+                                .font(.system(size: 17, weight: .bold))
+                                .foregroundStyle(.white)
+                            Text("الإصدار \(result.version)")
+                                .font(.system(size: 11))
+                                .foregroundStyle(CinemaTheme.muted)
+                        }
+                        Spacer()
+                    }
+
+                    if !result.about.isEmpty {
+                        Text(result.about)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white.opacity(0.85))
+                            .lineSpacing(4)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    if !capabilities.isEmpty || !types.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                ForEach(capabilities, id: \.self) { pill($0) }
+                                ForEach(types, id: \.self) { pill($0) }
+                            }
+                        }
+                    }
+
+                    VStack(spacing: 0) {
+                        infoRow("الكتالوجات", "\(result.catalogs)")
+                        Divider().overlay(CinemaTheme.hairline)
+                        infoRow("الأنواع", result.types.isEmpty ? "—" : result.types.joined(separator: " · "))
+                        Divider().overlay(CinemaTheme.hairline)
+                        infoRow(
+                            "القدرات",
+                            result.resources.isEmpty ? "—" : result.resources.joined(separator: " · ")
+                        )
+                        Divider().overlay(CinemaTheme.hairline)
+                        infoRow("صفحة إعدادات", result.configurable ? "نعم" : "لا")
+                    }
+                    .padding(.horizontal, 14)
+                    .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+                    Button {
+                        Haptics.tap()
+                        let target = previewURL
+                        preview = nil
+                        Task { await install(target) }
+                    } label: {
+                        Text(result.installed ? "إعادة التثبيت والتحديث" : "تثبيت الآن")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.black)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(CinemaTheme.accent, in: Capsule())
+                    }
+                    .buttonStyle(CinemaPressStyle())
+
+                    Text("لن يُثبَّت شيء قبل أن تضغط الزر أعلاه.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(CinemaTheme.muted)
+                }
+                .padding(20)
+            }
+            .background(CinemaTheme.canvas.ignoresSafeArea())
+            .navigationTitle("معاينة الإضافة")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("إغلاق") { preview = nil }
+                        .foregroundStyle(CinemaTheme.accent)
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+    }
+
+    /// The Arabic name of a protocol resource, when the app knows it.
+    private func capabilityName(_ resource: String) -> String? {
+        switch resource {
+        case "catalog": return "كتالوجات"
+        case "stream": return "مصادر"
+        case "subtitles": return "ترجمة"
+        case "meta": return "تفاصيل"
+        default: return nil
+        }
+    }
+
+    private func typeName(_ type: String) -> String {
+        switch type {
+        case "movie": return "أفلام"
+        case "series": return "مسلسلات"
+        case "channel": return "قنوات"
+        case "tv": return "بث مباشر"
+        default: return type
+        }
+    }
+
+    private func avatar(_ name: String, size: CGFloat = 34) -> some View {
+        Text(String(name.prefix(1)).uppercased())
+            .font(.system(size: size * 0.42, weight: .heavy))
+            .foregroundStyle(.black)
+            .frame(width: size, height: size)
+            .background(
+                CinemaTheme.accent.opacity(0.9),
+                in: RoundedRectangle(cornerRadius: size * 0.32, style: .continuous)
+            )
+    }
+
+    private func pill(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(CinemaTheme.accent)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(CinemaTheme.accent.opacity(0.14), in: Capsule())
+    }
+
+    private func infoRow(_ title: String, _ value: String) -> some View {
+        HStack(spacing: 10) {
+            Text(title)
+                .font(.system(size: 12))
+                .foregroundStyle(CinemaTheme.muted)
+            Spacer(minLength: 12)
+            Text(value)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.trailing)
+        }
+        .padding(.vertical, 10)
+    }
+
+    /// Every catalogue the installed addons bring, reachable from one place.
+    private var catalogProfiles: [AddonProfile] {
+        profiles.filter { !$0.catalogs.isEmpty }
+    }
+
+    private var catalogCount: Int {
+        catalogProfiles.reduce(0) { $0 + $1.catalogs.count }
+    }
+
+    @ViewBuilder
+    private var catalogSection: some View {
+        if !catalogProfiles.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Button {
+                    Haptics.select()
+                    withAnimation(.easeInOut(duration: 0.2)) { showCatalogs.toggle() }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: showCatalogs ? "chevron.up" : "chevron.left")
+                            .font(.system(size: 11, weight: .bold))
+                        Text("كتالوجات الإضافات (\(catalogCount))")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .foregroundStyle(CinemaTheme.muted)
+                }
+                .buttonStyle(.plain)
+
+                if showCatalogs {
+                    ForEach(catalogProfiles) { profile in
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 8) {
+                                avatar(profile.name, size: 24)
+                                Text(profile.name)
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .lineLimit(1)
+                                Spacer()
+                                Text("\(profile.catalogs.count)")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(CinemaTheme.muted)
+                            }
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 6) {
+                                    ForEach(profile.catalogs, id: \.key) { catalog in
+                                        Button {
+                                            Haptics.tap()
+                                            browsing = AddonBrowseTarget(
+                                                shelf: Shelf(
+                                                    id: profile.id + ":" + catalog.id,
+                                                    title: catalog.name,
+                                                    items: []
+                                                ),
+                                                type: catalog.type
+                                            )
+                                        } label: {
+                                            catalogChip(catalog)
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                            }
+                        }
+                        .padding(12)
+                        .background(
+                            CinemaTheme.surface,
+                            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private func catalogChip(_ catalog: AddonCatalogInfo) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: typeIcon(catalog.type))
+                .font(.system(size: 9, weight: .semibold))
+            Text(catalog.name)
+                .font(.system(size: 11, weight: .semibold))
+                .lineLimit(1)
+        }
+        .foregroundStyle(CinemaTheme.accent)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(CinemaTheme.accent.opacity(0.12), in: Capsule())
+    }
+
+    private func typeIcon(_ type: String) -> String {
+        switch type {
+        case "series": return "tv.fill"
+        case "channel", "tv": return "dot.radiowaves.left.and.right"
+        default: return "film.fill"
+        }
+    }
+
+    /// Reads a shipped source's manifest before it is installed.
+    private func previewSuggested(_ source: SuggestedAddonRow) async {
+        previewing = true
+        message = nil
+        do {
+            previewURL = source.url
+            preview = try await CinemaAPI.shared.previewAddon(source.url)
+        } catch {
+            message = error.localizedDescription
+        }
+        previewing = false
+    }
+
+    private func remove(_ addon: InstalledAddonRow) {
+        Haptics.tap()
+        CinemaAPI.shared.removeAddon(addon.url)
+        addons.removeAll { $0.url == addon.url }
+        profiles.removeAll { $0.url == addon.url }
+        checks[addon.url] = nil
+        message = "أُزيلت \(addon.name)"
+        HomeModel.shared.resetCache()
+    }
+}
+
+/// A catalogue of an addon, wrapped so it can be presented on its own.
+struct AddonBrowseTarget: Identifiable {
+    let shelf: Shelf
+    let type: String
+    var id: String { shelf.id }
+}
+
+/// A catalogue opened from an addon's own page, with its details pushed on top.
+private struct AddonCatalogBrowser: View {
+    let shelf: Shelf
+    let type: String
+
+    @State private var item: CinemaItem?
+
+    var body: some View {
+        ShelfGridScreen(shelf: shelf, catalogType: type, onOpen: { item = $0 })
+            .fullScreenCover(item: $item) { chosen in
+                DetailView(item: chosen, onFavorite: {})
+            }
+    }
+}
+
+/// Everything one addon brings: what it answers, its catalogues and its
+/// actions, instead of a single crowded row in the addon manager.
+struct AddonDetailView: View {
+    let profile: AddonProfile
+    let onChange: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var latency: Int64?
+    @State private var alive = true
+    @State private var checking = false
+    @State private var updating = false
+    @State private var removing = false
+    @State private var message: String?
+    @State private var configTarget: SafariTarget?
+    @State private var browsing: AddonBrowseTarget?
+
+    private var configureURL: URL? { addonConfigureURL(profile.url) }
+
+    /// The capabilities with their Arabic names, one of each.
+    private var capabilities: [String] {
+        var seen = Set<String>()
+        return profile.resources.compactMap { resource -> String? in
+            let title: String
+            switch resource {
+            case "catalog": title = "كتالوجات"
+            case "stream": title = "مصادر"
+            case "subtitles": title = "ترجمة"
+            case "meta": title = "تفاصيل"
+            default: title = resource
+            }
+            guard !title.isEmpty, seen.insert(title).inserted else { return nil }
+            return title
+        }
+    }
+
+    private var types: [String] {
+        var seen = Set<String>()
+        return profile.types.map(typeName).filter { seen.insert($0).inserted }
+    }
+
+    private var statusText: String {
+        if checking { return "جارٍ الفحص…" }
+        guard let latency else { return "لم يُفحص بعد" }
+        return alive ? "يستجيب في \(latency) مللي" : "لا يستجيب الآن"
+    }
+
+    private var installedLabel: String {
+        let date = Date(timeIntervalSince1970: Double(profile.installedAt) / 1000)
+        return date.formatted(date: .abbreviated, time: .shortened)
+    }
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 18) {
+                header
+                capabilitiesRow
+
+                if !profile.about.isEmpty {
+                    Text(profile.about)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .lineSpacing(4)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                facts
+                catalogs
+                actions
+
+                if let message {
+                    Text(message)
+                        .font(.system(size: 11))
+                        .foregroundStyle(CinemaTheme.accent)
+                        .lineSpacing(3)
+                }
+
+                Text("ترتيب الإضافة يحدد أي كتالوج يظهر أولًا في الرئيسية، وأي مصدر يُجرَّب قبل غيره.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(CinemaTheme.muted)
+                    .lineSpacing(4)
+            }
+            .padding(20)
+        }
+        .background(CinemaTheme.canvas.ignoresSafeArea())
+        .navigationTitle(profile.name)
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await check() }
+        .sheet(item: $configTarget) { target in
+            SafariView(url: target.url)
+                .ignoresSafeArea()
+                .onDisappear {
+                    HomeModel.shared.resetCache()
+                    onChange()
+                    Task { await check() }
+                }
+        }
+        .sheet(item: $browsing) { target in
+            AddonCatalogBrowser(shelf: target.shelf, type: target.type)
+        }
+        .confirmationDialog(
+            "حذف \(profile.name)؟",
+            isPresented: $removing,
+            titleVisibility: .visible
+        ) {
+            Button("حذف الإضافة", role: .destructive) {
+                CinemaAPI.shared.removeAddon(profile.url)
+                HomeModel.shared.resetCache()
+                onChange()
+                dismiss()
+            }
+            Button("إلغاء", role: .cancel) {}
+        } message: {
+            Text("ستختفي كتالوجاتها ومصادرها من التطبيق.")
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            Text(String(profile.name.prefix(1)).uppercased())
+                .font(.system(size: 20, weight: .heavy))
+                .foregroundStyle(.black)
+                .frame(width: 52, height: 52)
+                .background(CinemaTheme.accent, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(profile.name)
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                HStack(spacing: 6) {
+                    Text("الإصدار \(profile.version)")
+                        .font(.system(size: 11))
+                        .foregroundStyle(CinemaTheme.muted)
+                    Circle()
+                        .fill(alive ? CinemaTheme.accent : CinemaTheme.favourite)
+                        .frame(width: 5, height: 5)
+                    Text(statusText)
+                        .font(.system(size: 11))
+                        .foregroundStyle(CinemaTheme.muted)
+                }
+            }
+            Spacer(minLength: 8)
+            Button {
+                Haptics.tap()
+                Task { await check() }
+            } label: {
+                if checking {
+                    ProgressView()
+                        .tint(CinemaTheme.accent)
+                        .frame(width: 34, height: 34)
+                } else {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.accent)
+                        .frame(width: 34, height: 34)
+                        .background(CinemaTheme.elevated, in: Circle())
+                }
+            }
+            .buttonStyle(.plain)
+            .disabled(checking)
+        }
+    }
+
+    @ViewBuilder
+    private var capabilitiesRow: some View {
+        if !capabilities.isEmpty || !types.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(capabilities, id: \.self) { name in
+                        pill(name, filled: true)
+                    }
+                    ForEach(types, id: \.self) { name in
+                        pill(name, filled: false)
+                    }
+                }
+            }
+        }
+    }
+
+    private var facts: some View {
+        VStack(spacing: 0) {
+            fact("الحالة", statusText)
+            Divider().overlay(CinemaTheme.hairline)
+            fact("الأنواع", types.isEmpty ? "—" : types.joined(separator: " · "))
+            Divider().overlay(CinemaTheme.hairline)
+            fact("القدرات", capabilities.isEmpty ? "—" : capabilities.joined(separator: " · "))
+            Divider().overlay(CinemaTheme.hairline)
+            fact("الكتالوجات", "\(profile.catalogs.count)")
+            Divider().overlay(CinemaTheme.hairline)
+            fact("صفحة إعدادات", configureURL == nil ? "لا" : "نعم")
+            if profile.installedAt > 0 {
+                Divider().overlay(CinemaTheme.hairline)
+                fact("أُضيفت في", installedLabel)
+            }
+            Divider().overlay(CinemaTheme.hairline)
+            Button {
+                Haptics.tap()
+                UIPasteboard.general.string = profile.url
+                message = "نُسخ الرابط"
+            } label: {
+                HStack(spacing: 10) {
+                    Text("الرابط")
+                        .font(.system(size: 12))
+                        .foregroundStyle(CinemaTheme.muted)
+                    Spacer(minLength: 12)
+                    Text(profile.url)
+                        .font(.system(size: 10))
+                        .foregroundStyle(CinemaTheme.accent)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .padding(.vertical, 11)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 14)
+        .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    @ViewBuilder
+    private var catalogs: some View {
+        if !profile.catalogs.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("كتالوجاتها (\(profile.catalogs.count))")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(CinemaTheme.muted)
+
+                VStack(spacing: 0) {
+                    ForEach(Array(profile.catalogs.enumerated()), id: \.element.key) { index, catalog in
+                        Button {
+                            Haptics.tap()
+                            browsing = AddonBrowseTarget(
+                                shelf: Shelf(
+                                    id: profile.id + ":" + catalog.id,
+                                    title: catalog.name,
+                                    items: []
+                                ),
+                                type: catalog.type
+                            )
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: catalogIcon(catalog.type))
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(CinemaTheme.accent)
+                                    .frame(width: 28, height: 28)
+                                    .background(CinemaTheme.elevated, in: Circle())
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(catalog.name)
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(.white)
+                                        .lineLimit(1)
+                                    Text(catalogDetail(catalog))
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(CinemaTheme.muted)
+                                        .lineLimit(1)
+                                }
+                                Spacer(minLength: 8)
+                                Image(systemName: "chevron.left")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(CinemaTheme.muted)
+                            }
+                            .padding(.vertical, 9)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        if index < profile.catalogs.count - 1 {
+                            Divider().overlay(CinemaTheme.hairline)
+                        }
+                    }
+                }
+                .padding(.horizontal, 14)
+                .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+        }
+    }
+
+    private var actions: some View {
+        VStack(spacing: 10) {
+            if let configureURL {
+                actionButton("صفحة إعدادات الإضافة", icon: "gearshape.fill") {
+                    configTarget = SafariTarget(url: configureURL)
+                }
+            }
+            actionButton(
+                updating ? "جارٍ التحديث…" : "تحديث الإضافة",
+                icon: "arrow.triangle.2.circlepath"
+            ) {
+                Task { await update() }
+            }
+            actionButton("نسخ الرابط", icon: "doc.on.doc") {
+                UIPasteboard.general.string = profile.url
+                message = "نُسخ الرابط"
+            }
+            ShareLink(item: profile.url) {
+                HStack(spacing: 10) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.accent)
+                        .frame(width: 24)
+                    Text("مشاركة الرابط")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Spacer()
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 13)
+                .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+            actionButton("حذف الإضافة", icon: "trash", tint: CinemaTheme.favourite) {
+                removing = true
+            }
+        }
+    }
+
+    private func actionButton(
+        _ title: String,
+        icon: String,
+        tint: Color = .white,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button {
+            Haptics.tap()
+            action()
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(tint)
+                    .frame(width: 24)
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(tint)
+                Spacer()
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 13)
+            .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(updating)
+    }
+
+    private func fact(_ title: String, _ value: String) -> some View {
+        HStack(spacing: 10) {
+            Text(title)
+                .font(.system(size: 12))
+                .foregroundStyle(CinemaTheme.muted)
+            Spacer(minLength: 12)
+            Text(value)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.trailing)
+        }
+        .padding(.vertical, 11)
+    }
+
+    private func pill(_ title: String, filled: Bool) -> some View {
+        Text(title)
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(filled ? CinemaTheme.accent : .white.opacity(0.85))
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background {
+                Capsule().fill(filled ? CinemaTheme.accent.opacity(0.14) : Color.white.opacity(0.08))
+            }
+    }
+
+    private func catalogIcon(_ type: String) -> String {
+        switch type {
+        case "series": return "tv.fill"
+        case "channel", "tv": return "dot.radiowaves.left.and.right"
+        default: return "film.fill"
+        }
+    }
+
+    private func catalogDetail(_ catalog: AddonCatalogInfo) -> String {
+        let genres = catalog.genres?.count ?? 0
+        let kind = typeName(catalog.type)
+        return genres > 0 ? "\(kind) · \(genres) نوعًا" : kind
+    }
+
+    private func typeName(_ type: String) -> String {
+        switch type {
+        case "movie": return "أفلام"
+        case "series": return "مسلسلات"
+        case "channel": return "قنوات"
+        case "tv": return "بث مباشر"
+        default: return type
+        }
+    }
+
+    /// Re-reads the manifest: this is both the health check and the version check.
+    private func check() async {
+        checking = true
+        let started = Date()
+        do {
+            let result = try await CinemaAPI.shared.previewAddon(profile.url)
+            latency = Int64(Date().timeIntervalSince(started) * 1000)
+            alive = true
+            if result.version != profile.version {
+                message = "الإصدار المتاح الآن \(result.version)"
+            }
+        } catch {
+            latency = nil
+            alive = false
+            message = error.localizedDescription
+        }
+        checking = false
+    }
+
+    private func update() async {
+        updating = true
+        message = nil
+        do {
+            let summary = try await CinemaAPI.shared.updateAddon(profile.url)
+            let parts = summary.split(separator: "|")
+            message = parts.count == 2 ? "حُدّثت إلى \(parts[1])" : "تم التحديث"
+            HomeModel.shared.resetCache()
+            onChange()
+            await check()
+        } catch {
+            message = error.localizedDescription
+        }
+        updating = false
     }
 }
 
@@ -9620,6 +10592,8 @@ enum CinemaxPrefs {
 /// catalogue instead of stopping at the first page.
 struct ShelfGridScreen: View {
     let shelf: Shelf
+    /// A catalogue opened from an addon's own page knows its type up front.
+    var catalogType: String? = nil
     let onOpen: (CinemaItem) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -9640,7 +10614,7 @@ struct ShelfGridScreen: View {
     }
 
     private var type: String {
-        shelf.items.first?.type ?? "movie"
+        catalogType ?? shelf.items.first?.type ?? "movie"
     }
 
     private var visible: [CinemaItem] {

@@ -1339,6 +1339,111 @@ class CinemaxAppleBridge {
         }
     }
 
+    /** One catalogue an installed addon brings, for that addon's own page. */
+    @Serializable
+    data class AppleAddonCatalog(
+        val id: String,
+        val type: String,
+        val name: String,
+        val genres: List<String> = emptyList()
+    )
+
+    /** Everything one addon page shows, read from the stored manifest. */
+    @Serializable
+    data class AppleAddonProfile(
+        val id: String,
+        val name: String,
+        val url: String,
+        val version: String,
+        val description: String,
+        val installedAt: Long,
+        val resources: List<String>,
+        val types: List<String>,
+        val catalogs: List<AppleAddonCatalog>,
+        val configurable: Boolean
+    )
+
+    /** What a manifest URL offers, read once before it is installed. */
+    @Serializable
+    data class AppleAddonPreview(
+        val name: String,
+        val id: String,
+        val version: String,
+        val description: String,
+        val resources: List<String>,
+        val types: List<String>,
+        val catalogs: Int,
+        val configurable: Boolean,
+        val installed: Boolean
+    )
+
+    /**
+     * The full picture of every installed addon: what it can answer, which
+     * catalogues it brings and when it was added. The addon manager needs this to
+     * open a page per addon and to narrow the list by capability.
+     */
+    fun addonProfiles(onDone: (String) -> Unit) {
+        val profiles = addonStore.load().map { addon ->
+            AppleAddonProfile(
+                id = addon.id,
+                name = addon.name,
+                url = addon.manifestUrl,
+                version = addon.version,
+                description = addon.description ?: "",
+                installedAt = addon.installedAtEpochMillis,
+                resources = addon.resources,
+                types = addon.types,
+                catalogs = addon.catalogs.map { catalog ->
+                    AppleAddonCatalog(
+                        id = catalog.id,
+                        type = catalog.type,
+                        name = catalog.name?.takeIf { it.isNotBlank() } ?: catalog.id,
+                        genres = catalog.extra.firstOrNull { it.name == "genre" }?.options ?: emptyList()
+                    )
+                },
+                configurable = addon.configurable
+            )
+        }
+        onDone(json.encodeToString(profiles))
+    }
+
+    /**
+     * Reads a manifest without installing it, so a pasted link can be checked
+     * first: what it offers, how many catalogues, and whether it is here already.
+     */
+    fun previewAddon(url: String, onDone: (String) -> Unit, onError: (String) -> Unit) {
+        scope.launch {
+            try {
+                val normalized = com.cinemax.app.addons.StremioAddonClient.manifestUrl(url) ?: url
+                val manifest = withTimeoutOrNull(15_000) { repository.loadManifest(url) }
+                if (manifest == null) {
+                    onError("لم تستجب الإضافة")
+                    return@launch
+                }
+                val installed = addonStore.load()
+                    .any { it.manifestUrl == normalized || it.id == manifest.id }
+                onDone(
+                    json.encodeToString(
+                        AppleAddonPreview(
+                            name = manifest.name,
+                            id = manifest.id,
+                            version = manifest.version,
+                            description = manifest.description ?: "",
+                            resources = manifest.resourceNames().sorted(),
+                            types = manifest.types,
+                            catalogs = manifest.catalogs.size,
+                            configurable = manifest.behaviorHints.configurable,
+                            installed = installed
+                        )
+                    )
+                )
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                onError(error.message ?: "تعذر قراءة الإضافة")
+            }
+        }
+    }
+
     /**
      * Remembers which interface the viewer chose and tells the host to rebuild its
      * root: the SwiftUI shell observes CN_SWITCH_NOTIFICATION.
