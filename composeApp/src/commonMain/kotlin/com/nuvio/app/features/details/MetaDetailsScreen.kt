@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.PlaylistAddCheckCircle
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import com.nuvio.app.core.concurrent.runCatchingCancellable
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -542,7 +543,7 @@ fun MetaDetailsScreen(
                         pickerError = null
                         showLibraryListPicker = true
                         detailsScope.launch {
-                            runCatching {
+                            runCatchingCancellable {
                                 val snapshot = LibraryRepository.getMembershipSnapshot(libraryItem)
                                 val tabs = LibraryRepository.libraryListTabs(libraryItem)
                                 pickerTabs = tabs
@@ -761,7 +762,7 @@ fun MetaDetailsScreen(
                     if (!deferredMetaWorkAllowed || !heroTrailerPlaybackEnabled || heroTrailerCandidate == null) {
                         return@LaunchedEffect
                     }
-                    val resolvedSource = runCatching {
+                    val resolvedSource = runCatchingCancellable {
                         TrailerPlaybackResolver.resolveFromYouTubeUrl(heroTrailerCandidate.youtubePlaybackUrl())
                     }.getOrNull()
                     if (resolvedSource == null) {
@@ -780,7 +781,7 @@ fun MetaDetailsScreen(
                     { trailer ->
                         val youtubeUrl = trailer.youtubePlaybackUrl()
                         if (!inAppTrailerPlaybackEnabled) {
-                            runCatching { uriHandler.openUri(youtubeUrl) }
+                            runCatchingCancellable { uriHandler.openUri(youtubeUrl) }
                         } else {
                             selectedTrailer = trailer
                             trailerPlaybackSource = null
@@ -789,7 +790,7 @@ fun MetaDetailsScreen(
                             trailerRequestToken += 1
                             val currentRequestToken = trailerRequestToken
                             trailerScope.launch {
-                                val resolvedSource = runCatching {
+                                val resolvedSource = runCatchingCancellable {
                                     TrailerPlaybackResolver.resolveFromYouTubeUrl(youtubeUrl)
                                 }.getOrNull()
                                 if (currentRequestToken != trailerRequestToken) {
@@ -1078,10 +1079,10 @@ fun MetaDetailsScreen(
                         val painter = dominantBackdropPainter
                         if (dominantColorEnabled) {
                             when {
-                                imageBitmap != null -> runCatching {
+                                imageBitmap != null -> runCatchingCancellable {
                                     dominantImageBitmapColorState.updateFrom(imageBitmap)
                                 }
-                                painter != null -> runCatching {
+                                painter != null -> runCatchingCancellable {
                                     dominantPainterColorState.updateFrom(painter)
                                 }
                             }

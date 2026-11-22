@@ -3,6 +3,7 @@
 package com.nuvio.app.features.p2p
 
 import cnames.structs.nuvio_engine
+import com.nuvio.app.core.concurrent.runCatchingCancellable
 import com.nuvio.app.features.p2p.native.NUVIO_ENGINE_EVENT_DISK_CACHE_RECLAIMED
 import com.nuvio.app.features.p2p.native.NUVIO_ENGINE_EVENT_STREAM_PREPARED
 import com.nuvio.app.features.p2p.native.NUVIO_ENGINE_EVENT_STREAM_STOPPED
@@ -183,14 +184,14 @@ actual object P2pStreamingEngine {
             stream.url
         } catch (cancellation: CancellationException) {
             withContext(NonCancellable) {
-                preparedStream?.let { runCatching { stopNativeStream(engine, it.id) } }
+                preparedStream?.let { runCatchingCancellable { stopNativeStream(engine, it.id) } }
             }
             currentTorrentId = null
             currentStream = null
             _state.value = P2pStreamingState.Idle
             throw cancellation
         } catch (error: Throwable) {
-            preparedStream?.let { runCatching { stopNativeStream(engine, it.id) } }
+            preparedStream?.let { runCatchingCancellable { stopNativeStream(engine, it.id) } }
             currentTorrentId = null
             currentStream = null
             val message = error.message ?: "Unable to start torrent stream"
@@ -244,7 +245,7 @@ actual object P2pStreamingEngine {
         currentStream = null
         currentTorrentId = null
         _state.value = P2pStreamingState.Idle
-        stream?.let { runCatching { stopNativeStream(engine, it.id) } }
+        stream?.let { runCatchingCancellable { stopNativeStream(engine, it.id) } }
         if (shutdownEngine) closeEngine()
     }
 
@@ -254,7 +255,7 @@ actual object P2pStreamingEngine {
         phase: () -> String,
     ): Job = scope.launch {
         while (isActive && generation == streamGeneration) {
-            runCatching { readAggregateStats(activeEngine) }.getOrNull()?.let { stats ->
+            runCatchingCancellable { readAggregateStats(activeEngine) }.getOrNull()?.let { stats ->
                 if (_state.value is P2pStreamingState.Connecting) {
                     _state.value = P2pStreamingState.Connecting(
                         phase = phase(),
@@ -382,7 +383,7 @@ actual object P2pStreamingEngine {
         cacheStatsJob?.cancel()
         cacheStatsJob = scope.launch {
             while (isActive) {
-                runCatching { readAggregateStats(activeEngine) }.getOrNull()?.let(::updateCacheState)
+                runCatchingCancellable { readAggregateStats(activeEngine) }.getOrNull()?.let(::updateCacheState)
                 delay(CacheStatsPollIntervalMs)
             }
         }

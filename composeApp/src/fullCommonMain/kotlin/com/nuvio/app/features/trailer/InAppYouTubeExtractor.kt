@@ -1,6 +1,7 @@
 package com.nuvio.app.features.trailer
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.core.concurrent.runCatchingCancellable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -152,7 +153,7 @@ class InAppYouTubeExtractor {
     ): TrailerPlaybackSource? = withContext(Dispatchers.Default) {
         if (youtubeUrl.isBlank()) return@withContext null
 
-        runCatching {
+        runCatchingCancellable {
             withTimeout(EXTRACTOR_TIMEOUT_MS) {
                 extractPlaybackSourceInternal(youtubeUrl, singleUrl)
             }
@@ -189,7 +190,7 @@ class InAppYouTubeExtractor {
         val manifestUrls = mutableListOf<Triple<String, Int, String>>()
 
         for (client in CLIENTS) {
-            runCatching {
+            runCatchingCancellable {
                 val playerResponse = fetchPlayerResponse(
                     apiKey = apiKey,
                     videoId = videoId,
@@ -197,7 +198,7 @@ class InAppYouTubeExtractor {
                     visitorData = watchConfig.visitorData,
                 )
 
-                val streamingData = playerResponse.objectValue("streamingData") ?: return@runCatching
+                val streamingData = playerResponse.objectValue("streamingData") ?: return@runCatchingCancellable
                 val hlsManifestUrl = streamingData.stringValue("hlsManifestUrl")
                 if (!hlsManifestUrl.isNullOrBlank()) {
                     manifestUrls += Triple(client.key, client.priority, hlsManifestUrl)
@@ -291,8 +292,8 @@ class InAppYouTubeExtractor {
 
         var bestManifest: ManifestCandidate? = null
         for ((clientKey, priority, manifestUrl) in manifestUrls) {
-            runCatching {
-                val variant = parseHlsManifest(manifestUrl) ?: return@runCatching
+            runCatchingCancellable {
+                val variant = parseHlsManifest(manifestUrl) ?: return@runCatchingCancellable
                 val candidate = ManifestCandidate(
                     client = clientKey,
                     priority = priority,

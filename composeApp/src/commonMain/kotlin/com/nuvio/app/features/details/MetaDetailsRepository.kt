@@ -1,6 +1,7 @@
 package com.nuvio.app.features.details
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.core.concurrent.runCatchingCancellable
 import com.nuvio.app.features.addons.AddonManifest
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.buildAddonResourceUrl
@@ -210,7 +211,7 @@ object MetaDetailsRepository {
         val requestKey = "$type:$id"
         cachedMetaByRequestKey[requestKey]?.let { return it.baseMeta }
         ServerItemRef.parse(id)?.let { ref ->
-            return runCatching { ServerCatalog.details(ref).meta }
+            return runCatchingCancellable { ServerCatalog.details(ref).meta }
                 .onFailure { if (it is CancellationException) throw it }
                 .getOrNull()
                 ?.also { if (cacheResult) cachedMetaByRequestKey[requestKey] = CachedMetaEntry(baseMeta = it) }
@@ -246,7 +247,7 @@ object MetaDetailsRepository {
             meta = cachedMetaByRequestKey[requestKey]?.baseMeta,
         )
         scope.launch {
-            val result = runCatching { ServerCatalog.details(ref) }
+            val result = runCatchingCancellable { ServerCatalog.details(ref) }
             if (activeRequestKey != requestKey) return@launch
             result.fold(
                 onSuccess = { details ->
@@ -467,7 +468,7 @@ object MetaDetailsRepository {
         if (shouldUseSimklMoreLikeThis(trackingSettings.moreLikeThisSource) &&
             supportsMoreLikeThis(meta, fallbackItemType)
         ) {
-            val items = runCatching {
+            val items = runCatchingCancellable {
                 com.nuvio.app.features.simkl.SimklRelatedRepository.getRelated(
                     meta = meta,
                     fallbackItemId = fallbackItemId,
@@ -490,7 +491,7 @@ object MetaDetailsRepository {
         ) && supportsMoreLikeThis(meta, fallbackItemType)
 
         if (shouldUseTrakt) {
-            val items = runCatching {
+            val items = runCatchingCancellable {
                 TraktRelatedRepository.getRelated(
                     meta = meta,
                     fallbackItemId = fallbackItemId,

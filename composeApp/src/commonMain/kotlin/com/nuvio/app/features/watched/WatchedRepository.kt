@@ -1,6 +1,7 @@
 package com.nuvio.app.features.watched
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.core.concurrent.runCatchingCancellable
 import com.nuvio.app.core.auth.AuthRepository
 import com.nuvio.app.core.auth.AuthState
 import com.nuvio.app.core.auth.currentSupabaseAccountUserId
@@ -243,7 +244,7 @@ object WatchedRepository {
         val payload = WatchedStorage.loadPayload(profileId).orEmpty().trim()
         if (payload.isNotEmpty()) {
             val storedPayload = if (shouldRestoreWatchedPayload(payload.length)) {
-                runCatching {
+                runCatchingCancellable {
                     json.decodeFromString<StoredWatchedPayload>(payload)
                 }.getOrDefault(StoredWatchedPayload())
             } else {
@@ -1141,10 +1142,10 @@ object WatchedRepository {
         val expectedUserId = if (source.providerId == null) currentSupabaseAccountUserId() else null
         if (trackerHistorySync == WatchedTrackerHistorySync.Mirror) ServerWatched.mirror(items, played = true)
         accountScopeSnapshot().launch {
-            runCatching {
-                if (items.isEmpty()) return@runCatching
+            runCatchingCancellable {
+                if (items.isEmpty()) return@runCatchingCancellable
                 if (source.providerId == null && (expectedUserId == null || !isCurrentSupabaseAccount(expectedUserId))) {
-                    return@runCatching
+                    return@runCatchingCancellable
                 }
                 val outcome = pushToTargetsForSource(
                     profileId = profileId,

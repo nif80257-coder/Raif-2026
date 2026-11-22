@@ -50,6 +50,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.app.core.concurrent.runCatchingCancellable
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioScreenHeader
@@ -154,7 +155,7 @@ internal data class SupportersResult(
 private object SupportersContributorsRepository {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
-    suspend fun getContributors(): Result<List<CommunityContributor>> = runCatching {
+    suspend fun getContributors(): Result<List<CommunityContributor>> = runCatchingCancellable {
         val contributionsUrl = CommunityConfig.CONTRIBUTIONS_URL.trim()
         check(contributionsUrl.isNotBlank()) {
             getString(Res.string.community_error_unable_load_contributors)
@@ -179,7 +180,7 @@ private object SupportersContributorsRepository {
             )
     }
 
-    suspend fun getSupporters(): Result<SupportersResult> = runCatching {
+    suspend fun getSupporters(): Result<SupportersResult> = runCatchingCancellable {
         val wallUrl = CommunityConfig.SUPPORTERS_WALL_URL.trim()
         check(wallUrl.isNotBlank()) {
             getString(Res.string.community_supporters_not_configured)
@@ -221,9 +222,9 @@ private object SupportersContributorsRepository {
         )
     }
 
-    private suspend fun getDonationProgress(): DonationProgress? = runCatching {
+    private suspend fun getDonationProgress(): DonationProgress? = runCatchingCancellable {
         val baseUrl = CommunityConfig.DONATIONS_BASE_URL.trim().removeSuffix("/")
-        if (baseUrl.isBlank()) return@runCatching null
+        if (baseUrl.isBlank()) return@runCatchingCancellable null
 
         val response = httpRequestRaw(
             method = "GET",
@@ -231,7 +232,7 @@ private object SupportersContributorsRepository {
             headers = emptyMap(),
             body = "",
         )
-        if (response.status !in 200..299) return@runCatching null
+        if (response.status !in 200..299) return@runCatchingCancellable null
 
         json.decodeFromString<DonationsResponseDto>(response.body)
             .monthlyGoal

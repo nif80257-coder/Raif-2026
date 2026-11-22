@@ -1,6 +1,7 @@
 package com.nuvio.app.features.settings
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.core.concurrent.runCatchingCancellable
 import com.nuvio.app.core.time.EpisodeReleaseDatePlatform
 import com.nuvio.app.features.addons.AddonManifest
 import com.nuvio.app.features.addons.AddonManifestParser
@@ -116,7 +117,7 @@ internal object AddonHealthCheckRepository {
     private suspend fun runCheck(addon: ManagedAddon): AddonCheckResult {
         val startedAt = EpisodeReleaseDatePlatform.nowEpochMs()
         val manifestOutcome = withTimeoutOrNull(AddonHealthCheckTimeoutMs) {
-            runCatching {
+            runCatchingCancellable {
                 val payload = fetchAddonResponseText(url = addon.manifestUrl, forceRefresh = true)
                 AddonManifestParser.parse(manifestUrl = addon.manifestUrl, payload = payload)
             }
@@ -186,7 +187,7 @@ internal object AddonHealthCheckRepository {
 
         val streamOutcome = if (supportsStreams) {
             withTimeoutOrNull(AddonHealthCheckTimeoutMs) {
-                runCatching {
+                runCatchingCancellable {
                     val url = buildAddonResourceUrl(manifest.transportUrl, "stream", "movie", videoId)
                     val body = fetchAddonResponseText(url, forceRefresh = true)
                     parseArraySize(body, "streams")
@@ -198,7 +199,7 @@ internal object AddonHealthCheckRepository {
 
         val subtitleOutcome = if (supportsSubtitles) {
             withTimeoutOrNull(AddonHealthCheckTimeoutMs) {
-                runCatching {
+                runCatchingCancellable {
                     val url = buildAddonResourceUrl(manifest.transportUrl, "subtitles", "movie", videoId)
                     val body = fetchAddonResponseText(url, forceRefresh = true)
                     parseArraySize(body, "subtitles")
@@ -220,8 +221,8 @@ internal object AddonHealthCheckRepository {
     }
 
     private fun parseArraySize(body: String, field: String): Int {
-        val root = runCatching { json.parseToJsonElement(body) }.getOrNull() as? JsonObject ?: return 0
-        val array: JsonArray = runCatching { root[field]?.jsonArray }.getOrNull() ?: return 0
+        val root = runCatchingCancellable { json.parseToJsonElement(body) }.getOrNull() as? JsonObject ?: return 0
+        val array: JsonArray = runCatchingCancellable { root[field]?.jsonArray }.getOrNull() ?: return 0
         return array.size
     }
 }
