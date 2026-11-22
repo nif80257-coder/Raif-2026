@@ -2,7 +2,7 @@ package com.nuvio.app.features.addons
 
 /**
  * Add-ons installed automatically, so a profile opens with the curated source list from
- * `Raif 2/raif-sources.json` instead of an empty home screen.
+ * `docs/raif-sources.json` instead of an empty home screen.
  *
  * The bundle is installed once: entries already present are skipped, and the seed marker is only
  * written once at least one add-on actually installed, so an offline first launch retries later.
