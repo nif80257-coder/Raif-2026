@@ -58,7 +58,16 @@ enum CinemaTheme {
     static let favourite = Color(red: 1.0, green: 0.357, blue: 0.557)
     static let muted = Color(white: 0.58)
     static let hairline = Color.white.opacity(0.08)
-    static let posterRadius: CGFloat = 14
+
+    /// The poster's corner comes from settings: sharp, soft or round.
+    static var posterRadius: CGFloat {
+        switch UserDefaults.standard.string(forKey: "cinemax.corner") ?? "soft" {
+        case "sharp": return 6
+        case "round": return 24
+        default: return 14
+        }
+    }
+
     static let cardRadius: CGFloat = 22
 }
 
@@ -81,9 +90,18 @@ enum Haptics {
         (UserDefaults.standard.object(forKey: "cinemax.haptics") as? Bool) ?? true
     }
 
+    /// How firm the tap feels; the settings offer three levels.
+    private static var style: UIImpactFeedbackGenerator.FeedbackStyle {
+        switch UserDefaults.standard.string(forKey: "cinemax.hapticsLevel") ?? "light" {
+        case "medium": return .medium
+        case "heavy": return .heavy
+        default: return .light
+        }
+    }
+
     static func tap() {
         guard enabled else { return }
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        UIImpactFeedbackGenerator(style: style).impactOccurred()
     }
 
     static func select() {
@@ -5686,6 +5704,7 @@ struct OnboardingView: View {
 struct CinemaRootView: View {
     @AppStorage("cinemax.tab") private var selection = 0
     @AppStorage("cinemax.appLock") private var appLock = false
+    @AppStorage("cinemax.corner") private var corner = "soft"
     @Environment(\.scenePhase) private var scenePhase
     @State private var unlocked = false
     @AppStorage("cinemax.accent") private var accent = "raif"
@@ -5708,7 +5727,7 @@ struct CinemaRootView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             // Rebuilds the screens when the accent or the canvas changes, so the new
             // colour reaches every view instead of only newly created ones.
-            .id(accent + (oled ? "-oled" : "-soft"))
+            .id(accent + (oled ? "-oled" : "-soft") + "-" + corner)
             FloatingTabBar(selection: $selection, libraryBadge: LibraryModel.shared.progress.count)
         }
         .overlay(alignment: .top) {
@@ -6185,6 +6204,65 @@ struct SettingsView: View {
     @AppStorage("cinemax.oled") private var oled = false
     @AppStorage("cinemax.autoplayNext") private var autoplayNext = true
     @AppStorage("cinemax.subtitleLang") private var subtitleLang = "ar"
+    @State private var query = ""
+
+    /// Every screen the hub can reach, with the words a viewer might search for.
+    private struct Destination: Identifiable {
+        let id: String
+        let title: String
+        let detail: String
+        let icon: String
+        let keywords: String
+        var value: String? = nil
+    }
+
+    private var destinations: [Destination] {
+        [
+            Destination(id: "appearance", title: "المظهر واللغة", detail: "لون، أنماط جاهزة، زوايا، اهتزاز", icon: "paintpalette.fill", keywords: "لون مظهر نمط زوايا اهتزاز oled accent theme"),
+            Destination(id: "layout", title: "التخطيط", detail: "تصميم الرئيسية، الهيرو، الصفوف", icon: "rectangle.3.group.fill", keywords: "تخطيط رئيسية صفوف هيرو بوستر home layout"),
+            Destination(id: "addons", title: "الإضافات", detail: "تثبيت، فحص، تحديث، ترتيب، إعدادات كل إضافة", icon: "puzzlepiece.extension.fill", keywords: "اضافات ستريميو addons stremio manifest"),
+            Destination(id: "nuvio", title: "مزوّدو Nuvio", detail: "مستودعات، مزوّدون، بروكسي وكوكي", icon: "bolt.horizontal.circle.fill", keywords: "نيفيو مزود مستودع بروكسي كوكي nuvio provider repo"),
+            Destination(id: "tmdb", title: "TMDB", detail: "مفتاح الكتالوج العربي", icon: "star.bubble.fill", keywords: "tmdb مفتاح كتالوج"),
+            Destination(id: "sharing", title: "تصدير ومشاركة", detail: "روابط، ملف JSON، استيراد", icon: "square.and.arrow.up.on.square.fill", keywords: "تصدير استيراد مشاركة json نسخة روابط share"),
+            Destination(id: "playback", title: "التشغيل", detail: "المشغّل، التقديم، المصادر", icon: "play.rectangle.fill", keywords: "تشغيل مشغل تقديم مصدر جودة player"),
+            Destination(id: "subtitles", title: "الترجمة", detail: "اللغة، الحجم، الاختيار التلقائي", icon: "captions.bubble.fill", keywords: "ترجمة لغة حجم subtitle"),
+            Destination(id: "streaming", title: "البث والمشغّل", detail: "فك ترميز، كاش، تدوير", icon: "antenna.radiowaves.left.and.right", keywords: "بث كاش ترميز تدوير streaming cache hwdec"),
+            Destination(id: "library", title: "المكتبة والبحث", detail: "ترتيب افتراضي ونوع البحث", icon: "books.vertical.fill", keywords: "مكتبة بحث ترتيب library search"),
+            Destination(id: "stats", title: "الإحصاءات", detail: "ما في مكتبتك وحجم التنزيلات", icon: "chart.bar.fill", keywords: "احصائيات stats"),
+            Destination(id: "data", title: "البيانات", detail: "مسح، نسخة احتياطية، قفل التطبيق", icon: "externaldrive.fill", keywords: "بيانات نسخ احتياطي مسح قفل data backup lock"),
+            Destination(id: "about", title: "عن التطبيق", detail: "الإصدار، التشخيص، شاشة البداية", icon: "info.circle.fill", keywords: "حول اصدار about version")
+        ]
+    }
+
+    private var matches: [Destination] {
+        let text = query.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return [] }
+        return destinations.filter {
+            $0.title.localizedCaseInsensitiveContains(text)
+                || $0.detail.localizedCaseInsensitiveContains(text)
+                || $0.keywords.localizedCaseInsensitiveContains(text)
+        }
+    }
+
+    @ViewBuilder
+    private func destinationView(_ id: String) -> some View {
+        switch id {
+        case "appearance": AppearanceSettings()
+        case "layout": LayoutSettings()
+        case "addons": AddonsSettings()
+        case "nuvio": NuvioSettings()
+        case "tmdb": TmdbSettings()
+        case "sharing": SharingSettings()
+        case "playback": PlaybackSettings()
+        case "subtitles": SubtitleSettings()
+        case "streaming": StreamingSettings()
+        case "library": LibrarySettings()
+        case "stats": StatsSettings()
+        case "data": DataSettings()
+        case "about": AboutSettings()
+        default: EmptyView()
+        }
+    }
 
     private var subtitleName: String {
         switch subtitleLang {
@@ -6224,6 +6302,62 @@ struct SettingsView: View {
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, 8)
+
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 12))
+                            .foregroundStyle(CinemaTheme.muted)
+                        TextField("ابحث في الإعدادات", text: $query)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 13))
+                            .foregroundStyle(.white)
+                            .autocorrectionDisabled()
+                        if !query.isEmpty {
+                            Button {
+                                query = ""
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(CinemaTheme.muted)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 11)
+                    .background(CinemaTheme.surface, in: Capsule())
+                    .padding(.horizontal, 20)
+
+                    if !query.isEmpty {
+                        SettingsSection(title: matches.isEmpty ? "لا نتائج" : "نتائج البحث (\(matches.count))") {
+                            if matches.isEmpty {
+                                Text("جرّب كلمة أخرى: مشغّل، ترجمة، إضافات، مظهر، نسخ احتياطي…")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(CinemaTheme.muted)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(14)
+                                    .background(
+                                        CinemaTheme.surface,
+                                        in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    )
+                            } else {
+                                ForEach(matches) { destination in
+                                    NavigationLink {
+                                        destinationView(destination.id)
+                                    } label: {
+                                        SettingsRow(
+                                            icon: destination.icon,
+                                            title: destination.title,
+                                            detail: destination.detail,
+                                            value: destination.value
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 20)
+                    }
 
                     SettingsSection(title: "المظهر") {
                         NavigationLink {
@@ -6408,10 +6542,119 @@ struct AppearanceSettings: View {
     @AppStorage("cinemax.oled") private var oled = false
     @AppStorage("cinemax.reduceMotion") private var reduceMotion = false
     @AppStorage("cinemax.haptics") private var haptics = true
+    @AppStorage("cinemax.corner") private var corner = "soft"
+    @AppStorage("cinemax.hapticsLevel") private var hapticsLevel = "light"
+
+    private struct ThemePreset: Identifiable {
+        let id: String
+        let title: String
+        let detail: String
+        let accentID: String
+        let oled: Bool
+        let cornerValue: String
+        let hapticLevel: String
+    }
+
+    private let presets: [ThemePreset] = [
+        ThemePreset(
+            id: "cinema",
+            title: "ليل السينما",
+            detail: "ذهبي دافئ، أسود عميق، زوايا ناعمة",
+            accentID: "raif",
+            oled: true,
+            cornerValue: "soft",
+            hapticLevel: "light"
+        ),
+        ThemePreset(
+            id: "neon",
+            title: "نيون",
+            detail: "وردي صارخ، أسود خالص، زوايا دائرية",
+            accentID: "pink",
+            oled: true,
+            cornerValue: "round",
+            hapticLevel: "medium"
+        ),
+        ThemePreset(
+            id: "gold",
+            title: "كلاسيكي ذهبي",
+            detail: "كهرماني، خلفية ناعمة، زوايا حادة",
+            accentID: "amber",
+            oled: false,
+            cornerValue: "sharp",
+            hapticLevel: "heavy"
+        ),
+        ThemePreset(
+            id: "calm",
+            title: "هادئ",
+            detail: "أزرق محيطي، أسود عميق، بلا حركة",
+            accentID: "ocean",
+            oled: true,
+            cornerValue: "soft",
+            hapticLevel: "light"
+        )
+    ]
+
+    private let corners: [(id: String, title: String)] = [
+        ("sharp", "حادة"), ("soft", "ناعمة"), ("round", "دائرية")
+    ]
+
+    private let hapticLevels: [(id: String, title: String)] = [
+        ("light", "خفيف"), ("medium", "متوسط"), ("heavy", "قوي")
+    ]
 
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("أنماط جاهزة بنقرة")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.muted)
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: 150), spacing: 10)],
+                        spacing: 10
+                    ) {
+                        ForEach(presets) { preset in
+                            Button {
+                                Haptics.select()
+                                apply(preset)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack(spacing: 5) {
+                                        Circle()
+                                            .fill(AccentPalette.color(preset.accentID))
+                                            .frame(width: 12, height: 12)
+                                        Capsule()
+                                            .fill(preset.oled ? Color.black : Color(white: 0.12))
+                                            .frame(width: 20, height: 12)
+                                            .overlay(Capsule().strokeBorder(CinemaTheme.hairline, lineWidth: 1))
+                                        Spacer()
+                                        if accent == preset.accentID {
+                                            Image(systemName: "checkmark.circle.fill")
+                                                .font(.system(size: 12))
+                                                .foregroundStyle(CinemaTheme.accent)
+                                        }
+                                    }
+                                    Text(preset.title)
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(.white)
+                                    Text(preset.detail)
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(CinemaTheme.muted)
+                                        .multilineTextAlignment(.leading)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                .padding(12)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(
+                                    CinemaTheme.surface,
+                                    in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+
                 Text("لون الواجهة")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(CinemaTheme.muted)
@@ -6482,6 +6725,64 @@ struct AppearanceSettings: View {
                         }
                     }
                     .tint(CinemaTheme.accent)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("شكل زوايا البوسترات")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.muted)
+                        HStack(spacing: 8) {
+                            ForEach(corners, id: \.id) { entry in
+                                Button {
+                                    Haptics.select()
+                                    withAnimation(.easeInOut(duration: 0.2)) { corner = entry.id }
+                                } label: {
+                                    Text(entry.title)
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundStyle(corner == entry.id ? .black : .white)
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 8)
+                                        .background {
+                                            Capsule().fill(
+                                                corner == entry.id
+                                                    ? CinemaTheme.accent
+                                                    : Color.white.opacity(0.08)
+                                            )
+                                        }
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("قوة الاهتزاز")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.muted)
+                        HStack(spacing: 8) {
+                            ForEach(hapticLevels, id: \.id) { entry in
+                                Button {
+                                    hapticsLevel = entry.id
+                                    Haptics.tap()
+                                } label: {
+                                    Text(entry.title)
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundStyle(hapticsLevel == entry.id ? .black : .white)
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 8)
+                                        .background {
+                                            Capsule().fill(
+                                                hapticsLevel == entry.id
+                                                    ? CinemaTheme.accent
+                                                    : Color.white.opacity(0.08)
+                                            )
+                                        }
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(!haptics)
+                                .opacity(haptics ? 1 : 0.4)
+                            }
+                        }
+                    }
                 }
                 .padding(16)
                 .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
@@ -6491,6 +6792,16 @@ struct AppearanceSettings: View {
         .background(CinemaTheme.canvas.ignoresSafeArea())
         .navigationTitle("المظهر واللغة")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// One tap sets a whole look: colour, canvas, corners and touch feel.
+    private func apply(_ preset: ThemePreset) {
+        accent = preset.accentID
+        oled = preset.oled
+        corner = preset.cornerValue
+        hapticsLevel = preset.hapticLevel
+        reduceMotion = preset.id == "calm"
+        Haptics.tap()
     }
 }
 
