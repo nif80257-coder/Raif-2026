@@ -1,5 +1,6 @@
 package com.nuvio.app.features.plugins.runtime
 
+import com.nuvio.app.core.concurrent.runCatchingCancellable
 import com.nuvio.app.features.plugins.PluginRuntimeResult
 import com.nuvio.app.features.plugins.PluginStorage
 import com.nuvio.app.features.plugins.runtime.crypto.CryptoBridge
@@ -60,7 +61,7 @@ internal object PluginRuntime {
     ): List<PluginRuntimeResult> {
         suspend fun run(): List<PluginRuntimeResult> {
             val scraperSettingsJson = PluginStorage.loadScraperSettings(scraperId) ?: "{}"
-            val scraperSettingsMap = runCatching {
+            val scraperSettingsMap = runCatchingCancellable {
                 json.decodeFromString<Map<String, JsonElement>>(scraperSettingsJson)
             }.getOrElse { emptyMap() }
 
@@ -185,7 +186,7 @@ internal object PluginRuntime {
         bytecode: com.dokar.quickjs.QuickJs.() -> ByteArray,
         source: String,
     ) {
-        val compiled = runCatching { bytecode() }.getOrNull()
+        val compiled = runCatchingCancellable { bytecode() }.getOrNull()
         if (compiled != null) {
             evaluate<Any?>(compiled)
         } else {
@@ -194,7 +195,7 @@ internal object PluginRuntime {
     }
 
     private fun parseJsonResults(rawJson: String): List<PluginRuntimeResult> {
-        return runCatching {
+        return runCatchingCancellable {
             val array = json.parseToJsonElement(rawJson) as? JsonArray ?: return emptyList()
             array.mapNotNull { element ->
                 val item = element as? JsonObject ?: return@mapNotNull null

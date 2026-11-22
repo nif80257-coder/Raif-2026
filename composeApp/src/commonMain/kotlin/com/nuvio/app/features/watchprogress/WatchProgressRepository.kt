@@ -1,6 +1,7 @@
 package com.nuvio.app.features.watchprogress
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.core.concurrent.runCatchingCancellable
 import com.nuvio.app.core.auth.AuthRepository
 import com.nuvio.app.core.auth.AuthState
 import com.nuvio.app.core.auth.isCurrentSupabaseAccount
@@ -1352,7 +1353,7 @@ object WatchProgressRepository {
         ensureLoaded()
         val provider = activeProgressProvider() ?: return
         syncScope.launch {
-            runCatching {
+            runCatchingCancellable {
                 provider.refreshEpisodeProgress(
                     contentId = contentId,
                     forceRefresh = forceRefresh,

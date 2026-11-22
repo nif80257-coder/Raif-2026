@@ -1,5 +1,6 @@
 package com.nuvio.app.features.trailer
 
+import com.nuvio.app.core.concurrent.runCatchingCancellable
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.darwin.Darwin
 import io.ktor.client.plugins.HttpTimeout
@@ -61,7 +62,7 @@ internal object TrailerExtractionPlatform {
             }
         }
 
-        val bodyText = runCatching { response.bodyAsText() }.getOrElse { "" }
+        val bodyText = runCatchingCancellable { response.bodyAsText() }.getOrElse { "" }
         TrailerRequestResponse(
             ok = response.status.isSuccess(),
             status = response.status.value,
@@ -130,7 +131,7 @@ internal object TrailerExtractionPlatform {
     }
 
     private suspend fun isUrlReachable(url: String): Boolean {
-        val response = runCatching {
+        val response = runCatchingCancellable {
             performRequest(
                 url = url,
                 method = "GET",

@@ -1,6 +1,7 @@
 package com.nuvio.app.features.tmdb
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.core.concurrent.runCatchingCancellable
 import com.nuvio.app.features.addons.httpGetText
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -103,7 +104,7 @@ object TmdbService {
         query: Map<String, String> = emptyMap(),
     ): T? {
         val url = buildTmdbUrl(endpoint = endpoint, apiKey = apiKey, query = query)
-        return runCatching {
+        return runCatchingCancellable {
             json.decodeFromString<T>(httpGetText(url))
         }.onFailure { error ->
             log.w { "TMDB request failed for $endpoint: ${error.message}" }

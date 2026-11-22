@@ -1,6 +1,7 @@
 package com.nuvio.app.features.trakt
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.core.concurrent.runCatchingCancellable
 import com.nuvio.app.features.addons.RawHttpResponse
 import com.nuvio.app.features.addons.httpRequestRaw
 import com.nuvio.app.features.catalog.CatalogPage
@@ -150,7 +151,7 @@ object TraktPublicListSourceResolver {
         if (response.status !in 200..299) {
             error(errorMessageFor(response.status, getString(Res.string.collections_trakt_request_failed)))
         }
-        return runCatching { json.decodeFromString<T>(response.body) }
+        return runCatchingCancellable { json.decodeFromString<T>(response.body) }
             .onFailure { error -> log.w(error) { "Failed to parse Trakt response for $endpoint" } }
             .getOrThrow()
     }

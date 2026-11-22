@@ -1,5 +1,6 @@
 package com.nuvio.app.features.mdblist
 
+import com.nuvio.app.core.concurrent.runCatchingCancellable
 import kotlinx.serialization.json.Json
 
 class MdbListApiClient(
@@ -37,7 +38,7 @@ class MdbListApiClient(
     suspend fun refreshUser(scope: MdbListAuthScope = store.scope()): MdbListUser {
         val previousLimitKey = limitKey(scope)
         val response = get("/user", scope = scope)
-        val user = runCatching {
+        val user = runCatchingCancellable {
             json.decodeFromString<MdbListUser>(response.body)
         }.getOrElse { throw MdbListAuthException(MdbListAuthError.INVALID_RESPONSE) }
         if (user.id == null || user.id <= 0L) throw MdbListAuthException(MdbListAuthError.INVALID_RESPONSE)

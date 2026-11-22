@@ -109,7 +109,7 @@
 
 **اكتمل التصنيف B:** أُنجزت المواضع الأحد عشر الأخيرة — `CollectionSyncService.kt` (تسعة، مع تحويل علامات `return@runCatching` الخمس إلى `return@runCatchingCancellable`)، و`PlaybackP2pSettings.kt:112` (مسح كاش P2P)، و`TmdbCollectionSourceResolver.kt:365`. المجموع المحوَّل إلى `runCatchingCancellable`/`sendQuietly`: **67 موضعًا** في 23 ملفًا.
 
-**التصنيف C:** حُوّل منه 90 موضعًا على أربع دفعات (40 ثم 26 ثم 22 ثم 2، مع ما جاء ضمن دفعات B)، فصار **135 موضعًا** محوَّلًا من أصل 394. الباقي 259 موضعًا موزّعة هكذا: 189 لا تستطيع التعليق أصلًا (تحليل JSON وقراءة تخزين)، و16 تعيد رمي الإلغاء صراحة، و54 تُعيد النتيجة أو تُسجّلها فقط بلا كتابة حالة. أي أن كل موضع يمكن أن يُظهر أثرًا للإلغاء على المستخدم صار محوَّلًا.
+**التصنيف C:** حُوّل منه 103 مواضع على خمس دفعات، فصار **148 موضعًا** محوَّلًا من أصل 394. الباقي 246 موضعًا: 189 لا تستطيع التعليق أصلًا (تحليل JSON وقراءة تخزين)، و16 تعيد رمي الإلغاء صراحة، و41 تُعيد النتيجة أو تُسجّلها فقط بلا كتابة حالة. أي أن كل موضع يمكن أن يُظهر أثرًا للإلغاء على المستخدم صار محوَّلًا، ومنه مواضع B الأخيرة في `MdbListApiClient` و`TmdbMetadataService` و`TmdbService` و`TraktPublicListSourceResolver` و`WatchProgressRepository` و`PluginRuntime` و`TrailerExtractionPlatform.ios`.
 
 **الطريقة:** التحليل بسكربت يقرأ كل ملف، يجد كل `runCatching`، يصعد إلى تعريف الدالة المحيطة، ويسأل ثلاثة أسئلة: هل الدالة `suspend`؟ هل بين التعريف والموضع `launch`/`async`/`withContext`/`collect`؟ وهل الحالة تُحدَّث في `onFailure`/`getOrElse`؟ ثم يُرتّب على الجواب. الأرقام أعلاه من هذا السكربت، والتحقق من الإصلاحات بالمترجم (`compileKotlinIosSimulatorArm64` + `compileTestKotlinIosSimulatorArm64`) وبناء iOS.
 
