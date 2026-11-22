@@ -283,6 +283,17 @@ struct AddonPreview: Codable {
     }
 }
 
+/// What the app measured about one source: its average answer time and its run of
+/// failures, which is what decides whether it is asked at all right now.
+struct SourceHealthRow: Identifiable, Codable {
+    let name: String
+    let ms: Int64
+    let failures: Int
+    let skipped: Bool
+
+    var id: String { name }
+}
+
 /// One provider inside an installed Nuvio repository.
 struct NuvioProviderRow: Identifiable, Codable {
     let key: String
@@ -751,6 +762,19 @@ final class CinemaAPI {
                 continuation.resume(returning: (object?["updated"] as? NSNumber)?.intValue ?? 0)
             })
         }
+    }
+
+    /// How each source has been behaving: average answer time and failures in a row.
+    func sourceHealth() async -> [SourceHealthRow] {
+        await withCheckedContinuation { (continuation: CheckedContinuation<[SourceHealthRow], Never>) in
+            bridge.sourceHealth(onDone: { json in
+                continuation.resume(returning: (try? self.decode([SourceHealthRow].self, json)) ?? [])
+            })
+        }
+    }
+
+    func resetSourceHealth() {
+        bridge.resetSourceHealth()
     }
 
     /// Every installed addon with what it can answer and its catalogues.
@@ -3986,6 +4010,21 @@ enum SourcePrefs {
     }
 }
 
+/// One sheet for both the trailer page and the lists picker. Two `.sheet`
+/// modifiers on the same view compete for the presentation and one of them loses,
+/// so the page keeps a single sheet whose content is chosen by the case.
+enum DetailSheet: Identifiable {
+    case trailer(URL)
+    case lists(CinemaItem)
+
+    var id: String {
+        switch self {
+        case .trailer(let url): return "trailer:" + url.absoluteString
+        case .lists(let item): return "lists:" + item.id
+        }
+    }
+}
+
 struct DetailView: View {
     let item: CinemaItem
     var onFavorite: () -> Void = {}
@@ -4006,9 +4045,8 @@ struct DetailView: View {
     @State private var episodeQuery = ""
     @State private var similar: [CinemaItem] = []
     @State private var similarPick: CinemaItem?
-    @State private var trailerTarget: SafariTarget?
     @State private var copied: String?
-    @State private var listPicker = false
+    @State private var detailSheet: DetailSheet?
     @State private var hiddenSources: Set<String> = SourcePrefs.hidden
     @State private var offAddons: Set<String> = SourcePrefs.offAddons
     @State private var foldedGroups: Set<String> = SourcePrefs.folded
@@ -4146,15 +4184,14 @@ struct DetailView: View {
                 }
             }
         }
-        .fullScreenCover(item: $similarPick) { entry in
-            DetailView(item: entry)
-        }
-        .sheet(item: $trailerTarget) { target in
-            SafariView(url: target.url)
-                .ignoresSafeArea()
-        }
-        .sheet(isPresented: $listPicker) {
-            ListsPickerSheet(item: model.detail?.item ?? item)
+        .sheet(item: $detailSheet) { sheet in
+            switch sheet {
+            case .trailer(let url):
+                SafariView(url: url)
+                    .ignoresSafeArea()
+            case .lists(let entry):
+                ListsPickerSheet(item: entry)
+            }
         }
     }
 
@@ -4174,6 +4211,9 @@ struct DetailView: View {
                 }
                 .padding(.horizontal, 20)
             }
+        }
+        .fullScreenCover(item: $similarPick) { entry in
+            DetailView(item: entry)
         }
     }
 
@@ -4221,7 +4261,7 @@ struct DetailView: View {
             }
             CircleButton(system: "text.badge.plus") {
                 Haptics.tap()
-                listPicker = true
+                detailSheet = .lists(model.detail?.item ?? item)
             }
             CircleButton(system: saved ? "heart.fill" : "heart", tint: saved ? CinemaTheme.favourite : .white) {
                 onFavorite()
@@ -4344,7 +4384,7 @@ struct DetailView: View {
                 if let trailer = model.detail?.trailers?.first, let url = URL(string: trailer) {
                     Button {
                         Haptics.tap()
-                        trailerTarget = SafariTarget(url: url)
+                        detailSheet = .trailer(url)
                     } label: {
                         Label("الإعلان", systemImage: "film")
                             .font(.system(size: 12, weight: .semibold))
@@ -4625,6 +4665,13 @@ struct DetailView: View {
         Array(Set(model.streams.filter { !offAddons.contains($0.addon) }.map(\.addon))).sorted()
     }
 
+    /// Links the viewer can actually see: not hidden, and not from a stopped addon.
+    private var visibleStreamCount: Int {
+        model.streams.filter {
+            !hiddenSources.contains($0.url) && !offAddons.contains($0.addon)
+        }.count
+    }
+
     private func addonChip(_ title: String, _ value: String?) -> some View {
         Button {
             Haptics.select()
@@ -4873,7 +4920,7 @@ struct DetailView: View {
             .buttonStyle(.plain)
             if !sourcesCollapsed, !model.loadingStreams {
                 HStack(spacing: 6) {
-                    Text("\(model.streams.count) رابطًا فريدًا من \(addonNames.count) مصدرًا")
+                    Text("\(visibleStreamCount) رابطًا من \(addonNames.count) مصدرًا")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(CinemaTheme.muted)
                     if !model.failures.isEmpty {
@@ -8935,22 +8982,6 @@ struct AddonsSettings: View {
         checking = false
     }
 
-    private func updateOne(_ addon: InstalledAddonRow) async {
-        updating = addon.url
-        message = nil
-        do {
-            let summary = try await CinemaAPI.shared.updateAddon(addon.url)
-            let parts = summary.split(separator: "|")
-            message = parts.count == 2 ? "حُدّثت \(parts[0]) إلى \(parts[1])" : "تم التحديث"
-            HomeModel.shared.resetCache()
-            await load()
-            await runCheck()
-        } catch {
-            message = error.localizedDescription
-        }
-        updating = nil
-    }
-
     private func updateAll() async {
         checking = true
         message = nil
@@ -9774,6 +9805,7 @@ struct SourcesControlSettings: View {
     @State private var offAddons: Set<String> = SourcePrefs.offAddons
     @State private var hiddenCount = SourcePrefs.hidden.count
     @State private var foldedCount = SourcePrefs.folded.count
+    @State private var health: [SourceHealthRow] = []
     @AppStorage("cinemax.sourcesCompact") private var compact = false
     @AppStorage("cinemax.speedFirst") private var speedFirst = false
     @AppStorage("cinemax.prefQuality") private var prefQuality = "auto"
@@ -9801,6 +9833,7 @@ struct SourcesControlSettings: View {
                     .lineSpacing(4)
 
                 addonSection
+                healthSection
                 displaySection
                 manageSection
             }
@@ -9814,6 +9847,7 @@ struct SourcesControlSettings: View {
             offAddons = SourcePrefs.offAddons
             hiddenCount = SourcePrefs.hidden.count
             foldedCount = SourcePrefs.folded.count
+            health = await CinemaAPI.shared.sourceHealth()
         }
     }
 
@@ -9871,6 +9905,73 @@ struct SourcesControlSettings: View {
                 }
                 .padding(.horizontal, 14)
                 .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+        }
+    }
+
+    /// What the app has measured: how fast each source answers, and which ones are
+    /// resting after failing three times in a row.
+    @ViewBuilder
+    private var healthSection: some View {
+        if !health.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("سرعة الاستجابة المقاسة")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(CinemaTheme.muted)
+
+                VStack(spacing: 0) {
+                    ForEach(Array(health.enumerated()), id: \.element.id) { index, row in
+                        HStack(spacing: 10) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(row.name)
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .lineLimit(1)
+                                Text(row.failures > 0 ? "\(row.failures) فشل متتالٍ" : "تستجيب بانتظام")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(
+                                        row.failures > 0 ? CinemaTheme.favourite : CinemaTheme.muted
+                                    )
+                            }
+                            Spacer(minLength: 8)
+                            if row.skipped {
+                                Text("يُتجاوز الآن")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(CinemaTheme.favourite)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(CinemaTheme.favourite.opacity(0.14), in: Capsule())
+                            }
+                            Text(row.ms > 0 ? String(format: "%.1f ث", Double(row.ms) / 1000) : "—")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(CinemaTheme.accent)
+                        }
+                        .padding(.vertical, 9)
+                        if index < health.count - 1 {
+                            Divider().overlay(CinemaTheme.hairline)
+                        }
+                    }
+                }
+                .padding(.horizontal, 14)
+                .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+                Text("إضافة تفشل ثلاث مرات متتالية تُتجاوز عشر دقائق ثم تُجرَّب من جديد، وأول إجابة تعيدها فورًا.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(CinemaTheme.muted)
+                    .lineSpacing(3)
+
+                Button {
+                    Haptics.tap()
+                    CinemaAPI.shared.resetSourceHealth()
+                    health = []
+                } label: {
+                    actionLabel(
+                        "مسح القياسات وإعادة المحاولة للجميع",
+                        icon: "arrow.counterclockwise",
+                        tint: .white
+                    )
+                }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -12353,7 +12454,11 @@ final class DownloadManager: ObservableObject {
             lastSample[id] = nil
             save()
         } catch {
-            update(id) { entry in entry.state = "failed" }
+            // URLSession reports a cancelled transfer as its own error rather than as
+            // a CancellationError, so a pause is recognised here too instead of being
+            // shown as a failure.
+            let paused = Task.isCancelled
+            update(id) { entry in entry.state = paused ? "paused" : "failed" }
             speeds[id] = nil
             lastSample[id] = nil
             save()

@@ -699,11 +699,17 @@ class CinemaxAppleBridge {
                 } else {
                     itemId
                 }
-                val addons = addonStore.load()
-                    .filter { AddonCapabilities.supportsStreams(it, type, queryId) && it.name !in offSourceNames() }
+                val off = offSourceNames()
+                val available = addonStore.load()
+                    .filter { AddonCapabilities.supportsStreams(it, type, queryId) && it.name !in off }
+                // A source that failed three times in a row rests for a while; if every
+                // one of them is resting, they are all tried rather than showing nothing.
+                val health = healthEntries()
+                val addons = available.filterNot { breakerOpen(it.name, health) }.ifEmpty { available }
 
                 val workers = addons.map { addon ->
                     launch {
+                        val startedAt = Clock.System.now().toEpochMilliseconds()
                         val streams = try {
                             withTimeoutOrNull(ADDON_BUDGET_MS) {
                                 repository.loadStreams(addon.manifestUrl, type, queryId)
@@ -714,6 +720,11 @@ class CinemaxAppleBridge {
                             failures += addon.name + ": " + (error.message ?: "خطأ").take(90)
                             null
                         }
+                        recordHealth(
+                            addon.name,
+                            Clock.System.now().toEpochMilliseconds() - startedAt,
+                            streams != null
+                        )
                         if (streams == null) {
                             if (failures.none { it.startsWith(addon.name + ":") }) {
                                 failures += "${addon.name}: لا يستجيب"
@@ -748,6 +759,89 @@ class CinemaxAppleBridge {
                 streamJobs.remove(token)
             }
         }
+    }
+
+    /** How one source behaves, as the settings screen reports it. */
+    @Serializable
+    data class AppleSourceHealth(
+        val name: String,
+        val ms: Long,
+        val failures: Int,
+        val skipped: Boolean
+    )
+
+    /** What the app remembers about one source between launches. */
+    @Serializable
+    data class SourceHealthEntry(
+        val ms: Long = 0,
+        val failures: Int = 0,
+        val last: Long = 0
+    )
+
+    private fun healthEntries(): MutableMap<String, SourceHealthEntry> {
+        val raw = NSUserDefaults.standardUserDefaults.stringForKey(SOURCE_HEALTH_KEY)
+            ?: return mutableMapOf()
+        return try {
+            json.decodeFromString<Map<String, SourceHealthEntry>>(raw).toMutableMap()
+        } catch (_: Throwable) {
+            mutableMapOf()
+        }
+    }
+
+    private fun saveHealth(entries: Map<String, SourceHealthEntry>) {
+        val raw = runCatching { json.encodeToString(entries) }.getOrNull() ?: return
+        NSUserDefaults.standardUserDefaults.setObject(raw, forKey = SOURCE_HEALTH_KEY)
+    }
+
+    /**
+     * Records one answer: a smoothed average of how long the addon takes, and how
+     * many times it has failed in a row. The average is what the settings screen
+     * shows, the count is what keeps a dead addon from being asked again.
+     */
+    private fun recordHealth(name: String, elapsedMs: Long, ok: Boolean) {
+        val entries = healthEntries()
+        val previous = entries[name]
+        val smoothed = when {
+            previous == null || previous.ms <= 0 -> elapsedMs
+            ok -> (previous.ms * 2 + elapsedMs) / 3
+            else -> previous.ms
+        }
+        entries[name] = SourceHealthEntry(
+            ms = smoothed.coerceAtLeast(0),
+            failures = if (ok) 0 else (previous?.failures ?: 0) + 1,
+            last = Clock.System.now().toEpochMilliseconds()
+        )
+        saveHealth(entries)
+    }
+
+    /**
+     * A circuit breaker: three failures in a row keep the addon out of the next
+     * fetches for ten minutes, so one broken source stops costing time on every title.
+     * A single answer brings it straight back.
+     */
+    private fun breakerOpen(name: String, health: Map<String, SourceHealthEntry>): Boolean {
+        val entry = health[name] ?: return false
+        if (entry.failures < BREAKER_FAILURES) return false
+        val age = Clock.System.now().toEpochMilliseconds() - entry.last
+        return age in 0 until BREAKER_OPEN_MS
+    }
+
+    /** The sources screen: every addon with its average answer time and failures. */
+    fun sourceHealth(onDone: (String) -> Unit) {
+        val health = healthEntries()
+        val rows = health.map { (name, entry) ->
+            AppleSourceHealth(
+                name = name,
+                ms = entry.ms,
+                failures = entry.failures,
+                skipped = breakerOpen(name, health)
+            )
+        }.sortedByDescending { it.ms }
+        onDone(json.encodeToString(rows))
+    }
+
+    fun resetSourceHealth() {
+        NSUserDefaults.standardUserDefaults.removeObjectForKey(SOURCE_HEALTH_KEY)
     }
 
     /**
@@ -1599,5 +1693,10 @@ class CinemaxAppleBridge {
         const val ADDON_BUDGET_MS = 7_000L
         /** The whole wait, so a viewer never stares at a spinner for long. */
         const val TOTAL_BUDGET_MS = 9_000L
+        /** Failures in a row before a source is left alone for a while. */
+        const val BREAKER_FAILURES = 3
+        /** How long it is left alone, in milliseconds. */
+        const val BREAKER_OPEN_MS = 10L * 60L * 1000L
+        const val SOURCE_HEALTH_KEY = "cinemax.sourceHealth.v1"
     }
 }
