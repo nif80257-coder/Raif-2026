@@ -61,6 +61,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import com.nuvio.app.core.build.AppFeaturePolicy
+import com.nuvio.app.features.addons.AddonFailureMemory
+import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.core.ui.ArtworkBackdrop
 import com.nuvio.app.core.ui.NuvioBackButton
 import com.nuvio.app.core.ui.NuvioBottomSheetActionRow
@@ -224,6 +226,25 @@ fun StreamsScreen(
             manualSelection = manualSelection,
         )
     }
+    // A paused source is left out of the load, so the sheet says how many are missing instead of
+    // arriving silently thinner. The token re-reads the pause list after a resume.
+    val addonsUiState by AddonRepository.uiState.collectAsStateWithLifecycle()
+    var pausedSourcesRefreshToken by remember(videoId) { mutableStateOf(0) }
+    val pausedSourceCount = remember(videoId, type, addonsUiState.addons, pausedSourcesRefreshToken) {
+        pausedStreamSourceCount(
+            addons = addonsUiState.addons,
+            pausedManifestUrls = AddonFailureMemory.pausedManifestUrls(),
+            type = type,
+            videoId = videoId,
+        )
+    }
+    val resumePausedSources: () -> Unit = {
+        downloadScope.launch {
+            AddonFailureMemory.clearAll()
+            pausedSourcesRefreshToken++
+            reloadStreams()
+        }
+    }
 
     if (showLoadingScreen) return
 
@@ -237,6 +258,8 @@ fun StreamsScreen(
         if (isTabletLayout) {
             TabletStreamsLayout(
                 isEpisode = isEpisode,
+                pausedSourceCount = pausedSourceCount,
+                onResumePaused = resumePausedSources,
                 title = title,
                 logo = logo,
                 poster = poster,
@@ -259,6 +282,8 @@ fun StreamsScreen(
         } else {
             MobileStreamsLayout(
                 isEpisode = isEpisode,
+                pausedSourceCount = pausedSourceCount,
+                onResumePaused = resumePausedSources,
                 backgroundMode = streamDisplaySettings.backgroundMode,
                 title = title,
                 logo = logo,
@@ -413,6 +438,8 @@ private fun MobileStreamsLayout(
     episodeTitle: String?,
     blurEpisodeThumbnail: Boolean,
     uiState: StreamsUiState,
+    pausedSourceCount: Int,
+    onResumePaused: () -> Unit,
     debridEnabled: Boolean,
     appendInstantServiceToDefaultName: Boolean,
     resumePositionMs: Long?,
@@ -462,6 +489,8 @@ private fun MobileStreamsLayout(
                 selectedFilter = uiState.selectedFilter,
                 onFilterSelected = { addonId -> StreamsRepository.selectFilter(addonId) },
                 onRefresh = onRefresh,
+                pausedSourceCount = pausedSourceCount,
+                onResumePaused = onResumePaused,
             )
             StreamList(
                 uiState = uiState,

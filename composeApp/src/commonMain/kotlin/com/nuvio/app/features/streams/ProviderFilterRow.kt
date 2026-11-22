@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.collections_tab_all
+import nuvio.composeapp.generated.resources.streams_paused_sources_retry
 import nuvio.composeapp.generated.resources.streams_refresh
 import kotlinx.coroutines.delay
 import org.jetbrains.compose.resources.stringResource
@@ -55,6 +56,8 @@ internal fun ProviderFilterRow(
     onFilterSelected: (String?) -> Unit,
     onRefresh: (() -> Unit)? = null,
     isRefreshing: Boolean = groups.any { it.isLoading },
+    pausedSourceCount: Int = 0,
+    onResumePaused: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
     spacing: Dp = 8.dp,
@@ -86,6 +89,14 @@ internal fun ProviderFilterRow(
     ) {
         if (onRefresh != null) {
             refreshChip(isRefreshing, onRefresh)
+        }
+        // The list is shorter while a source is paused; this says how many and asks again.
+        if (pausedSourceCount > 0 && onResumePaused != null) {
+            FilterChip(
+                label = stringResource(Res.string.streams_paused_sources_retry, pausedSourceCount),
+                isSelected = false,
+                onClick = onResumePaused,
+            )
         }
         filterChip(null, selectedFilter == null) { onFilterSelected(null) }
         addonGroups.forEach { group ->

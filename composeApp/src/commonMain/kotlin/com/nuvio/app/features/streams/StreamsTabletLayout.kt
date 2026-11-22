@@ -68,6 +68,8 @@ internal fun TabletStreamsLayout(
     episodeNumber: Int?,
     episodeTitle: String?,
     uiState: StreamsUiState,
+    pausedSourceCount: Int,
+    onResumePaused: () -> Unit,
     debridEnabled: Boolean,
     appendInstantServiceToDefaultName: Boolean,
     resumePositionMs: Long?,
@@ -209,6 +211,8 @@ internal fun TabletStreamsLayout(
                             selectedFilter = uiState.selectedFilter,
                             onFilterSelected = { addonId -> StreamsRepository.selectFilter(addonId) },
                             onRefresh = onRefresh,
+                            pausedSourceCount = pausedSourceCount,
+                            onResumePaused = onResumePaused,
                         )
 
                         ActiveScrapersStatusBlock(
