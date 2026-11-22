@@ -3923,6 +3923,7 @@ final class DetailModel: ObservableObject {
         loadingStreams = streams.isEmpty
         firstResultSeconds = nil
         streamStartedAt = Date()
+        EventLog.shared.add("sources", "جلب \(type) \(id)")
         streamToken = CinemaAPI.shared.streamsFast(
             for: id,
             type: type,
@@ -3934,6 +3935,10 @@ final class DetailModel: ObservableObject {
                     self?.apply(payload)
                     self?.loadingStreams = false
                     self?.streamToken = nil
+                    EventLog.shared.add(
+                        "sources",
+                        "انتهى: \(payload.streams.count) رابط، \(payload.failures?.count ?? 0) فشل"
+                    )
                 }
             }
         )
@@ -3956,7 +3961,12 @@ final class DetailModel: ObservableObject {
         if !streams.isEmpty {
             loadingStreams = false
             if firstResultSeconds == nil, let started = streamStartedAt {
-                firstResultSeconds = Date().timeIntervalSince(started)
+                let seconds = Date().timeIntervalSince(started)
+                firstResultSeconds = seconds
+                EventLog.shared.add(
+                    "sources",
+                    String(format: "أول مصدر بعد %.1f ث (%d رابط)", seconds, payload.streams.count)
+                )
             }
         }
     }
@@ -4051,6 +4061,8 @@ struct DetailView: View {
     @State private var offAddons: Set<String> = SourcePrefs.offAddons
     @State private var foldedGroups: Set<String> = SourcePrefs.folded
     @AppStorage("cinemax.sourcesCompact") private var compactSources = false
+    @AppStorage("cinemax.prefetchNext") private var prefetchNext = true
+    @State private var prefetchedEpisode: String?
 
     private var playlist: [CinemaItem] {
         guard let detail = model.detail, !detail.episodes.isEmpty else { return [] }
@@ -4126,6 +4138,7 @@ struct DetailView: View {
             if saved > 0, let seasons = model.detail?.seasons, seasons.contains(saved) {
                 season = saved
             }
+            prefetchNextEpisode()
         }
         .refreshable {
             await model.loadStreams(id: episode?.id ?? item.id, type: item.type)
@@ -4143,6 +4156,7 @@ struct DetailView: View {
         .onChange(of: model.streams) { streams in
             // The list grows while the addons answer, so the measuring waits for it
             // to settle and then only looks at links that have no number yet.
+            prefetchNextEpisode()
             probeTask?.cancel()
             probeTask = Task {
                 try? await Task.sleep(nanoseconds: 700_000_000)
@@ -4793,6 +4807,22 @@ struct DetailView: View {
         UserDefaults.standard.set(stream.url, forKey: "cinemax.lastSource." + item.id)
     }
 
+    /// Warms the next episode's sources while the viewer is still deciding, so the
+    /// next tap shows a ready list instead of asking every addon again.
+    private func prefetchNextEpisode() {
+        guard prefetchNext, let detail = model.detail, !detail.episodes.isEmpty else { return }
+        let anchor = episode?.id ?? item.id
+        guard let index = detail.episodes.firstIndex(where: { $0.id == anchor }),
+              index + 1 < detail.episodes.count else { return }
+        let next = detail.episodes[index + 1]
+        guard prefetchedEpisode != next.id else { return }
+        prefetchedEpisode = next.id
+        Task {
+            _ = try? await CinemaAPI.shared.streamsReport(for: next.id, type: item.type)
+            EventLog.shared.add("prefetch", "جهّز مصادر \(next.name)")
+        }
+    }
+
     private var qualityOrder: [String] {
         let known = ["4K", "1080p", "720p", "480p"]
         let present = Set(model.streams.map { stream -> String in
@@ -5198,6 +5228,61 @@ struct DetailView: View {
             } label: {
                 Label("نسخ الرابط", systemImage: "doc.on.doc")
             }
+        }
+    }
+}
+
+// MARK: - Event log
+
+/// A ring buffer of what the app did and what went wrong, kept on the device, so a
+/// problem can be reported with its history instead of a guess.
+@MainActor
+final class EventLog: ObservableObject {
+    static let shared = EventLog()
+
+    struct Entry: Identifiable, Codable {
+        let id: String
+        let at: Date
+        let tag: String
+        let text: String
+    }
+
+    @Published private(set) var entries: [Entry] = []
+
+    private let limit = 200
+    private let key = "cinemax.eventLog.v1"
+
+    private init() {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let stored = try? JSONDecoder().decode([Entry].self, from: data) else { return }
+        entries = stored
+    }
+
+    func add(_ tag: String, _ text: String) {
+        entries.insert(Entry(id: UUID().uuidString, at: Date(), tag: tag, text: text), at: 0)
+        if entries.count > limit {
+            entries.removeLast(entries.count - limit)
+        }
+        persist()
+    }
+
+    func clear() {
+        entries = []
+        persist()
+    }
+
+    /// The whole history as plain text, ready to be pasted into a message.
+    var text: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MM-dd HH:mm:ss"
+        return entries
+            .map { "\(formatter.string(from: $0.at)) [\($0.tag)] \($0.text)" }
+            .joined(separator: "\n")
+    }
+
+    private func persist() {
+        if let data = try? JSONEncoder().encode(entries) {
+            UserDefaults.standard.set(data, forKey: key)
         }
     }
 }
@@ -8254,6 +8339,7 @@ struct StreamingSettings: View {
 
 struct AboutSettings: View {
     @AppStorage("cinemax.onboarded") private var onboarded = true
+    @ObservedObject private var log = EventLog.shared
     @State private var copied = false
     @State private var addonsCount = 0
     @State private var reposCount = 0
@@ -8382,6 +8468,57 @@ struct AboutSettings: View {
                     }
                 }
                 .buttonStyle(.plain)
+
+                Divider().overlay(CinemaTheme.hairline)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("سجل الأحداث")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.white)
+                        Spacer()
+                        Text("\(log.entries.count)")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.muted)
+                    }
+                    Text("آخر ما فعله التطبيق: جلب المصادر وزمنها، التنزيلات ومحاولاتها، والأخطاء. يُرسل مع أي بلاغ.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(CinemaTheme.muted)
+                        .lineSpacing(3)
+                    HStack(spacing: 10) {
+                        Button {
+                            Haptics.tap()
+                            UIPasteboard.general.string = log.text.isEmpty ? "لا أحداث بعد" : log.text
+                            withAnimation(.easeInOut(duration: 0.2)) { copied = true }
+                            Task {
+                                try? await Task.sleep(nanoseconds: 1_600_000_000)
+                                withAnimation(.easeInOut(duration: 0.2)) { copied = false }
+                            }
+                        } label: {
+                            Text("نسخ السجل")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.black)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(CinemaTheme.accent, in: Capsule())
+                        }
+                        .buttonStyle(CinemaPressStyle())
+
+                        Button {
+                            Haptics.tap()
+                            log.clear()
+                        } label: {
+                            Text("مسح")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(CinemaTheme.favourite)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(Color.white.opacity(0.08), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        Spacer()
+                    }
+                }
 
                 Divider().overlay(CinemaTheme.hairline)
 
@@ -9808,6 +9945,7 @@ struct SourcesControlSettings: View {
     @State private var health: [SourceHealthRow] = []
     @AppStorage("cinemax.sourcesCompact") private var compact = false
     @AppStorage("cinemax.speedFirst") private var speedFirst = false
+    @AppStorage("cinemax.prefetchNext") private var prefetchNext = true
     @AppStorage("cinemax.prefQuality") private var prefQuality = "auto"
 
     private let qualities: [(id: String, title: String)] = [
@@ -10000,6 +10138,18 @@ struct SourcesControlSettings: View {
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.white)
                     Text("يُقاس الرابط بتحميل جزء صغير، والأسرع يظهر أولًا")
+                        .font(.system(size: 10))
+                        .foregroundStyle(CinemaTheme.muted)
+                }
+            }
+            .tint(CinemaTheme.accent)
+
+            Toggle(isOn: $prefetchNext) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("جلب مسبق للحلقة التالية")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Text("يجهّز روابط الحلقة التالية أثناء المشاهدة لتفتح فورًا")
                         .font(.system(size: 10))
                         .foregroundStyle(CinemaTheme.muted)
                 }
@@ -11549,7 +11699,8 @@ enum CinemaxPrefs {
             "cinemax.rowOrder", "cinemax.volume", "cinemax.aspect", "cinemax.zoom",
             "cinemax.subPos", "cinemax.showHero", "cinemax.autoRefresh",
             "cinemax.playerHints", "cinemax.lists.v1", "cinemax.corner",
-            "cinemax.hapticsLevel",
+            "cinemax.hapticsLevel", "cinemax.sourcesCompact", "cinemax.prefetchNext",
+            "cinemax.eventLog.v1",
             historyKey, lastRefreshKey
         ] {
             UserDefaults.standard.removeObject(forKey: key)
@@ -12284,6 +12435,8 @@ final class DownloadManager: ObservableObject {
 
     private var lastSample: [String: (date: Date, bytes: Int64)] = [:]
     private var runners: [String: Task<Void, Never>] = [:]
+    /// How many times a stopped transfer is tried again before it is marked failed.
+    private let maxRetries = 2
     private let storageKey = "cinemax.downloads.v1"
 
     private init() {
@@ -12421,49 +12574,87 @@ final class DownloadManager: ObservableObject {
                 self?.sample(id)
             }
         }
-        do {
-            let total = try await contentLength(url)
-            update(id) { entry in entry.total = total }
+        let safeName = title
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+        let ext = url.pathExtension.isEmpty ? "mp4" : url.pathExtension
+        let destination = folder.appendingPathComponent("\(safeName).\(ext)")
 
-            let safeName = title
-                .replacingOccurrences(of: "/", with: "-")
-                .replacingOccurrences(of: ":", with: "-")
-            let ext = url.pathExtension.isEmpty ? "mp4" : url.pathExtension
-            let destination = folder.appendingPathComponent("\(safeName).\(ext)")
-
-            if total > 1_048_576 {
-                try await downloadInParts(url: url, total: total, destination: destination, id: id)
-            } else {
-                try await downloadWhole(url: url, destination: destination, id: id)
+        var attempt = 0
+        var finished = false
+        EventLog.shared.add("download", "بدأ \(title)")
+        while !finished {
+            do {
+                let total = try await contentLength(url)
+                update(id) { entry in entry.total = total }
+                if total > 1_048_576 {
+                    try await downloadInParts(url: url, total: total, destination: destination, id: id)
+                } else {
+                    try await downloadWhole(url: url, destination: destination, id: id)
+                }
+                update(id) { entry in
+                    entry.state = "done"
+                    entry.received = entry.total
+                    entry.filePath = destination.path
+                }
+                EventLog.shared.add("download", "اكتمل \(title)")
+                finished = true
+            } catch is CancellationError {
+                pauseState(id)
+                finished = true
+            } catch {
+                // URLSession reports a cancelled transfer as its own error rather than
+                // as a CancellationError, so a pause is recognised here too.
+                if Task.isCancelled {
+                    pauseState(id)
+                    finished = true
+                } else {
+                    attempt += 1
+                    if attempt > maxRetries {
+                        update(id) { entry in entry.state = "failed" }
+                        EventLog.shared.add(
+                            "download",
+                            "فشل \(title) بعد \(attempt) محاولة: \(error.localizedDescription)"
+                        )
+                        finished = true
+                    } else {
+                        // A dropped connection is the usual reason a transfer stops, so
+                        // it is tried again with a short wait before it is given up on.
+                        update(id) { entry in entry.state = "retrying" }
+                        speeds[id] = nil
+                        lastSample[id] = nil
+                        save()
+                        EventLog.shared.add("download", "إعادة محاولة \(attempt) لـ \(title)")
+                        let seconds = attempt == 1 ? 2 : 6
+                        try? await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)
+                        if Task.isCancelled {
+                            pauseState(id)
+                            finished = true
+                        } else {
+                            update(id) { entry in entry.state = "running" }
+                            save()
+                        }
+                    }
+                }
             }
-
-            update(id) { entry in
-                entry.state = "done"
-                entry.received = entry.total
-                entry.filePath = destination.path
-            }
-            speeds[id] = nil
-            lastSample[id] = nil
-            save()
+        }
+        speeds[id] = nil
+        lastSample[id] = nil
+        save()
+        if jobs.first(where: { $0.id == id })?.state == "done" {
             notify(title: title)
-        } catch is CancellationError {
-            update(id) { entry in
-                if entry.state == "running" { entry.state = "paused" }
-            }
-            speeds[id] = nil
-            lastSample[id] = nil
-            save()
-        } catch {
-            // URLSession reports a cancelled transfer as its own error rather than as
-            // a CancellationError, so a pause is recognised here too instead of being
-            // shown as a failure.
-            let paused = Task.isCancelled
-            update(id) { entry in entry.state = paused ? "paused" : "failed" }
-            speeds[id] = nil
-            lastSample[id] = nil
-            save()
         }
         sampler.cancel()
+    }
+
+    /// Marks the transfer as paused rather than failed, keeping its parts on disk.
+    private func pauseState(_ id: String) {
+        update(id) { entry in
+            if entry.state == "running" || entry.state == "retrying" {
+                entry.state = "paused"
+            }
+        }
+        save()
     }
 
     /// Tells the viewer when a file landed, without leaving the app in front.
@@ -12630,7 +12821,8 @@ struct DownloadsView: View {
     private var jobs: [DownloadJob] {
         let filtered: [DownloadJob]
         switch filter {
-        case "running": filtered = manager.jobs.filter { $0.state == "running" }
+        case "running":
+            filtered = manager.jobs.filter { $0.state == "running" || $0.state == "retrying" }
         case "paused": filtered = manager.jobs.filter { $0.state == "paused" || $0.state == "cancelled" }
         case "done": filtered = manager.jobs.filter { $0.state == "done" }
         default: filtered = manager.jobs
@@ -12806,6 +12998,7 @@ struct DownloadsView: View {
         case "done": return "مكتمل"
         case "failed": return "فشل"
         case "paused": return "متوقف"
+        case "retrying": return "إعادة المحاولة…"
         case "cancelled": return "ملغى"
         default: return "\(Int(job.progress * 100))٪"
         }
