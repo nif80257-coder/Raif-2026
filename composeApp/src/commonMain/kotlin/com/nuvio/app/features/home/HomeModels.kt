@@ -56,6 +56,11 @@ data class HomeUiState(
     val heroItems: List<MetaPreview> = emptyList(),
     val sections: List<HomeCatalogSection> = emptyList(),
     val errorMessage: String? = null,
+    /**
+     * The source whose shelves the pause filter took off this load, if any, so the screen can name
+     * it and offer a resume instead of letting the rows disappear quietly.
+     */
+    val pausedShelfNotice: PausedShelfNotice? = null,
 )
 
 internal fun shouldShowInitialHomeLoading(

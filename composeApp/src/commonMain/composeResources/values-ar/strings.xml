@@ -2875,4 +2875,7 @@
     <string name="settings_playback_downmix_channels">عدد القنوات</string>
     <string name="settings_playback_downmix_maintain_volume">الحفاظ على الصوت الأصلي عند الدمج</string>
     <string name="settings_playback_downmix_maintain_volume_description">عند الإيقاف، قد يؤدي تطبيع الدمج إلى خفض مستوى الصوت العام.</string>
+    <string name="home_paused_source_title">%1$s موقوف مؤقتًا</string>
+    <string name="home_paused_source_count">%1$d شلف مخفي حتى يستجيب مرة أخرى</string>
+    <string name="home_paused_source_resume">استئناف</string>
 </resources>

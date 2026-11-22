@@ -50,6 +50,9 @@ object HomeRepository {
     private var lastPublishedCatalogHeroEmpty: Boolean = true
     private var lastErrorMessage: String? = null
 
+    /** The source the pause filter dropped from the last load, so the screen can say so. */
+    private var currentPausedShelfNotice: PausedShelfNotice? = null
+
     fun refresh(addons: List<ManagedAddon>, force: Boolean = false) {
         // The adult switch is the source's own declaration, so it is applied before anything is
         // fetched: a flagged source then costs neither a request nor a shelf.
@@ -64,8 +67,12 @@ object HomeRepository {
 
         // A manual refresh asks every source again; an automatic one skips the sources that are
         // paused after repeated failures.
-        val fetchRequests = requests.excludingPausedSources(
-            pausedManifestUrls = if (force) emptySet() else AddonFailureMemory.pausedManifestUrls(),
+        val pausedManifestUrls = if (force) emptySet() else AddonFailureMemory.pausedManifestUrls()
+        val fetchRequests = requests.excludingPausedSources(pausedManifestUrls = pausedManifestUrls)
+        currentPausedShelfNotice = pausedShelfNotice(
+            definitions = requests,
+            pausedManifestUrls = pausedManifestUrls,
+            fetchedDefinitions = fetchRequests,
         )
 
         if (!force && activeRequestKey == requestKey && _uiState.value.isLoading) return
@@ -182,6 +189,7 @@ object HomeRepository {
         collectionHeroRequestKey = null
         lastPublishedCatalogHeroEmpty = true
         lastErrorMessage = null
+        currentPausedShelfNotice = null
         _uiState.value = HomeUiState()
     }
 
@@ -246,6 +254,7 @@ object HomeRepository {
             heroItems = heroItems,
             sections = sections,
             errorMessage = if (sections.isEmpty()) lastErrorMessage else null,
+            pausedShelfNotice = currentPausedShelfNotice,
         )
     }
 

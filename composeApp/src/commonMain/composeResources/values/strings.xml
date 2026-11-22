@@ -2892,4 +2892,7 @@
     <string name="addons_reset_confirm_action">Reset</string>
     <string name="settings_stream_hide_junk_title">Hide low-quality releases</string>
     <string name="settings_stream_hide_junk_description">Leaves out camera and screener recordings and size-only re-encodes such as YIFY, and ranks a remux above a web re-encode at the same resolution.</string>
+    <string name="home_paused_source_title">%1$s is paused</string>
+    <string name="home_paused_source_count">%1$d shelves hidden until it answers again</string>
+    <string name="home_paused_source_resume">Resume</string>
 </resources>

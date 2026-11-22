@@ -23,6 +23,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
@@ -32,6 +33,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import com.nuvio.app.core.auth.AuthRepository
 import com.nuvio.app.core.auth.AuthState
 import com.nuvio.app.core.network.NetworkCondition
@@ -46,6 +48,7 @@ import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.core.ui.rememberHeroStretchState
 import com.nuvio.app.core.ui.rememberPosterCardStyleUiState
 import com.nuvio.app.core.ui.withDuplicateSafeLazyKeys
+import com.nuvio.app.features.addons.AddonFailureMemory
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.servers.ServerRepository
@@ -1116,6 +1119,32 @@ fun HomeScreen(
                                 manifestUrl = manifestUrl,
                                 nowEpochMs = EpisodeReleaseDatePlatform.nowEpochMs(),
                             )
+                        },
+                    )
+                }
+            }
+
+            // A paused source takes its shelves off this screen between two launches; naming it and
+            // offering the resume here is what keeps that from looking like the rows vanished.
+            val pausedSourceNotice = homeUiState.pausedShelfNotice
+            if (pausedSourceNotice != null) {
+                item(key = "home_paused_source_notice", contentType = "alert") {
+                    val resumeScope = rememberCoroutineScope()
+                    HomePausedShelfNoticeBanner(
+                        notice = pausedSourceNotice,
+                        modifier = Modifier.padding(
+                            start = homeSectionPadding,
+                            end = homeSectionPadding,
+                            top = 12.dp,
+                        ),
+                        onResume = {
+                            resumeScope.launch {
+                                AddonFailureMemory.recordSuccess(pausedSourceNotice.manifestUrl)
+                                HomeRepository.refresh(
+                                    addons = addonsUiState.addons.enabledAddons(),
+                                    force = false,
+                                )
+                            }
                         },
                     )
                 }
