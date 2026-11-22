@@ -2897,4 +2897,5 @@
     <string name="home_paused_source_resume">Resume</string>
     <string name="streams_paused_sources_retry">%1$d paused — retry</string>
     <string name="search_library_section_title">In your library</string>
+    <string name="search_history_section_title">From your history</string>
 </resources>

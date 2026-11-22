@@ -66,6 +66,7 @@ import com.nuvio.app.features.home.components.homeSectionHorizontalPaddingForWid
 import com.nuvio.app.features.home.components.HomeSkeletonRow
 import com.nuvio.app.features.home.components.posterGridColumnCountForWidth
 import com.nuvio.app.features.library.LibraryRepository
+import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import com.nuvio.app.features.watched.WatchedRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -90,6 +91,7 @@ import nuvio.composeapp.generated.resources.compose_search_placeholder
 import nuvio.composeapp.generated.resources.compose_search_recent_searches
 import nuvio.composeapp.generated.resources.compose_search_remove_recent_search
 import nuvio.composeapp.generated.resources.search_library_section_title
+import nuvio.composeapp.generated.resources.search_history_section_title
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
@@ -135,6 +137,10 @@ fun SearchScreen(
     val libraryUiState by remember {
         LibraryRepository.ensureLoaded()
         LibraryRepository.uiState
+    }.collectAsStateWithLifecycle()
+    val watchProgressUiState by remember {
+        WatchProgressRepository.ensureLoaded()
+        WatchProgressRepository.uiState
     }.collectAsStateWithLifecycle()
     val watchedUiState by WatchedRepository.uiState.collectAsStateWithLifecycle()
     val fullyWatchedSeriesKeys by WatchedRepository.fullyWatchedSeriesKeys.collectAsStateWithLifecycle()
@@ -360,6 +366,32 @@ fun SearchScreen(
                         if (librarySection != null) {
                             HomeCatalogRowSection(
                                 section = librarySection,
+                                modifier = Modifier.padding(bottom = 12.dp),
+                                watchedKeys = watchedUiState.watchedKeys,
+                                fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
+                                onPosterClick = onPosterClick,
+                                onPosterLongClick = onPosterLongClick,
+                            )
+                        }
+                    }
+                }
+                if (normalizedQuery.isNotBlank() && watchProgressUiState.entries.isNotEmpty()) {
+                    item(key = HistorySearchSectionKey) {
+                        val historySectionTitle = stringResource(Res.string.search_history_section_title)
+                        val historySection = remember(
+                            normalizedQuery,
+                            watchProgressUiState.entries,
+                            historySectionTitle,
+                        ) {
+                            historySearchSection(
+                                entries = watchProgressUiState.entries,
+                                query = normalizedQuery,
+                                title = historySectionTitle,
+                            )
+                        }
+                        if (historySection != null) {
+                            HomeCatalogRowSection(
+                                section = historySection,
                                 modifier = Modifier.padding(bottom = 12.dp),
                                 watchedKeys = watchedUiState.watchedKeys,
                                 fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
