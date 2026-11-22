@@ -2881,4 +2881,9 @@
     <string name="streams_paused_sources_retry">%1$d موقوفة — تجربة</string>
     <string name="search_library_section_title">في مكتبتك</string>
     <string name="search_history_section_title">من سجل مشاهدتك</string>
+    <string name="settings_homescreen_copy_title">نسخ إعدادات شاشة الرئيسية</string>
+    <string name="settings_homescreen_copy_description">يأخذ الشلف وترتيبها والأسماء المخصّصة والمفاتيح من ملف شخصي آخر.</string>
+    <string name="settings_homescreen_copy_sheet_title">انسخ من</string>
+    <string name="settings_homescreen_copy_done">نُسخت إعدادات شاشة الرئيسية</string>
+    <string name="settings_homescreen_copy_empty">ذلك الملف الشخصي لا يملك إعدادات محفوظة بعد</string>
 </resources>

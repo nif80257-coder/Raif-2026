@@ -4,6 +4,7 @@ import androidx.compose.ui.text.intl.Locale
 import com.nuvio.app.features.addons.ManagedAddon
 import com.nuvio.app.features.collection.Collection
 import com.nuvio.app.features.collection.CollectionRepository
+import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.servers.ServerCatalog
 import com.nuvio.app.features.servers.ServerRepository
 import kotlinx.atomicfu.atomic
@@ -243,6 +244,37 @@ object HomeCatalogSettingsRepository {
         updatePreference(key) { preference ->
             preference.copy(customTitle = title)
         }
+    }
+
+    /**
+     * Takes the shelves, their order, the custom titles and the three switches from
+     * [sourceProfileId] and stores them on the active profile.
+     *
+     * A profile that never opened the home settings has no payload of its own, so nothing is
+     * written and false comes back, which lets the caller say so instead of pretending it copied.
+     * The payload is read with the same shape the sync pull writes, so an unreadable one is
+     * refused rather than half applied.
+     */
+    fun copyFromProfile(sourceProfileId: Int): Boolean {
+        ensureLoaded()
+        if (sourceProfileId == ProfileRepository.activeProfileId) return false
+        val payload = HomeCatalogSettingsStorage.loadPayload(sourceProfileId)
+            ?.takeIf(String::isNotBlank)
+            ?: return false
+        val stored = runCatching {
+            json.decodeFromString<StoredHomeCatalogSettingsPayload>(payload)
+        }.getOrNull() ?: return false
+        heroEnabled = stored.heroEnabled
+        showCatalogType = stored.showCatalogType
+        hideUnreleasedContent = stored.hideUnreleasedContent
+        preferences = stored.items.associateBy { item -> item.key }
+        normalizePreferences()
+        enforcePinnedCollectionsAtTop()
+        publish()
+        persist()
+        HomeRepository.applyCurrentSettings()
+        HomeCatalogSettingsSyncService.triggerPush()
+        return true
     }
 
     fun resetToDefaults() {

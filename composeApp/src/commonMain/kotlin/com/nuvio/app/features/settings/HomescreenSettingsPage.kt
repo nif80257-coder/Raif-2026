@@ -13,21 +13,26 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -35,12 +40,19 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.NuvioActionLabel
+import com.nuvio.app.core.ui.NuvioBottomSheetActionRow
+import com.nuvio.app.core.ui.NuvioBottomSheetDivider
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
+import com.nuvio.app.core.ui.NuvioModalBottomSheet
 import com.nuvio.app.core.ui.NuvioToastController
+import com.nuvio.app.core.ui.dismissNuvioBottomSheet
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.home.HomeCatalogSettingsItem
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
 import com.nuvio.app.features.home.components.HomeEmptyStateCard
+import com.nuvio.app.features.profiles.NuvioProfile
+import com.nuvio.app.features.profiles.ProfileRepository
+import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_retry
 import nuvio.composeapp.generated.resources.action_reset
@@ -48,6 +60,12 @@ import nuvio.composeapp.generated.resources.layout_hide_unreleased
 import nuvio.composeapp.generated.resources.layout_hide_unreleased_sub
 import nuvio.composeapp.generated.resources.layout_catalog_type
 import nuvio.composeapp.generated.resources.layout_catalog_type_sub
+import nuvio.composeapp.generated.resources.profile_label_number
+import nuvio.composeapp.generated.resources.settings_homescreen_copy_description
+import nuvio.composeapp.generated.resources.settings_homescreen_copy_done
+import nuvio.composeapp.generated.resources.settings_homescreen_copy_empty
+import nuvio.composeapp.generated.resources.settings_homescreen_copy_sheet_title
+import nuvio.composeapp.generated.resources.settings_homescreen_copy_title
 import nuvio.composeapp.generated.resources.settings_homescreen_empty_message
 import nuvio.composeapp.generated.resources.settings_homescreen_empty_title
 import nuvio.composeapp.generated.resources.settings_homescreen_keep_home_focused
@@ -88,6 +106,9 @@ internal fun LazyListScope.homescreenSettingsContent(
             totalCatalogCount = items.size,
             selectedHeroSourceCount = selectedHeroSourceCount,
         )
+    }
+    item {
+        HomescreenCopySection(isTablet = isTablet)
     }
     item {
         SettingsSection(
@@ -270,6 +291,88 @@ private fun HeroSourcesDropdown(
                         onCheckedChange = { HomeCatalogSettingsRepository.setHeroSourceEnabled(item.key, it) },
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomescreenCopySection(isTablet: Boolean) {
+    val profileState by ProfileRepository.state.collectAsStateWithLifecycle()
+    val activeProfileIndex = profileState.activeProfile?.profileIndex
+    val otherProfiles = remember(profileState.profiles, activeProfileIndex) {
+        profileState.profiles.filterNot { it.profileIndex == activeProfileIndex }
+    }
+    if (otherProfiles.isEmpty()) return
+
+    var showSheet by remember { mutableStateOf(false) }
+    val copiedMessage = stringResource(Res.string.settings_homescreen_copy_done)
+    val emptyMessage = stringResource(Res.string.settings_homescreen_copy_empty)
+
+    SettingsGroup(isTablet = isTablet) {
+        SettingsNavigationRow(
+            title = stringResource(Res.string.settings_homescreen_copy_title),
+            description = stringResource(Res.string.settings_homescreen_copy_description),
+            isTablet = isTablet,
+            onClick = { showSheet = true },
+        )
+    }
+
+    if (showSheet) {
+        HomescreenCopyFromProfileSheet(
+            profiles = otherProfiles,
+            onDismiss = { showSheet = false },
+            onProfileChosen = { profile ->
+                val copied = HomeCatalogSettingsRepository.copyFromProfile(profile.profileIndex)
+                NuvioToastController.show(if (copied) copiedMessage else emptyMessage)
+            },
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HomescreenCopyFromProfileSheet(
+    profiles: List<NuvioProfile>,
+    onDismiss: () -> Unit,
+    onProfileChosen: (NuvioProfile) -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val coroutineScope = rememberCoroutineScope()
+
+    NuvioModalBottomSheet(
+        onDismissRequest = {
+            coroutineScope.launch {
+                dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss)
+            }
+        },
+        sheetState = sheetState,
+    ) {
+        Text(
+            text = stringResource(Res.string.settings_homescreen_copy_sheet_title),
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+        )
+        NuvioBottomSheetDivider()
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp),
+        ) {
+            items(profiles, key = { profile -> profile.profileIndex }) { profile ->
+                NuvioBottomSheetActionRow(
+                    title = profile.name.ifBlank {
+                        stringResource(Res.string.profile_label_number, profile.profileIndex)
+                    },
+                    onClick = {
+                        onProfileChosen(profile)
+                        coroutineScope.launch {
+                            dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss)
+                        }
+                    },
+                )
             }
         }
     }

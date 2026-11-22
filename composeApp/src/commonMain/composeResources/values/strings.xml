@@ -2898,4 +2898,9 @@
     <string name="streams_paused_sources_retry">%1$d paused — retry</string>
     <string name="search_library_section_title">In your library</string>
     <string name="search_history_section_title">From your history</string>
+    <string name="settings_homescreen_copy_title">Copy home screen setup</string>
+    <string name="settings_homescreen_copy_description">Takes the shelves, their order, the custom titles and the switches from another profile.</string>
+    <string name="settings_homescreen_copy_sheet_title">Copy from</string>
+    <string name="settings_homescreen_copy_done">Home screen setup copied</string>
+    <string name="settings_homescreen_copy_empty">That profile has no saved setup yet</string>
 </resources>
