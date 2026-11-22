@@ -37,6 +37,12 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        // A larger shared HTTP cache keeps posters and manifests on disk between
+        // launches, which is what makes the first screen appear instantly.
+        URLCache.shared = URLCache(
+            memoryCapacity: 64 * 1024 * 1024,
+            diskCapacity: 512 * 1024 * 1024
+        )
         // The category is set once at launch; the players activate the session only
         // while they are on screen, so opening the app never stops other audio.
         do {

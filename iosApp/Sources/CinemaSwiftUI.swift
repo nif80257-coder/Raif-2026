@@ -322,8 +322,15 @@ final class CinemaAPI {
     }
 
     /// The links and, separately, which addon or provider failed to answer.
+    /// A page opened again within a minute reuses the answer instead of asking
+    /// every addon and provider all over again.
     func streamsReport(for id: String, type: String) async throws -> (streams: [StreamChoice], failures: [String]) {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<([StreamChoice], [String]), Error>) in
+        let key = id + "|" + type
+        if let cached = CinemaAPI.streamCache[key],
+           Date().timeIntervalSince(cached.at) < 60 {
+            return (cached.streams, cached.failures)
+        }
+        let report = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<([StreamChoice], [String]), Error>) in
             bridge.loadStreams(itemId: id, type: type, onDone: { json in
                 do {
                     let payload = try self.decode(StreamsPayload.self, json)
@@ -335,7 +342,14 @@ final class CinemaAPI {
                 continuation.resume(throwing: CinemaError(message: message))
             })
         }
+        if !report.0.isEmpty {
+            CinemaAPI.streamCache[key] = (report.0, report.1, Date())
+        }
+        return report
     }
+
+    /// Answers kept for a minute, keyed by "id|type".
+    nonisolated(unsafe) static var streamCache: [String: (streams: [StreamChoice], failures: [String], at: Date)] = [:]
 
     func progress() async -> [ProgressItem] {
         await withCheckedContinuation { (continuation: CheckedContinuation<[ProgressItem], Never>) in
@@ -824,20 +838,35 @@ final class StreamProber {
         }
     }
 
-    /// Probes the first links in parallel; a dead one simply stays unlabelled.
-    func speeds(for streams: [StreamChoice], limit: Int = 12) async -> [String: Double] {
+    /// Probes the first links in parallel and remembers each answer for ten
+    /// minutes, so reopening a page does not measure the same mirrors again.
+    func speeds(for streams: [StreamChoice], limit: Int = 8) async -> [String: Double] {
         var result: [String: Double] = [:]
+        var pending: [String] = []
+        for stream in streams.prefix(limit) {
+            if let entry = cache[stream.url], Date().timeIntervalSince(entry.at) < 600 {
+                result[stream.url] = entry.speed
+            } else if URL(string: stream.url) != nil {
+                pending.append(stream.url)
+            }
+        }
+        guard !pending.isEmpty else { return result }
         await withTaskGroup(of: (String, Double?).self) { group in
-            for stream in streams.prefix(limit) {
-                guard let url = URL(string: stream.url) else { continue }
-                group.addTask { (stream.url, await StreamProber.shared.speed(for: url)) }
+            for link in pending {
+                guard let url = URL(string: link) else { continue }
+                group.addTask { (link, await StreamProber.shared.speed(for: url)) }
             }
             for await outcome in group {
-                if let speed = outcome.1 { result[outcome.0] = speed }
+                if let speed = outcome.1 {
+                    result[outcome.0] = speed
+                    cache[outcome.0] = (speed, Date())
+                }
             }
         }
         return result
     }
+
+    private var cache: [String: (speed: Double, at: Date)] = [:]
 }
 
 // MARK: - Small components
@@ -1389,12 +1418,42 @@ final class HomeModel: ObservableObject {
 
     var visibleShelves: [Shelf] {
         let base = shelves.filter { !hiddenShelves.contains($0.id) }
-        switch filter {
-        case "movie": return base.filter { $0.items.contains { $0.type == "movie" } }
-        case "series": return base.filter { $0.items.contains { $0.type == "series" } }
-        case "channel": return base.filter { $0.items.contains { $0.type == "channel" || $0.type == "tv" } }
-        default: return base
+        // A viewer's own order wins; anything new follows in the addon's order.
+        let order = rowOrder
+        let ordered: [Shelf]
+        if order.isEmpty {
+            ordered = base
+        } else {
+            let ranked = base.enumerated().sorted { lhs, rhs in
+                let left = order.firstIndex(of: lhs.element.id) ?? Int.max
+                let right = order.firstIndex(of: rhs.element.id) ?? Int.max
+                if left == right { return lhs.offset < rhs.offset }
+                return left < right
+            }
+            ordered = ranked.map(\.element)
         }
+        switch filter {
+        case "movie": return ordered.filter { $0.items.contains { $0.type == "movie" } }
+        case "series": return ordered.filter { $0.items.contains { $0.type == "series" } }
+        case "channel": return ordered.filter { $0.items.contains { $0.type == "channel" || $0.type == "tv" } }
+        default: return ordered
+        }
+    }
+
+    /// Moves a row up or down the home screen and remembers the order.
+    func moveRow(_ shelf: Shelf, up: Bool) {
+        var ids = visibleShelves.map(\.id)
+        guard let index = ids.firstIndex(of: shelf.id) else { return }
+        let target = up ? index - 1 : index + 1
+        guard ids.indices.contains(target) else { return }
+        ids.swapAt(index, target)
+        rowOrder = ids
+    }
+
+    /// The viewer's own row order, by shelf id.
+    var rowOrder: [String] {
+        get { UserDefaults.standard.stringArray(forKey: "cinemax.rowOrder") ?? [] }
+        set { UserDefaults.standard.set(newValue, forKey: "cinemax.rowOrder") }
     }
 
     /// Puts a row away; settings can bring every row back.
@@ -1471,6 +1530,18 @@ struct CinematicHomeView: View {
                             gridShelf = shelf
                         }
                         .contextMenu {
+                            Button {
+                                Haptics.tap()
+                                withAnimation(.easeInOut(duration: 0.2)) { model.moveRow(shelf, up: true) }
+                            } label: {
+                                Label("نقل للأعلى", systemImage: "arrow.up")
+                            }
+                            Button {
+                                Haptics.tap()
+                                withAnimation(.easeInOut(duration: 0.2)) { model.moveRow(shelf, up: false) }
+                            } label: {
+                                Label("نقل للأسفل", systemImage: "arrow.down")
+                            }
                             Button(role: .destructive) {
                                 Haptics.tap()
                                 withAnimation(.easeInOut(duration: 0.2)) { model.hide(shelf) }
@@ -1520,7 +1591,7 @@ struct CinematicHomeView: View {
                 Text("الرئيسية")
                     .font(.system(size: 34, weight: .heavy))
                     .foregroundStyle(.white)
-                Text(CinemaxPrefs.lastRefreshLabel)
+                Text(CinemaxPrefs.lastRefreshLabel + " · " + "\(model.shelves.reduce(0) { $0 + $1.items.count }) عنوانًا")
                     .font(.system(size: 11))
                     .foregroundStyle(CinemaTheme.muted)
             }
@@ -1736,6 +1807,8 @@ struct PlayerScreen: View {
     @State private var buffering = false
     @State private var appliedInitial = false
     @State private var lastDoubleTap = Date.distantPast
+    @State private var locked = false
+    @State private var bufferTicks = 0
     @State private var brightness: Double = 0.6
     @State private var savedBrightness: Double = 0.6
     @State private var showEpisodes = false
@@ -1791,6 +1864,7 @@ struct PlayerScreen: View {
                     .highPriorityGesture(
                         SpatialTapGesture(count: 2)
                             .onEnded { value in
+                                guard !locked else { return }
                                 let width = UIScreen.main.bounds.width
                                 lastDoubleTap = Date()
                                 if value.location.x < width * 0.33 {
@@ -1808,6 +1882,7 @@ struct PlayerScreen: View {
                     )
                     .onTapGesture {
                         // A double tap must not also flip the controls.
+                        guard !locked else { return }
                         guard Date().timeIntervalSince(lastDoubleTap) > 0.4 else { return }
                         withAnimation(.easeInOut(duration: 0.2)) {
                             controlsVisible.toggle()
@@ -1859,6 +1934,20 @@ struct PlayerScreen: View {
                             Haptics.tap()
                             showEpisodes = true
                         }
+                    }
+                    CircleButton(system: "aspectratio") {
+                        Haptics.tap()
+                        let options = ["", "16:9", "4:3", "2.35:1"]
+                        let index = options.firstIndex(of: aspect) ?? 0
+                        let next = options[(index + 1) % options.count]
+                        aspect = next
+                        UserDefaults.standard.set(next, forKey: "cinemax.aspect")
+                        player?.setVideoAspect(next)
+                    }
+                    CircleButton(system: "lock.fill") {
+                        Haptics.select()
+                        locked = true
+                        withAnimation(.easeInOut(duration: 0.2)) { controlsVisible = false }
                     }
                     CircleButton(system: "speedometer") {
                         Haptics.select()
@@ -1989,7 +2078,7 @@ struct PlayerScreen: View {
                             showRemaining.toggle()
                         } label: {
                             Text(showRemaining
-                                ? "−\(clock(max(0, duration - position)))"
+                                ? "−\(clock(max(0, duration - position))) · ينتهي \(finishClock)"
                                 : "\(clock(position)) / \(clock(duration))")
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundStyle(CinemaTheme.muted)
@@ -2054,6 +2143,25 @@ struct PlayerScreen: View {
                     RoundedRectangle(cornerRadius: 22, style: .continuous)
                         .strokeBorder(CinemaTheme.hairline, lineWidth: 1)
                 )
+            }
+            if locked {
+                VStack {
+                    HStack {
+                        Spacer()
+                        CircleButton(system: "lock.open.fill") {
+                            Haptics.select()
+                            locked = false
+                            withAnimation(.easeInOut(duration: 0.2)) { controlsVisible = true }
+                        }
+                        .padding(.trailing, 20)
+                        .padding(.top, 8)
+                    }
+                    Spacer()
+                    Text("الأدوات مقفلة — اضغط القفل للعودة")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.7))
+                        .padding(.bottom, 26)
+                }
             }
             if buffering, duration > 1, playerError == nil {
                 HStack(spacing: 8) {
@@ -2168,6 +2276,18 @@ struct PlayerScreen: View {
                     onNextSource: { playNextSource() },
                     onAddonSubtitle: { choice in
                         applySubtitleLink(choice.url)
+                    },
+                    onDownload: {
+                        Haptics.tap()
+                        DownloadManager.shared.start(
+                            title: (item?.name ?? title) + " — " + currentURL.suffix(6),
+                            urlString: currentURL
+                        )
+                        showOptions = false
+                    },
+                    onCopyLink: {
+                        Haptics.select()
+                        UIPasteboard.general.string = currentURL
                     }
                 )
             }
@@ -2410,6 +2530,19 @@ struct PlayerScreen: View {
                     appliedInitial = true
                 }
                 buffering = player.buffering
+                // A source that keeps starving is swapped for the next one instead
+                // of leaving the viewer watching a spinner.
+                if buffering, duration > 1, pool.count > 1, !scrubbing {
+                    bufferTicks += 1
+                    if bufferTicks > 24, autoTries < 3 {
+                        autoTries += 1
+                        bufferTicks = 0
+                        playNextSource()
+                        return
+                    }
+                } else {
+                    bufferTicks = 0
+                }
                 duration = max(1, Double(player.durationMs) / 1000)
                 if player.ended {
                     saveProgress()
@@ -2507,6 +2640,15 @@ struct PlayerScreen: View {
         guard duration > 0 else { return }
         position = min(max(0, position + seconds), max(0, duration - 0.5))
         player?.seekTo(Int64(position * 1000))
+    }
+
+    /// The wall clock time this file will end at, shown beside the remaining time.
+    private var finishClock: String {
+        guard duration > 0 else { return "--:--" }
+        let end = Date().addingTimeInterval(max(0, duration - position))
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: end)
     }
 
     private func clock(_ seconds: Double) -> String {
@@ -2782,6 +2924,8 @@ struct PlayerOptionsPanel: View {
     let onSubtitleLink: (String) -> Void
     let onNextSource: () -> Void
     let onAddonSubtitle: (SubtitleChoice) -> Void
+    let onDownload: () -> Void
+    let onCopyLink: () -> Void
 
     private let speeds: [Double] = [0.5, 0.75, 1, 1.25, 1.5, 2]
     @State private var subtitleLink = ""
@@ -3102,6 +3246,14 @@ struct PlayerOptionsPanel: View {
                                 .foregroundStyle(CinemaTheme.muted)
                                 .lineLimit(1)
                             Spacer()
+                            Button("تنزيل") { onDownload() }
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(CinemaTheme.muted)
+                                .buttonStyle(.plain)
+                            Button("نسخ") { onCopyLink() }
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(CinemaTheme.muted)
+                                .buttonStyle(.plain)
                             if canSwitchSource {
                                 Button("مصدر آخر") { onNextSource() }
                                     .font(.system(size: 11, weight: .semibold))
@@ -3156,7 +3308,7 @@ struct PlayerOptionsPanel: View {
                         }
                     }
                     HStack(spacing: 8) {
-                        ForEach([15, 30, 45], id: \.self) { minutes in
+                        ForEach([15, 30, 45, 60], id: \.self) { minutes in
                             Button {
                                 onSleep(minutes)
                             } label: {
@@ -3873,6 +4025,13 @@ struct DetailView: View {
                                     systemImage: "checkmark.circle"
                                 )
                             }
+                            Button {
+                                Haptics.select()
+                                UIPasteboard.general.string = entry.name
+                                copied = "نُسخ اسم الحلقة"
+                            } label: {
+                                Label("نسخ اسم الحلقة", systemImage: "doc.on.doc")
+                            }
                         }
                     }
                 }
@@ -4016,15 +4175,25 @@ struct DetailView: View {
             return tier == qualityFilter
         }
         // The viewer picks whether quality or the measured speed leads the list.
+        var sorted: [StreamChoice]
         if CinemaxPrefs.speedFirst {
-            return list.sorted { lhs, rhs in
+            sorted = list.sorted { lhs, rhs in
                 let left = speeds[lhs.url] ?? 0
                 let right = speeds[rhs.url] ?? 0
                 if abs(left - right) > 0.05 { return left > right }
                 return streamScore(lhs) > streamScore(rhs)
             }
+        } else {
+            sorted = list.sorted { streamScore($0) > streamScore($1) }
         }
-        return list.sorted { streamScore($0) > streamScore($1) }
+        // The link this title played with last time goes back to the top.
+        if let remembered = lastPlayedURL,
+           let index = sorted.firstIndex(where: { $0.url == remembered }),
+           index > 0 {
+            let entry = sorted.remove(at: index)
+            sorted.insert(entry, at: 0)
+        }
+        return sorted
     }
 
     private struct StreamGroup: Identifiable {
@@ -4207,7 +4376,7 @@ struct DetailView: View {
                         .lineLimit(2)
                 }
                 Spacer()
-                if stream.url == filteredStreams.first?.url {
+                if stream.url == filteredStreams.first?.url, stream.url != lastPlayedURL {
                     CinemaPill(text: "موصى به")
                 }
                 if stream.url == lastPlayedURL {
@@ -4435,7 +4604,7 @@ struct SearchView: View {
             .onChange(of: query) { value in
                 searchTask?.cancel()
                 searchTask = Task {
-                    try? await Task.sleep(nanoseconds: 550_000_000)
+                    try? await Task.sleep(nanoseconds: 320_000_000)
                     guard !Task.isCancelled else { return }
                     await model.run(value)
                     if value.trimmingCharacters(in: .whitespaces).count >= 2, !model.results.isEmpty {
@@ -4758,6 +4927,16 @@ struct LibraryView: View {
                                 filterNotice == nil ? "أي فيلم تبدأه يظهر هنا مع موضع التوقف." : "غيّر الفلتر أو امسح البحث."
                             )
                         } else {
+                            HStack(spacing: 6) {
+                                Text("\(progress.count) عنوانًا")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                Text("· \(progress.reduce(0) { $0 + $1.remainingMinutes }) دقيقة متبقية")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(CinemaTheme.muted)
+                                Spacer()
+                            }
+                            .padding(.horizontal, 20)
                             LazyVStack(spacing: 12) {
                                 ForEach(progress) { entry in
                                     ContinueCard(entry: entry) { detailItem = entry.item }
@@ -6709,6 +6888,8 @@ struct StreamingSettings: View {
 struct AboutSettings: View {
     @AppStorage("cinemax.onboarded") private var onboarded = true
     @State private var copied = false
+    @State private var addonsCount = 0
+    @State private var reposCount = 0
 
     private var diagnostics: String {
         let device = UIDevice.current
@@ -6763,6 +6944,15 @@ struct AboutSettings: View {
                         .foregroundStyle(CinemaTheme.muted)
                     Spacer()
                     Text("SwiftUI")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                HStack {
+                    Text("المصادر")
+                        .font(.system(size: 12))
+                        .foregroundStyle(CinemaTheme.muted)
+                    Spacer()
+                    Text("\(addonsCount) إضافة · \(reposCount) مستودع")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.white)
                 }
@@ -6859,6 +7049,10 @@ struct AboutSettings: View {
         .background(CinemaTheme.canvas.ignoresSafeArea())
         .navigationTitle("عن التطبيق")
         .navigationBarTitleDisplayMode(.inline)
+        .task {
+            addonsCount = await CinemaAPI.shared.installedAddons().count
+            reposCount = await CinemaAPI.shared.nuvioRepositories().count
+        }
     }
 }
 
@@ -6910,6 +7104,13 @@ struct AddonsSettings: View {
     @State private var configTarget: SafariTarget?
     @State private var showInstalled = true
     @State private var showSuggested = true
+    @State private var installedQuery = ""
+
+    private var visibleInstalled: [InstalledAddonRow] {
+        let text = installedQuery.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return addons }
+        return addons.filter { $0.name.localizedCaseInsensitiveContains(text) }
+    }
 
     private var visibleSuggested: [SuggestedAddonRow] {
         let text = query.trimmingCharacters(in: .whitespaces)
@@ -7080,8 +7281,26 @@ struct AddonsSettings: View {
                     .font(.system(size: 12))
                     .foregroundStyle(CinemaTheme.muted)
             } else {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 11))
+                        .foregroundStyle(CinemaTheme.muted)
+                    TextField("ابحث بين المثبّتة", text: $installedQuery)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                    Text("\(visibleInstalled.count)")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.muted)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(CinemaTheme.surface, in: Capsule())
+
                 VStack(spacing: 0) {
-                    ForEach(Array(addons.enumerated()), id: \.element.id) { index, addon in
+                    ForEach(Array(visibleInstalled.enumerated()), id: \.element.id) { index, addon in
                         HStack(spacing: 10) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(addon.name)
@@ -7168,7 +7387,7 @@ struct AddonsSettings: View {
                             }
                         }
                         .padding(.vertical, 10)
-                        if index < addons.count - 1 {
+                        if index < visibleInstalled.count - 1 {
                             Divider().overlay(CinemaTheme.hairline)
                         }
                     }
@@ -7296,8 +7515,10 @@ struct AddonsSettings: View {
     }
 
     private func load() async {
-        let installed = await CinemaAPI.shared.installedAddons()
-        let available = await CinemaAPI.shared.suggestedAddons()
+        async let installedTask = CinemaAPI.shared.installedAddons()
+        async let availableTask = CinemaAPI.shared.suggestedAddons()
+        let installed = await installedTask
+        let available = await availableTask
         addons = installed.sorted {
             let result = $0.name.localizedCaseInsensitiveCompare($1.name)
             return ascending ? result == .orderedAscending : result == .orderedDescending
@@ -7896,6 +8117,14 @@ struct NuvioSettings: View {
     @AppStorage("cinemax.nuvio.proxyHosts") private var proxyHosts = "showbox,febbox,pstream"
     @AppStorage("cinemax.nuvio.showboxCookie") private var showboxCookie = ""
     @State private var expanded: Set<String> = []
+    @State private var providerQuery = ""
+
+    /// Narrows the providers of every repository by name.
+    private func filteredProviders(_ repo: NuvioRepositoryRow) -> [NuvioProviderRow] {
+        let text = providerQuery.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return repo.providers }
+        return repo.providers.filter { $0.name.localizedCaseInsensitiveContains(text) }
+    }
 
     private let sample = "https://raw.githubusercontent.com/tapframe/nuvio-providers/refs/heads/main"
 
@@ -8011,6 +8240,22 @@ struct NuvioSettings: View {
                             Spacer()
                         }
                     }
+                    if !repos.isEmpty {
+                        HStack(spacing: 8) {
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 11))
+                                .foregroundStyle(CinemaTheme.muted)
+                            TextField("ابحث بين المزوّدين", text: $providerQuery)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 12))
+                                .foregroundStyle(.white)
+                                .autocorrectionDisabled()
+                                .textInputAutocapitalization(.never)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 9)
+                        .background(CinemaTheme.surface, in: Capsule())
+                    }
                     ForEach(repos) { repo in
                         VStack(alignment: .leading, spacing: 10) {
                             HStack {
@@ -8063,7 +8308,7 @@ struct NuvioSettings: View {
                                 .buttonStyle(.plain)
                             }
                             if expanded.contains(repo.url) {
-                                ForEach(repo.providers) { provider in
+                                ForEach(filteredProviders(repo)) { provider in
                                     Toggle(isOn: Binding(
                                         get: { provider.enabled },
                                         set: { value in Task { await toggle(provider, value) } }
@@ -9146,12 +9391,19 @@ struct DownloadsView: View {
     @ObservedObject private var manager = DownloadManager.shared
     @State private var playing: CinemaItem?
     @State private var filter = "all"
+    @State private var sort = "newest"
 
     private var jobs: [DownloadJob] {
+        let filtered: [DownloadJob]
         switch filter {
-        case "running": return manager.jobs.filter { $0.state == "running" }
-        case "done": return manager.jobs.filter { $0.state == "done" }
-        default: return manager.jobs
+        case "running": filtered = manager.jobs.filter { $0.state == "running" }
+        case "done": filtered = manager.jobs.filter { $0.state == "done" }
+        default: filtered = manager.jobs
+        }
+        switch sort {
+        case "size": return filtered.sorted { $0.total > $1.total }
+        case "name": return filtered.sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
+        default: return filtered
         }
     }
 
@@ -9201,6 +9453,15 @@ struct DownloadsView: View {
                     Text(totalLabel)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(CinemaTheme.muted)
+                    Menu {
+                        Button("الأحدث") { sort = "newest" }
+                        Button("الأكبر حجمًا") { sort = "size" }
+                        Button("الاسم") { sort = "name" }
+                    } label: {
+                        Image(systemName: "arrow.up.arrow.down")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.accent)
+                    }
                     Button {
                         Haptics.tap()
                         for job in manager.jobs { manager.remove(job) }
