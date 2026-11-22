@@ -4821,6 +4821,115 @@ struct DetailView: View {
     }
 }
 
+// MARK: - Instant search
+
+/// A small index of everything the app already knows about: the rows on screen,
+/// the library, the viewer's lists and the downloads. Typing is answered from
+/// memory before the addons reply, and it keeps answering with no network.
+@MainActor
+final class SearchIndex: ObservableObject {
+    static let shared = SearchIndex()
+
+    private struct Entry {
+        let item: CinemaItem
+        let normalized: String
+        let words: [String]
+    }
+
+    @Published private(set) var count = 0
+
+    private var entries: [String: Entry] = [:]
+    private var builtAt: Date?
+
+    /// Rebuilds at most every two minutes, so it tracks new rows without work.
+    func refresh() {
+        if let builtAt, Date().timeIntervalSince(builtAt) < 120 { return }
+        rebuild()
+    }
+
+    func rebuild() {
+        var fresh: [String: Entry] = [:]
+        func add(_ item: CinemaItem) {
+            guard !item.name.isEmpty else { return }
+            let normalized = normalize(item.name)
+            guard !normalized.isEmpty else { return }
+            fresh[item.id] = Entry(
+                item: item,
+                normalized: normalized,
+                words: normalized.split(whereSeparator: { $0 == " " || $0 == "-" || $0 == ":" }).map(String.init)
+            )
+        }
+        HomeModel.shared.shelves.forEach { $0.items.forEach(add) }
+        if let smart = HomeModel.shared.smartShelf { smart.items.forEach(add) }
+        LibraryModel.shared.favorites.forEach(add)
+        LibraryModel.shared.progress.forEach { add($0.item) }
+        ListsStore.shared.lists.forEach { $0.items.forEach(add) }
+        entries = fresh
+        count = fresh.count
+        builtAt = Date()
+    }
+
+    /// Folds the letters Arabic is typed with and without: hamza, taa marbuta,
+    /// alef maqsura, diacritics and tatweel all end up as one letter.
+    private func normalize(_ text: String) -> String {
+        var value = text.folding(
+            options: [.diacriticInsensitive, .caseInsensitive, .widthInsensitive],
+            locale: nil
+        )
+        let folds = [
+            ("أ", "ا"), ("إ", "ا"), ("آ", "ا"), ("ٱ", "ا"),
+            ("ة", "ه"), ("ى", "ي"), ("ؤ", "و"), ("ئ", "ي"), ("ـ", "")
+        ]
+        for (from, to) in folds {
+            value = value.replacingOccurrences(of: from, with: to)
+        }
+        value = value.filter { character in
+            guard let scalar = character.unicodeScalars.first else { return false }
+            return !(0x064B...0x0652).contains(scalar.value)
+        }
+        return value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func search(_ query: String, limit: Int = 24) -> [CinemaItem] {
+        let needle = normalize(query.trimmingCharacters(in: .whitespacesAndNewlines))
+        guard needle.count >= 2 else { return [] }
+        var scored: [(item: CinemaItem, score: Double)] = []
+        for entry in entries.values {
+            guard let score = match(needle, entry) else { continue }
+            scored.append((entry.item, score))
+        }
+        return scored
+            .sorted {
+                $0.score == $1.score
+                    ? $0.item.name.localizedCompare($1.item.name) == .orderedAscending
+                    : $0.score > $1.score
+            }
+            .prefix(limit)
+            .map(\.item)
+    }
+
+    private func match(_ needle: String, _ entry: Entry) -> Double? {
+        let rating = Double(entry.item.rating?.replacingOccurrences(of: ",", with: ".") ?? "") ?? 0
+        if entry.normalized == needle { return 120 }
+        if entry.normalized.hasPrefix(needle) { return 100 + rating / 100 }
+        if entry.words.contains(where: { $0.hasPrefix(needle) }) { return 80 + rating / 100 }
+        if entry.normalized.contains(needle) { return 60 + rating / 100 }
+        if entry.words.contains(where: { $0.contains(needle) }) { return 45 + rating / 100 }
+        // Every typed letter appears in order: this forgives a missed vowel or two.
+        if needle.count >= 3, isSubsequence(needle, of: entry.normalized) { return 20 + rating / 100 }
+        return nil
+    }
+
+    private func isSubsequence(_ needle: String, of haystack: String) -> Bool {
+        var cursor = haystack.startIndex
+        for character in needle {
+            guard let found = haystack[cursor...].firstIndex(of: character) else { return false }
+            cursor = haystack.index(after: found)
+        }
+        return true
+    }
+}
+
 // MARK: - Search
 
 @MainActor
@@ -4867,6 +4976,8 @@ struct SearchView: View {
     @State private var listItem: CinemaItem?
     @State private var searchTask: Task<Void, Never>?
     @State private var history: [String] = CinemaxPrefs.searchHistory
+    @ObservedObject private var index = SearchIndex.shared
+    @State private var instant: [CinemaItem] = []
     @AppStorage("cinemax.searchKind") private var kind = "all"
     @AppStorage("cinemax.searchSort") private var sort = "best"
 
@@ -4969,6 +5080,10 @@ struct SearchView: View {
 
                     sortChips
 
+                    if !instantResults.isEmpty {
+                        instantResultsSection
+                    }
+
                     if model.loading {
                         ProgressView().tint(CinemaTheme.accent).padding(30)
                     } else if let error = model.error {
@@ -5022,7 +5137,10 @@ struct SearchView: View {
             .background(CinemaTheme.canvas.ignoresSafeArea())
             .scrollDismissesKeyboard(.immediately)
             .navigationTitle("البحث")
+            .task { index.refresh() }
             .onChange(of: query) { value in
+                index.refresh()
+                instant = index.search(value)
                 searchTask?.cancel()
                 searchTask = Task {
                     try? await Task.sleep(nanoseconds: 320_000_000)
@@ -5037,6 +5155,50 @@ struct SearchView: View {
         }
         .fullScreenCover(item: $detailItem) { DetailView(item: $0) }
         .sheet(item: $listItem) { ListsPickerSheet(item: $0) }
+    }
+
+    /// What the index found, minus anything the addons already returned.
+    private var instantResults: [CinemaItem] {
+        let known = Set(model.results.map(\.id))
+        return instant.filter { !known.contains($0.id) }
+    }
+
+    private var instantResultsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Image(systemName: "bolt.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(CinemaTheme.accent)
+                Text("فوري من مكتبتك وإضافاتك")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(CinemaTheme.muted)
+                Text("\(instantResults.count)")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(CinemaTheme.muted)
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
+                ForEach(instantResults) { item in
+                    PosterCard(
+                        item: item,
+                        width: CinemaxPrefs.posterMinWidth,
+                        saved: HomeModel.shared.favorites.contains(item.id),
+                        onOpen: { detailItem = item }
+                    )
+                    .contextMenu {
+                        Button {
+                            Haptics.tap()
+                            listItem = item
+                        } label: {
+                            Label("أضف إلى قائمة", systemImage: "text.badge.plus")
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+        }
     }
 
     private var recentSearches: some View {
@@ -11424,7 +11586,10 @@ final class DownloadManager: ObservableObject {
     static let shared = DownloadManager()
 
     @Published private(set) var jobs: [DownloadJob] = []
+    /// Bytes per second for the transfers that are moving.
+    @Published private(set) var speeds: [String: Int64] = [:]
 
+    private var lastSample: [String: (date: Date, bytes: Int64)] = [:]
     private var runners: [String: Task<Void, Never>] = [:]
     private let storageKey = "cinemax.downloads.v1"
 
@@ -11440,7 +11605,7 @@ final class DownloadManager: ObservableObject {
         guard URL(string: urlString) != nil else { return }
         if jobs.contains(where: { $0.id == urlString && $0.state == "running" }) { return }
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
-        var job = DownloadJob(
+        let job = DownloadJob(
             id: urlString,
             title: title,
             url: urlString,
@@ -11449,11 +11614,41 @@ final class DownloadManager: ObservableObject {
             state: "running",
             filePath: nil
         )
-        job.total = 0
         jobs.removeAll { $0.id == urlString && $0.state != "done" }
         jobs.insert(job, at: 0)
         save()
-        let id = urlString
+        launch(job)
+    }
+
+    /// Stops the transfer but keeps the parts that already landed, so it can go on.
+    func pause(_ job: DownloadJob) {
+        runners[job.id]?.cancel()
+        runners[job.id] = nil
+        speeds[job.id] = nil
+        update(job.id) { entry in
+            if entry.state == "running" { entry.state = "paused" }
+        }
+        save()
+    }
+
+    /// Picks a paused or failed transfer up from the parts already on disk.
+    func resume(_ job: DownloadJob) {
+        guard jobs.contains(where: { $0.id == job.id }), runners[job.id] == nil else { return }
+        update(job.id) { entry in
+            entry.state = "running"
+        }
+        save()
+        launch(job)
+    }
+
+    func isPaused(_ url: String) -> Bool {
+        jobs.contains { $0.id == url && $0.state == "paused" }
+    }
+
+    private func launch(_ job: DownloadJob) {
+        let id = job.id
+        let title = job.title
+        let urlString = job.url
         runners[id] = Task { [weak self] in
             await self?.run(id: id, title: title, urlString: urlString)
         }
@@ -11462,19 +11657,58 @@ final class DownloadManager: ObservableObject {
     func cancel(_ job: DownloadJob) {
         runners[job.id]?.cancel()
         runners[job.id] = nil
+        speeds[job.id] = nil
         update(job.id) { entry in
             entry.state = "cancelled"
         }
+        save()
     }
 
     func remove(_ job: DownloadJob) {
         runners[job.id]?.cancel()
         runners[job.id] = nil
+        speeds[job.id] = nil
         if let path = job.filePath {
             try? FileManager.default.removeItem(atPath: path)
         }
+        try? FileManager.default.removeItem(at: partsDirectory(for: job.id))
         jobs.removeAll { $0.id == job.id }
         save()
+    }
+
+    /// A folder per transfer, named from a stable hash so a paused download finds
+    /// its parts again after the app is closed and opened.
+    private func partsDirectory(for id: String) -> URL {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let root = caches.appendingPathComponent("CINEMAX-parts", isDirectory: true)
+        return root.appendingPathComponent(stableHash(id), isDirectory: true)
+    }
+
+    /// FNV-1a: the same link always names the same folder, unlike Swift's hash.
+    private func stableHash(_ value: String) -> String {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in value.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x0000_0100_0000_01b3
+        }
+        return String(hash, radix: 16)
+    }
+
+    /// Measures how fast the transfer moves, for the speed and the remaining time.
+    private func sample(_ id: String) {
+        guard let job = jobs.first(where: { $0.id == id }), job.state == "running" else { return }
+        let now = Date()
+        guard let previous = lastSample[id] else {
+            lastSample[id] = (now, job.received)
+            return
+        }
+        let seconds = now.timeIntervalSince(previous.date)
+        guard seconds > 0.3 else { return }
+        let instant = max(0, Double(job.received - previous.bytes) / seconds)
+        // A little smoothing keeps the number readable instead of jumping.
+        let smoothed = speeds[id].map { Int64(Double($0) * 0.6 + instant * 0.4) } ?? Int64(instant)
+        speeds[id] = max(0, smoothed)
+        lastSample[id] = (now, job.received)
     }
 
     private var folder: URL {
@@ -11486,6 +11720,14 @@ final class DownloadManager: ObservableObject {
 
     private func run(id: String, title: String, urlString: String) async {
         guard let url = URL(string: urlString) else { return }
+        lastSample[id] = (Date(), jobs.first { $0.id == id }?.received ?? 0)
+        let sampler = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                guard !Task.isCancelled else { break }
+                self?.sample(id)
+            }
+        }
         do {
             let total = try await contentLength(url)
             update(id) { entry in entry.total = total }
@@ -11507,15 +11749,24 @@ final class DownloadManager: ObservableObject {
                 entry.received = entry.total
                 entry.filePath = destination.path
             }
+            speeds[id] = nil
+            lastSample[id] = nil
             save()
             notify(title: title)
         } catch is CancellationError {
-            update(id) { entry in entry.state = "cancelled" }
+            update(id) { entry in
+                if entry.state == "running" { entry.state = "paused" }
+            }
+            speeds[id] = nil
+            lastSample[id] = nil
             save()
         } catch {
             update(id) { entry in entry.state = "failed" }
+            speeds[id] = nil
+            lastSample[id] = nil
             save()
         }
+        sampler.cancel()
     }
 
     /// Tells the viewer when a file landed, without leaving the app in front.
@@ -11544,18 +11795,46 @@ final class DownloadManager: ObservableObject {
         return max(0, http.expectedContentLength)
     }
 
+    /// Splits the file into four ranges that travel side by side. The parts live in
+    /// the job's own folder, so a paused or failed transfer continues from what
+    /// already landed instead of starting the whole file again.
     private func downloadInParts(url: URL, total: Int64, destination: URL, id: String) async throws {
         let parts = 4
-        let chunk = total / Int64(parts)
-        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
-        let partURLs = (0..<parts).map { temp.appendingPathComponent("part-\($0)") }
+        let chunk = max(1, total / Int64(parts))
+        let directory = partsDirectory(for: id)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            for index in 0..<parts {
-                let from = Int64(index) * chunk
-                let to = index == parts - 1 ? total - 1 : from + chunk - 1
-                let partURL = partURLs[index]
+        func partURL(_ index: Int) -> URL { directory.appendingPathComponent("part-\(index)") }
+
+        func bounds(_ index: Int) -> (from: Int64, to: Int64) {
+            let from = Int64(index) * chunk
+            let to = index == parts - 1 ? total - 1 : from + chunk - 1
+            return (from, to)
+        }
+
+        func expected(_ index: Int) -> Int64 {
+            let (from, to) = bounds(index)
+            return to - from + 1
+        }
+
+        func onDisk(_ index: Int) -> Int64 {
+            let values = try? partURL(index).resourceValues(forKeys: [.fileSizeKey])
+            return Int64(values?.fileSize ?? 0)
+        }
+
+        // Whatever a previous run left behind counts before anything is requested.
+        var present: Int64 = 0
+        for index in 0..<parts where onDisk(index) == expected(index) {
+            present += expected(index)
+        }
+        if present > 0 {
+            update(id) { entry in entry.received = min(entry.total, present) }
+        }
+
+        try await withThrowingTaskGroup(of: Int64.self) { group in
+            for index in 0..<parts where onDisk(index) != expected(index) {
+                let (from, to) = bounds(index)
+                let target = partURL(index)
                 group.addTask {
                     var request = URLRequest(url: url)
                     request.setValue("bytes=\(from)-\(to)", forHTTPHeaderField: "Range")
@@ -11564,28 +11843,44 @@ final class DownloadManager: ObservableObject {
                     guard let http = response as? HTTPURLResponse, http.statusCode < 400 else {
                         throw CinemaError(message: "تعذر تنزيل جزء من الملف")
                     }
-                    if FileManager.default.fileExists(atPath: partURL.path) {
-                        try FileManager.default.removeItem(at: partURL)
+                    try Task.checkCancellation()
+                    if FileManager.default.fileExists(atPath: target.path) {
+                        try FileManager.default.removeItem(at: target)
                     }
-                    try FileManager.default.moveItem(at: tmp, to: partURL)
+                    try FileManager.default.moveItem(at: tmp, to: target)
+                    return to - from + 1
                 }
             }
-            try await group.waitForAll()
-        }
-
-        // One part at a time into the final file keeps memory flat.
-        FileManager.default.createFile(atPath: destination.path, contents: nil)
-        let handle = try FileHandle(forWritingTo: destination)
-        for partURL in partURLs {
-            let data = try Data(contentsOf: partURL, options: .mappedIfSafe)
-            try handle.write(contentsOf: data)
-            try FileManager.default.removeItem(at: partURL)
-            update(id) { entry in
-                entry.received = min(entry.total, entry.received + chunk)
+            var finished = present
+            while let size = try await group.next() {
+                finished += size
+                update(id) { entry in entry.received = min(entry.total, finished) }
             }
         }
+
+        // One part at a time into the final file, in chunks, keeps memory flat even
+        // for a file far larger than the app's budget.
+        if FileManager.default.fileExists(atPath: destination.path) {
+            try FileManager.default.removeItem(at: destination)
+        }
+        FileManager.default.createFile(atPath: destination.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: destination)
+        for index in 0..<parts {
+            let source = partURL(index)
+            guard FileManager.default.fileExists(atPath: source.path) else {
+                throw CinemaError(message: "جزء من الملف مفقود، أعد التنزيل")
+            }
+            let reader = try FileHandle(forReadingFrom: source)
+            while true {
+                let data = reader.readData(ofLength: 1_048_576)
+                if data.isEmpty { break }
+                try handle.write(contentsOf: data)
+            }
+            try reader.close()
+            try FileManager.default.removeItem(at: source)
+        }
         try handle.close()
-        try? FileManager.default.removeItem(at: temp)
+        try? FileManager.default.removeItem(at: directory)
     }
 
     private func downloadWhole(url: URL, destination: URL, id: String) async throws {
@@ -11618,10 +11913,11 @@ final class DownloadManager: ObservableObject {
     private func load() {
         guard let data = UserDefaults.standard.data(forKey: storageKey),
               let stored = try? JSONDecoder().decode([DownloadJob].self, from: data) else { return }
-        // Anything that was running when the app closed is marked as stopped.
+        // Anything that was running when the app closed waits as paused, with its
+        // parts on disk ready to continue.
         jobs = stored.map { job in
             var copy = job
-            if copy.state == "running" { copy.state = "cancelled" }
+            if copy.state == "running" { copy.state = "paused" }
             return copy
         }
     }
@@ -11638,6 +11934,7 @@ struct DownloadsView: View {
         let filtered: [DownloadJob]
         switch filter {
         case "running": filtered = manager.jobs.filter { $0.state == "running" }
+        case "paused": filtered = manager.jobs.filter { $0.state == "paused" || $0.state == "cancelled" }
         case "done": filtered = manager.jobs.filter { $0.state == "done" }
         default: filtered = manager.jobs
         }
@@ -11665,7 +11962,10 @@ struct DownloadsView: View {
                 .padding(.horizontal, 30)
             } else {
                 HStack(spacing: 8) {
-                    ForEach([("all", "الكل"), ("running", "الجارية"), ("done", "المكتملة")], id: \.0) { entry in
+                    ForEach(
+                        [("all", "الكل"), ("running", "الجارية"), ("paused", "المتوقفة"), ("done", "المكتملة")],
+                        id: \.0
+                    ) { entry in
                         Button {
                             Haptics.select()
                             withAnimation(.easeInOut(duration: 0.15)) { filter = entry.0 }
@@ -11730,19 +12030,30 @@ struct DownloadsView: View {
                         ProgressView(value: job.progress)
                             .tint(CinemaTheme.accent)
                         HStack(spacing: 12) {
-                            Text(job.sizeLabel)
+                            Text(progressText(job))
                                 .font(.system(size: 10))
                                 .foregroundStyle(CinemaTheme.muted)
-                            Spacer()
                             if job.state == "running" {
-                                Button("إلغاء") { manager.cancel(job) }
-                                    .font(.system(size: 11, weight: .semibold))
+                                Text(speedText(job))
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(CinemaTheme.accent)
+                                Text(etaText(job))
+                                    .font(.system(size: 10))
                                     .foregroundStyle(CinemaTheme.muted)
                             }
-                            if job.state == "failed" || job.state == "cancelled" {
-                                Button("إعادة") {
+                            Spacer()
+                            if job.state == "running" {
+                                Button("إيقاف مؤقت") {
                                     Haptics.tap()
-                                    manager.start(title: job.title, urlString: job.url)
+                                    manager.pause(job)
+                                }
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.white)
+                            }
+                            if job.state == "paused" || job.state == "failed" || job.state == "cancelled" {
+                                Button("استئناف") {
+                                    Haptics.tap()
+                                    manager.resume(job)
                                 }
                                 .font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(CinemaTheme.accent)
@@ -11797,8 +12108,33 @@ struct DownloadsView: View {
         switch job.state {
         case "done": return "مكتمل"
         case "failed": return "فشل"
-        case "cancelled": return "متوقف"
+        case "paused": return "متوقف"
+        case "cancelled": return "ملغى"
         default: return "\(Int(job.progress * 100))٪"
         }
+    }
+
+    /// How much of the file already landed, in the units a viewer reads.
+    private func progressText(_ job: DownloadJob) -> String {
+        guard job.total > 0 else { return job.sizeLabel }
+        let done = Double(job.received) / 1_048_576
+        let total = Double(job.total) / 1_048_576
+        return String(format: "%.0f من %.0f MB", done, total)
+    }
+
+    private func speedText(_ job: DownloadJob) -> String {
+        guard let speed = manager.speeds[job.id], speed > 0 else { return "" }
+        let megabytes = Double(speed) / 1_048_576
+        if megabytes >= 1 { return String(format: "%.1f MB/ث", megabytes) }
+        return String(format: "%.0f KB/ث", Double(speed) / 1024)
+    }
+
+    private func etaText(_ job: DownloadJob) -> String {
+        guard let speed = manager.speeds[job.id], speed > 0, job.total > job.received else { return "" }
+        let seconds = Int(Double(job.total - job.received) / Double(speed))
+        if seconds < 60 { return "بقي \(seconds) ثانية" }
+        let minutes = seconds / 60
+        if minutes < 60 { return "بقي \(minutes) دقيقة" }
+        return "بقي \(minutes / 60) ساعة و\(minutes % 60) دقيقة"
     }
 }
