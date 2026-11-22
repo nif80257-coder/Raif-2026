@@ -133,20 +133,42 @@ internal fun AddonsSettingsPageContent(
     // Sources that failed three stream requests in a row and are waiting out their pause. The
     // set is recomputed when the installed list changes or the user resumes them.
     var health by remember { mutableStateOf(AddonsHealthUiState()) }
+    var sourceHealth by remember { mutableStateOf<SourceHealthReport?>(null) }
     var pausedSourcesRefreshToken by remember { mutableStateOf(0) }
-    LaunchedEffect(pausedSourcesRefreshToken, uiState.addons.size) {
+    LaunchedEffect(pausedSourcesRefreshToken, uiState.addons) {
         // One storage read for both the paused set and the per-source streaks.
         val failures = AddonFailureMemory.snapshot()
         val profileId = ProfileRepository.activeProfileId
+        val neverPaused = AddonPauseExceptions.neverPausedManifestUrls(profileId)
+        val speeds = AddonSpeedMemory.speedByManifestUrl(profileId)
+        val results = AddonSpeedMemory.resultsByManifestUrl(profileId)
+        val lastSuccesses = AddonSpeedMemory.lastSuccessByManifestUrl(profileId)
         health = AddonsHealthUiState(
             pausedManifestUrls = failures.pausedManifestUrls,
-            neverPausedManifestUrls = AddonPauseExceptions.neverPausedManifestUrls(profileId),
+            neverPausedManifestUrls = neverPaused,
             failureStreaks = failures.failureStreaks,
             failureReasons = failures.failureReasons,
             lastFailureAtMs = failures.lastFailureAtMs,
-            sourceSpeeds = AddonSpeedMemory.speedByManifestUrl(profileId)
-                .mapValues { (_, ms) -> formatSourceSpeedSeconds(ms) },
-            sourceResults = AddonSpeedMemory.resultsByManifestUrl(profileId),
+            sourceSpeeds = speeds.mapValues { (_, ms) -> formatSourceSpeedSeconds(ms) },
+            sourceResults = results,
+        )
+        // The same measurements, read once, also say how many sources are answering at all.
+        sourceHealth = sourceHealthReport(
+            uiState.addons.map { addon ->
+                SourceHealthInput(
+                    manifestUrl = addon.manifestUrl,
+                    name = addon.searchableTitle(),
+                    enabled = addon.enabled,
+                    neverPaused = addon.manifestUrl in neverPaused,
+                    paused = addon.manifestUrl in failures.pausedManifestUrls,
+                    failureStreak = failures.failureStreaks[addon.manifestUrl] ?: 0,
+                    failureReason = failures.failureReasons[addon.manifestUrl],
+                    lastFailureAtMs = failures.lastFailureAtMs[addon.manifestUrl],
+                    lastSuccessAtMs = lastSuccesses[addon.manifestUrl],
+                    speedMs = speeds[addon.manifestUrl],
+                    resultCount = results[addon.manifestUrl],
+                )
+            },
         )
     }
 
@@ -169,6 +191,7 @@ internal fun AddonsSettingsPageContent(
     ) {
         SectionHeader(stringResource(Res.string.addons_section_overview))
         OverviewCard(overview = overview)
+        SourceHealthLine(report = sourceHealth)
 
         if (health.pausedManifestUrls.isNotEmpty()) {
             PausedSourcesCard(
@@ -824,6 +847,40 @@ private fun OverviewCard(overview: AddonOverview) {
     }
 }
 
+/**
+ * One line above the source list saying how many sources answered their last request.
+ *
+ * The overview counts what is installed; this counts what is working. It uses the measurements the
+ * stream requests already wrote, so it costs no request of its own and it changes the moment a
+ * source is resumed.
+ */
+@Composable
+private fun SourceHealthLine(report: SourceHealthReport?) {
+    if (report == null || report.summary.total == 0) return
+    NuvioSurfaceCard {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = stringResource(
+                    Res.string.source_health_summary,
+                    report.summary.answering,
+                    report.summary.enabled,
+                ),
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = if (report.summary.needsAttention == 0) {
+                    stringResource(Res.string.source_health_all_good)
+                } else {
+                    stringResource(Res.string.source_health_attention, report.summary.needsAttention)
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
 @Composable
 private fun OverviewStat(
     value: String,
@@ -937,7 +994,7 @@ private const val ADDON_SEARCH_DEBOUNCE_MS = 150L
  * rather than "0 minutes ago" for a record that has no timestamp.
  */
 @Composable
-private fun failureAgeLabel(lastFailureAtMs: Long?): String? {
+internal fun failureAgeLabel(lastFailureAtMs: Long?): String? {
     val lastFailureAt = lastFailureAtMs?.takeIf { it > 0L } ?: return null
     val age = failureAge(EpisodeReleaseDatePlatform.nowEpochMs() - lastFailureAt)
     return when (age.unit) {
@@ -967,7 +1024,7 @@ private data class AddonsHealthUiState(
  * card falls back to the plain streak line.
  */
 @Composable
-private fun addonFailureReasonLabel(reason: AddonFailureReason?): String? = when (reason) {
+internal fun addonFailureReasonLabel(reason: AddonFailureReason?): String? = when (reason) {
     null -> null
     AddonFailureReason.Timeout -> stringResource(Res.string.addons_failure_reason_timeout)
     AddonFailureReason.NotFound -> stringResource(Res.string.addons_failure_reason_not_found)

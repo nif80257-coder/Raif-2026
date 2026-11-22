@@ -60,6 +60,23 @@ internal object AddonSpeedMemory {
             parseResultCount(encoded)?.let { count -> manifestUrl to count }
         }.toMap()
 
+    /**
+     * When each source last answered, from the timestamp stored beside its speed.
+     *
+     * A source that stopped answering is the one the user notices, and the age of its last answer
+     * says whether it went quiet just now or a week ago. Records without a readable time are left
+     * out instead of being reported as the epoch.
+     */
+    fun lastSuccessByManifestUrl(profileId: Int): Map<String, Long> =
+        entries(profileId).mapNotNull { (manifestUrl, encoded) ->
+            val answeredAt = encoded.substringAfter('|')
+                .substringBefore('|')
+                .toLongOrNull()
+                ?.takeIf { at -> at > 0L }
+                ?: return@mapNotNull null
+            manifestUrl to answeredAt
+        }.toMap()
+
     fun recordSuccess(
         profileId: Int,
         manifestUrl: String,
@@ -87,6 +104,21 @@ internal object AddonSpeedMemory {
         val entries = entries(profileId)
         entries[manifestUrl] = "$FailureMs|${EpisodeReleaseDatePlatform.nowEpochMs()}"
         persistIfDue(profileId)
+    }
+
+    /**
+     * Drops the measurement and the failure penalty of one source, so it is queued by its own speed
+     * again the next time it is asked.
+     *
+     * Resuming a paused source clears its failure streak, but the 15-second penalty written by
+     * [recordFailure] would keep it behind every other source until it answered; this makes the
+     * resume mean what it says.
+     */
+    fun forget(profileId: Int, manifestUrl: String) {
+        if (manifestUrl.isBlank()) return
+        val entries = entries(profileId)
+        if (entries.remove(manifestUrl) == null) return
+        save(profileId, entries)
     }
 
     /** Drops everything remembered for a profile, for when its local data is cleared. */

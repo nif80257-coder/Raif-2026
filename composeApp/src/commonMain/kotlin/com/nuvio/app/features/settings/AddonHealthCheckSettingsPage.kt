@@ -17,6 +17,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -26,9 +27,24 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.ui.NuvioStatusModal
+import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.nuvio
+import com.nuvio.app.features.addons.AddonFailureMemory
+import com.nuvio.app.features.addons.AddonPauseExceptions
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.ManagedAddon
+import com.nuvio.app.features.addons.SourceHealthInput
+import com.nuvio.app.features.addons.SourceHealthReport
+import com.nuvio.app.features.addons.SourceHealthRow
+import com.nuvio.app.features.addons.SourceHealthStatus
+import com.nuvio.app.features.addons.addonFailureReasonLabel
+import com.nuvio.app.features.addons.failureAgeLabel
+import com.nuvio.app.features.addons.searchableTitle
+import com.nuvio.app.features.addons.sourceHealthReport
+import com.nuvio.app.features.profiles.ProfileRepository
+import com.nuvio.app.features.streams.AddonSpeedMemory
+import com.nuvio.app.features.streams.formatSourceSpeedSeconds
+import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
 
@@ -58,6 +74,53 @@ internal fun AddonHealthCheckContent(isTablet: Boolean) {
         } else {
             addonsState.addons.sortedByDescending { addon -> addon.manifestUrl == focused }
         }
+    }
+
+    // The health section reads the three memories the stream requests write (failures, measured
+    // speed and result count) once per change, instead of letting each row read storage again.
+    // Resuming a source bumps the key so the section reflects the state it just changed.
+    var healthRefreshKey by remember { mutableStateOf(0) }
+    val healthReport = remember(addonsState.addons, healthRefreshKey) {
+        val profileId = ProfileRepository.activeProfileId
+        val failures = AddonFailureMemory.snapshot()
+        val speeds = AddonSpeedMemory.speedByManifestUrl(profileId)
+        val results = AddonSpeedMemory.resultsByManifestUrl(profileId)
+        val lastSuccesses = AddonSpeedMemory.lastSuccessByManifestUrl(profileId)
+        val neverPaused = AddonPauseExceptions.neverPausedManifestUrls(profileId)
+        sourceHealthReport(
+            addonsState.addons.map { addon ->
+                SourceHealthInput(
+                    manifestUrl = addon.manifestUrl,
+                    name = addon.searchableTitle(),
+                    enabled = addon.enabled,
+                    neverPaused = addon.manifestUrl in neverPaused,
+                    paused = addon.manifestUrl in failures.pausedManifestUrls,
+                    failureStreak = failures.failureStreaks[addon.manifestUrl] ?: 0,
+                    failureReason = failures.failureReasons[addon.manifestUrl],
+                    lastFailureAtMs = failures.lastFailureAtMs[addon.manifestUrl],
+                    lastSuccessAtMs = lastSuccesses[addon.manifestUrl],
+                    speedMs = speeds[addon.manifestUrl],
+                    resultCount = results[addon.manifestUrl],
+                )
+            },
+        )
+    }
+    val healthScope = rememberCoroutineScope()
+    val resumedToast = stringResource(Res.string.source_health_resumed)
+
+    if (healthReport.summary.total > 0) {
+        SourceHealthSection(
+            isTablet = isTablet,
+            report = healthReport,
+            onResume = { row ->
+                healthScope.launch {
+                    AddonFailureMemory.recordSuccess(row.manifestUrl)
+                    AddonSpeedMemory.forget(ProfileRepository.activeProfileId, row.manifestUrl)
+                    healthRefreshKey += 1
+                    NuvioToastController.show(resumedToast)
+                }
+            },
+        )
     }
 
     SettingsSection(
@@ -142,6 +205,159 @@ internal fun AddonHealthCheckContent(isTablet: Boolean) {
             onDismiss = { pendingDeleteUrl = null },
         )
     }
+}
+
+/** How many sources the section names before it stops and points at the list below. */
+private const val SourceHealthVisibleRows = 6
+
+/**
+ * The state of every source as the last stream request left it, worst first.
+ *
+ * The check cards below answer "does this source's manifest exist"; this answers the question the
+ * user actually has when a title opens with too few links: which source is costing me, and what
+ * would happen if I tried it again.
+ */
+@Composable
+private fun SourceHealthSection(
+    isTablet: Boolean,
+    report: SourceHealthReport,
+    onResume: (SourceHealthRow) -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+    SettingsSection(
+        title = stringResource(Res.string.source_health_title),
+        isTablet = isTablet,
+    ) {
+        SettingsGroup(isTablet = isTablet) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = stringResource(
+                        Res.string.source_health_summary,
+                        report.summary.answering,
+                        report.summary.enabled,
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = tokens.colors.textSecondary,
+                )
+                if (report.attention.isEmpty()) {
+                    Text(
+                        text = stringResource(Res.string.source_health_all_good),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = tokens.colors.textSecondary,
+                    )
+                } else {
+                    Text(
+                        text = stringResource(
+                            Res.string.source_health_attention,
+                            report.summary.needsAttention,
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Medium,
+                        color = tokens.colors.textPrimary,
+                    )
+                    report.attention.take(SourceHealthVisibleRows).forEach { row ->
+                        SourceHealthRowContent(
+                            row = row,
+                            onResume = { onResume(row) },
+                        )
+                    }
+                    val hiddenCount = report.attention.size - SourceHealthVisibleRows
+                    if (hiddenCount > 0) {
+                        Text(
+                            text = stringResource(Res.string.source_health_more, hiddenCount),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = tokens.colors.textMuted,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SourceHealthRowContent(
+    row: SourceHealthRow,
+    onResume: () -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = row.name,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+                color = tokens.colors.textPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = sourceHealthDetail(row),
+                style = MaterialTheme.typography.bodySmall,
+                color = tokens.colors.textSecondary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (row.status == SourceHealthStatus.Paused || row.status == SourceHealthStatus.Failing) {
+            TextButton(onClick = onResume) {
+                Text(
+                    text = stringResource(Res.string.source_health_resume),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * One line under a source name: what state it is in, then the measurements that explain it.
+ *
+ * The numbers come from the same memories the stream request writes, so a source that was slow
+ * and empty an hour ago is described by that answer rather than by a fresh probe.
+ */
+@Composable
+private fun sourceHealthDetail(row: SourceHealthRow): String {
+    val status = when (row.status) {
+        SourceHealthStatus.Paused -> stringResource(Res.string.addons_badge_paused)
+        SourceHealthStatus.Failing -> stringResource(Res.string.source_health_status_failing)
+        SourceHealthStatus.Silent -> stringResource(Res.string.source_health_status_silent)
+        SourceHealthStatus.Slow -> stringResource(Res.string.source_health_status_slow)
+        SourceHealthStatus.Untested -> stringResource(Res.string.source_health_status_untested)
+        SourceHealthStatus.Healthy -> stringResource(Res.string.addon_health_check_status_ok)
+        SourceHealthStatus.Disabled -> stringResource(Res.string.addon_health_check_status_disabled)
+    }
+    val measurements = listOfNotNull(
+        row.failureReason?.let { reason -> addonFailureReasonLabel(reason) },
+        row.lastFailureAtMs?.let { failedAt -> failureAgeLabel(failedAt) },
+        // `failureAgeLabel` formats any age, so the same words say when the source last answered.
+        row.lastSuccessAtMs
+            ?.let { answeredAt -> failureAgeLabel(answeredAt) }
+            ?.let { age -> stringResource(Res.string.source_health_last_answer, age) },
+        row.speedMs
+            ?.takeIf { speedMs -> speedMs > 0L }
+            ?.let { speedMs ->
+                stringResource(
+                    Res.string.addons_badge_speed,
+                    formatSourceSpeedSeconds(speedMs),
+                )
+            },
+        row.resultCount?.let { count -> stringResource(Res.string.addons_badge_results, count) },
+    )
+    return (listOf(status) + measurements).joinToString(separator = " · ")
 }
 
 @Composable
