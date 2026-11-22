@@ -1432,6 +1432,8 @@ final class HomeModel: ObservableObject {
     @Published var shelves: [Shelf] = []
     @Published var continueWatching: [ProgressItem] = []
     @Published var favorites: Set<String> = []
+    /// A row the app builds itself from what the viewer last opened.
+    @Published var smartShelf: Shelf?
     @Published var loading = true
     @Published var error: String?
     /// The chips row's choice, kept across launches so the home opens as left.
@@ -1447,6 +1449,7 @@ final class HomeModel: ObservableObject {
     }
 
     private var lastLoaded: Date?
+    private var smartSeed: String?
     private let cacheKey = "cinemax.shelves.cache.v1"
 
     init() {
@@ -1481,6 +1484,7 @@ final class HomeModel: ObservableObject {
                 UserDefaults.standard.set(data, forKey: cacheKey)
             }
             prefetchPosters(loaded)
+            await loadSmartRow()
             lastLoaded = Date()
             CinemaxPrefs.markRefreshed()
             if loaded.isEmpty {
@@ -1509,6 +1513,8 @@ final class HomeModel: ObservableObject {
     func resetCache() {
         UserDefaults.standard.removeObject(forKey: cacheKey)
         lastLoaded = nil
+        smartShelf = nil
+        smartSeed = nil
         shelves = []
         loading = true
         Task { await load(force: true) }
@@ -1519,6 +1525,29 @@ final class HomeModel: ObservableObject {
         async let favoritesTask = CinemaAPI.shared.favorites()
         continueWatching = await progressTask
         favorites = Set(await favoritesTask.map(\.id))
+        await loadSmartRow()
+    }
+
+    /// Builds the "لأنك تشاهد" row from the title the viewer last opened. It only
+    /// asks again when that title changes, so later visits cost nothing.
+    private func loadSmartRow() async {
+        guard let seed = continueWatching.first?.item, seed.type != "channel" else {
+            smartShelf = nil
+            smartSeed = nil
+            return
+        }
+        if smartSeed == seed.id, smartShelf != nil { return }
+        smartSeed = seed.id
+        let titles = await CinemaAPI.shared.similar(item: seed)
+        guard !titles.isEmpty else {
+            smartShelf = nil
+            return
+        }
+        smartShelf = Shelf(
+            id: "smart:similar",
+            title: "لأنك تشاهد \(seed.name)",
+            items: Array(titles.prefix(18))
+        )
     }
 
     func toggle(_ item: CinemaItem) {
@@ -1566,11 +1595,17 @@ final class HomeModel: ObservableObject {
             }
             ordered = ranked.map(\.element)
         }
+        // The app's own row sits above the addon rows, since it is the most personal.
+        var result = ordered
+        if let smart = smartShelf, !smart.items.isEmpty, !hiddenShelves.contains(smart.id) {
+            result.removeAll { $0.id == smart.id }
+            result.insert(smart, at: 0)
+        }
         switch filter {
-        case "movie": return ordered.filter { $0.items.contains { $0.type == "movie" } }
-        case "series": return ordered.filter { $0.items.contains { $0.type == "series" } }
-        case "channel": return ordered.filter { $0.items.contains { $0.type == "channel" || $0.type == "tv" } }
-        default: return ordered
+        case "movie": return result.filter { $0.items.contains { $0.type == "movie" } }
+        case "series": return result.filter { $0.items.contains { $0.type == "series" } }
+        case "channel": return result.filter { $0.items.contains { $0.type == "channel" || $0.type == "tv" } }
+        default: return result
         }
     }
 
@@ -1609,6 +1644,7 @@ struct CinematicHomeView: View {
     @State private var glow: [Color] = [CinemaTheme.accent]
     @State private var detailItem: CinemaItem?
     @State private var gridShelf: Shelf?
+    @State private var listItem: CinemaItem?
 
     private let filters: [(id: String, title: String)] = [
         ("all", "الكل"), ("movie", "أفلام"), ("series", "مسلسلات"), ("channel", "قنوات")
@@ -1692,6 +1728,25 @@ struct CinematicHomeView: View {
                                         saved: model.favorites.contains(item.id),
                                         onOpen: { detailItem = item }
                                     )
+                                    .contextMenu {
+                                        Button {
+                                            Haptics.tap()
+                                            listItem = item
+                                        } label: {
+                                            Label("أضف إلى قائمة", systemImage: "text.badge.plus")
+                                        }
+                                        Button {
+                                            Haptics.tap()
+                                            model.toggle(item)
+                                        } label: {
+                                            Label(
+                                                model.favorites.contains(item.id)
+                                                    ? "إزالة من المحفوظة"
+                                                    : "أضف إلى المحفوظة",
+                                                systemImage: "heart"
+                                            )
+                                        }
+                                    }
                                 }
                             }
                             .padding(.horizontal, 20)
@@ -1713,6 +1768,7 @@ struct CinematicHomeView: View {
                 detailItem = item
             })
         }
+        .sheet(item: $listItem) { ListsPickerSheet(item: $0) }
     }
 
     private var header: some View {
@@ -3828,6 +3884,7 @@ struct DetailView: View {
     @State private var similarPick: CinemaItem?
     @State private var trailerTarget: SafariTarget?
     @State private var copied: String?
+    @State private var listPicker = false
 
     private var playlist: [CinemaItem] {
         guard let detail = model.detail, !detail.episodes.isEmpty else { return [] }
@@ -3954,6 +4011,9 @@ struct DetailView: View {
             SafariView(url: target.url)
                 .ignoresSafeArea()
         }
+        .sheet(isPresented: $listPicker) {
+            ListsPickerSheet(item: model.detail?.item ?? item)
+        }
     }
 
     /// Titles TMDB puts next to this one, tapping through to their own page.
@@ -4016,6 +4076,10 @@ struct DetailView: View {
             CircleButton(system: "square.and.arrow.up") {
                 Haptics.tap()
                 share()
+            }
+            CircleButton(system: "text.badge.plus") {
+                Haptics.tap()
+                listPicker = true
             }
             CircleButton(system: saved ? "heart.fill" : "heart", tint: saved ? CinemaTheme.favourite : .white) {
                 onFavorite()
@@ -4800,6 +4864,7 @@ struct SearchView: View {
     @State private var query = ""
     @ObservedObject private var model = SearchModel.shared
     @State private var detailItem: CinemaItem?
+    @State private var listItem: CinemaItem?
     @State private var searchTask: Task<Void, Never>?
     @State private var history: [String] = CinemaxPrefs.searchHistory
     @AppStorage("cinemax.searchKind") private var kind = "all"
@@ -4927,6 +4992,25 @@ struct SearchView: View {
                                     },
                                     onOpen: { detailItem = item }
                                 )
+                                .contextMenu {
+                                    Button {
+                                        Haptics.tap()
+                                        listItem = item
+                                    } label: {
+                                        Label("أضف إلى قائمة", systemImage: "text.badge.plus")
+                                    }
+                                    Button {
+                                        Haptics.tap()
+                                        HomeModel.shared.toggle(item)
+                                    } label: {
+                                        Label(
+                                            HomeModel.shared.favorites.contains(item.id)
+                                                ? "إزالة من المحفوظة"
+                                                : "أضف إلى المحفوظة",
+                                            systemImage: "heart"
+                                        )
+                                    }
+                                }
                             }
                         }
                         .padding(.horizontal, 20)
@@ -4952,6 +5036,7 @@ struct SearchView: View {
             }
         }
         .fullScreenCover(item: $detailItem) { DetailView(item: $0) }
+        .sheet(item: $listItem) { ListsPickerSheet(item: $0) }
     }
 
     private var recentSearches: some View {
@@ -5085,7 +5170,9 @@ final class LibraryModel: ObservableObject {
 
 struct LibraryView: View {
     @ObservedObject private var model = LibraryModel.shared
+    @ObservedObject private var lists = ListsStore.shared
     @State private var detailItem: CinemaItem?
+    @State private var listItem: CinemaItem?
     @AppStorage("cinemax.librarySort") private var sort = "recent"
     @State private var query = ""
     @State private var typeFilter = "all"
@@ -5168,6 +5255,7 @@ struct LibraryView: View {
                     Picker("", selection: $model.segment) {
                         Text("المحفوظة (\(model.favorites.count))").tag(0)
                         Text("قيد المشاهدة (\(model.progress.count))").tag(1)
+                        Text("قوائمي (\(lists.lists.count))").tag(3)
                         Text("التنزيلات (\(DownloadManager.shared.jobs.count))").tag(2)
                     }
                     .pickerStyle(.segmented)
@@ -5206,7 +5294,7 @@ struct LibraryView: View {
                     .background(CinemaTheme.surface, in: Capsule())
                     .padding(.horizontal, 20)
 
-                    if model.segment != 2 {
+                    if model.segment == 0 || model.segment == 1 {
                     HStack(spacing: 8) {
                         ForEach(typeFilters, id: \.id) { filter in
                             Button {
@@ -5231,7 +5319,9 @@ struct LibraryView: View {
                     .padding(.horizontal, 20)
                     }
 
-                    if model.segment == 2 {
+                    if model.segment == 3 {
+                        ListsView(query: $query)
+                    } else if model.segment == 2 {
                         DownloadsView()
                     } else if model.segment == 0 {
                         if favorites.isEmpty {
@@ -5249,10 +5339,24 @@ struct LibraryView: View {
                                         saved: true,
                                         onLongClick: {
                                             Haptics.tap()
-                                            removeFavorite(item)
+                                            listItem = item
                                         },
                                         onOpen: { detailItem = item }
                                     )
+                                    .contextMenu {
+                                        Button {
+                                            Haptics.tap()
+                                            listItem = item
+                                        } label: {
+                                            Label("أضف إلى قائمة", systemImage: "text.badge.plus")
+                                        }
+                                        Button(role: .destructive) {
+                                            Haptics.tap()
+                                            removeFavorite(item)
+                                        } label: {
+                                            Label("إزالة من المحفوظة", systemImage: "heart.slash")
+                                        }
+                                    }
                                 }
                             }
                             .padding(.horizontal, 20)
@@ -5278,6 +5382,12 @@ struct LibraryView: View {
                                 ForEach(progress) { entry in
                                     ContinueCard(entry: entry) { detailItem = entry.item }
                                         .contextMenu {
+                                            Button {
+                                                Haptics.tap()
+                                                listItem = entry.item
+                                            } label: {
+                                                Label("أضف إلى قائمة", systemImage: "text.badge.plus")
+                                            }
                                             Button(role: .destructive) {
                                                 Haptics.tap()
                                                 removeResume(entry)
@@ -5300,6 +5410,7 @@ struct LibraryView: View {
             .refreshable { await model.load() }
         }
         .fullScreenCover(item: $detailItem) { DetailView(item: $0) }
+        .sheet(item: $listItem) { ListsPickerSheet(item: $0) }
     }
 
     private func removeFavorite(_ item: CinemaItem) {
@@ -9258,6 +9369,10 @@ struct StatsSettings: View {
                     Divider().overlay(CinemaTheme.hairline)
                     row("إضافات مثبتة", "\(addonCount)")
                     Divider().overlay(CinemaTheme.hairline)
+                    row("قوائمي", "\(ListsStore.shared.lists.count)")
+                    Divider().overlay(CinemaTheme.hairline)
+                    row("عناوين في القوائم", "\(ListsStore.shared.totalTitles)")
+                    Divider().overlay(CinemaTheme.hairline)
                     row("ملفات التنزيل على الجهاز", storageSize)
                     Divider().overlay(CinemaTheme.hairline)
                     row("آخر تحديث للكتالوج", CinemaxPrefs.lastRefreshLabel)
@@ -10578,7 +10693,8 @@ enum CinemaxPrefs {
             "cinemax.appLock", "cinemax.autoSkipIntro", "cinemax.searchSort",
             "cinemax.rowOrder", "cinemax.volume", "cinemax.aspect", "cinemax.zoom",
             "cinemax.subPos", "cinemax.showHero", "cinemax.autoRefresh",
-            "cinemax.playerHints",
+            "cinemax.playerHints", "cinemax.lists.v1", "cinemax.corner",
+            "cinemax.hapticsLevel",
             historyKey, lastRefreshKey
         ] {
             UserDefaults.standard.removeObject(forKey: key)
@@ -10603,6 +10719,7 @@ struct ShelfGridScreen: View {
     @State private var genre: String?
     @State private var loadingMore = false
     @State private var exhausted = false
+    @State private var listItem: CinemaItem?
 
     private var addonId: String {
         String(shelf.id.split(separator: ":", maxSplits: 1).first ?? "")
@@ -10668,6 +10785,25 @@ struct ShelfGridScreen: View {
                                 saved: HomeModel.shared.favorites.contains(item.id),
                                 onOpen: { onOpen(item) }
                             )
+                            .contextMenu {
+                                Button {
+                                    Haptics.tap()
+                                    listItem = item
+                                } label: {
+                                    Label("أضف إلى قائمة", systemImage: "text.badge.plus")
+                                }
+                                Button {
+                                    Haptics.tap()
+                                    HomeModel.shared.toggle(item)
+                                } label: {
+                                    Label(
+                                        HomeModel.shared.favorites.contains(item.id)
+                                            ? "إزالة من المحفوظة"
+                                            : "أضف إلى المحفوظة",
+                                        systemImage: "heart"
+                                    )
+                                }
+                            }
                         }
                     }
                     .padding(.horizontal, 20)
@@ -10715,6 +10851,7 @@ struct ShelfGridScreen: View {
             }
         }
         .preferredColorScheme(.dark)
+        .sheet(item: $listItem) { ListsPickerSheet(item: $0) }
     }
 
     private func genreChip(_ title: String, _ value: String?) -> some View {
@@ -10763,6 +10900,497 @@ struct ShelfGridScreen: View {
     }
 }
 
+
+// MARK: - My lists
+
+/// A list the viewer keeps: films for Friday, episodes to finish, anything.
+struct CinemaList: Identifiable, Codable, Equatable {
+    let id: String
+    var name: String
+    var createdAt: Double
+    var items: [CinemaItem]
+
+    var posterURLs: [URL] { items.compactMap(\.posterURL) }
+}
+
+/// The viewer's own lists, kept on the device: no account, no server.
+@MainActor
+final class ListsStore: ObservableObject {
+    static let shared = ListsStore()
+
+    @Published private(set) var lists: [CinemaList] = []
+
+    private let key = "cinemax.lists.v1"
+
+    private init() {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let decoded = try? JSONDecoder().decode([CinemaList].self, from: data) else { return }
+        lists = decoded
+    }
+
+    private func save() {
+        if let data = try? JSONEncoder().encode(lists) {
+            UserDefaults.standard.set(data, forKey: key)
+        }
+    }
+
+    func list(_ id: String) -> CinemaList? {
+        lists.first { $0.id == id }
+    }
+
+    /// Titles across every list, each counted once.
+    var totalTitles: Int {
+        Set(lists.flatMap { $0.items.map(\.id) }).count
+    }
+
+    /// The lists already holding a title, so a picker can show its ticks.
+    func listIDs(holding itemId: String) -> Set<String> {
+        Set(lists.filter { list in list.items.contains { $0.id == itemId } }.map(\.id))
+    }
+
+    @discardableResult
+    func create(named name: String) -> CinemaList {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let created = CinemaList(
+            id: UUID().uuidString,
+            name: trimmed.isEmpty ? "قائمة جديدة" : trimmed,
+            createdAt: Date().timeIntervalSince1970,
+            items: []
+        )
+        lists.insert(created, at: 0)
+        save()
+        return created
+    }
+
+    func rename(_ id: String, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let index = lists.firstIndex(where: { $0.id == id }) else { return }
+        lists[index].name = trimmed
+        save()
+    }
+
+    func delete(_ id: String) {
+        lists.removeAll { $0.id == id }
+        save()
+    }
+
+    /// Adds the title unless the list already holds it.
+    func add(_ item: CinemaItem, to id: String) {
+        guard let index = lists.firstIndex(where: { $0.id == id }) else { return }
+        guard !lists[index].items.contains(where: { $0.id == item.id }) else { return }
+        lists[index].items.insert(item, at: 0)
+        save()
+    }
+
+    func remove(_ item: CinemaItem, from id: String) {
+        guard let index = lists.firstIndex(where: { $0.id == id }) else { return }
+        lists[index].items.removeAll { $0.id == item.id }
+        save()
+    }
+
+    func toggle(_ item: CinemaItem, in id: String) {
+        if listIDs(holding: item.id).contains(id) {
+            remove(item, from: id)
+        } else {
+            add(item, to: id)
+        }
+    }
+
+    /// One list as plain text, ready to be sent to someone.
+    func shareText(_ list: CinemaList) -> String {
+        let titles = list.items.map { "• \($0.name)" }.joined(separator: "\n")
+        return "\(list.name)\n\(titles)\n\nمن CINEMAX"
+    }
+}
+
+/// The viewer's lists, as a segment of the library.
+struct ListsView: View {
+    @Binding var query: String
+    @ObservedObject private var store = ListsStore.shared
+
+    @State private var creating = false
+    @State private var newName = ""
+    @State private var renaming: CinemaList?
+    @State private var renameText = ""
+    @State private var deleting: CinemaList?
+
+    private var visible: [CinemaList] {
+        let text = query.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return store.lists }
+        return store.lists.filter { list in
+            list.name.localizedCaseInsensitiveContains(text)
+                || list.items.contains { $0.name.localizedCaseInsensitiveContains(text) }
+        }
+    }
+
+    private let columns = [GridItem(.adaptive(minimum: 150), spacing: 12)]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                Text("\(store.lists.count) قائمة · \(store.totalTitles) عنوانًا")
+                    .font(.system(size: 11))
+                    .foregroundStyle(CinemaTheme.muted)
+                Spacer()
+                Button {
+                    Haptics.tap()
+                    newName = ""
+                    creating = true
+                } label: {
+                    Label("قائمة جديدة", systemImage: "plus")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(CinemaTheme.accent, in: Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 20)
+
+            if store.lists.isEmpty {
+                notice(
+                    "لا قوائم بعد",
+                    "اجمع ما تريد مشاهدته لاحقًا: أفلام الجمعة، أو مسلسلات لم تبدأها. أضف أي عنوان من صفحته."
+                )
+            } else if visible.isEmpty {
+                notice("لا قوائم بهذا البحث", "جرّب كلمة أخرى أو امسح البحث.")
+            } else {
+                LazyVGrid(columns: columns, alignment: .leading, spacing: 14) {
+                    ForEach(visible) { list in
+                        NavigationLink {
+                            ListDetailView(listId: list.id)
+                        } label: {
+                            listCard(list)
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            Button {
+                                renaming = list
+                                renameText = list.name
+                            } label: {
+                                Label("إعادة التسمية", systemImage: "pencil")
+                            }
+                            ShareLink(item: store.shareText(list)) {
+                                Label("مشاركة القائمة", systemImage: "square.and.arrow.up")
+                            }
+                            Button(role: .destructive) {
+                                deleting = list
+                            } label: {
+                                Label("حذف القائمة", systemImage: "trash")
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
+
+            Spacer(minLength: 40)
+        }
+        .padding(.top, 6)
+        .alert("قائمة جديدة", isPresented: $creating) {
+            TextField("اسم القائمة", text: $newName)
+            Button("إنشاء") {
+                Haptics.select()
+                store.create(named: newName)
+            }
+            Button("إلغاء", role: .cancel) {}
+        } message: {
+            Text("تظهر القائمة في مكتبتك، وتضيف إليها أي عنوان من صفحته.")
+        }
+        .alert(
+            "إعادة التسمية",
+            isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })
+        ) {
+            TextField("اسم القائمة", text: $renameText)
+            Button("حفظ") {
+                if let list = renaming { store.rename(list.id, to: renameText) }
+                renaming = nil
+            }
+            Button("إلغاء", role: .cancel) { renaming = nil }
+        }
+        .alert(
+            "حذف القائمة؟",
+            isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })
+        ) {
+            Button("حذف", role: .destructive) {
+                if let list = deleting { store.delete(list.id) }
+                deleting = nil
+            }
+            Button("إلغاء", role: .cancel) { deleting = nil }
+        } message: {
+            Text(deleting?.name ?? "")
+        }
+    }
+
+    private func listCard(_ list: CinemaList) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ZStack {
+                CinemaTheme.elevated
+                if list.items.isEmpty {
+                    Image(systemName: "rectangle.stack.badge.plus")
+                        .font(.system(size: 24, weight: .light))
+                        .foregroundStyle(CinemaTheme.muted)
+                } else {
+                    HStack(spacing: 3) {
+                        ForEach(Array(list.items.prefix(3).enumerated()), id: \.element.id) { index, entry in
+                            RemoteImage(url: entry.posterURL)
+                                .frame(width: 50, height: 76)
+                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                .rotationEffect(.degrees(Double(index - 1) * 5))
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 92)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+            Text(list.name)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+            Text(list.items.isEmpty ? "فارغة" : "\(list.items.count) عنوانًا")
+                .font(.system(size: 10))
+                .foregroundStyle(CinemaTheme.muted)
+        }
+        .padding(10)
+        .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private func notice(_ title: String, _ detail: String) -> some View {
+        VStack(spacing: 8) {
+            Text(title)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white)
+            Text(detail)
+                .font(.system(size: 12))
+                .foregroundStyle(CinemaTheme.muted)
+                .multilineTextAlignment(.center)
+                .lineSpacing(4)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 40)
+        .padding(.horizontal, 24)
+    }
+}
+
+/// One list: its titles, how to drop one, and how to open it.
+struct ListDetailView: View {
+    let listId: String
+
+    @ObservedObject private var store = ListsStore.shared
+    @State private var detailItem: CinemaItem?
+    @State private var query = ""
+
+    private var list: CinemaList? { store.list(listId) }
+
+    private var items: [CinemaItem] {
+        guard let list else { return [] }
+        let text = query.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return list.items }
+        return list.items.filter { $0.name.localizedCaseInsensitiveContains(text) }
+    }
+
+    private let columns = [GridItem(.adaptive(minimum: 112), spacing: 12)]
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 12))
+                        .foregroundStyle(CinemaTheme.muted)
+                    TextField("ابحث في القائمة", text: $query)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white)
+                    Text("\(items.count)")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.muted)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(CinemaTheme.surface, in: Capsule())
+                .padding(.horizontal, 20)
+
+                if items.isEmpty {
+                    Text(
+                        list?.items.isEmpty == true
+                            ? "أضف عنوانًا من صفحة أي فيلم أو مسلسل: زر القوائم في الأعلى."
+                            : "لا نتائج في هذه القائمة."
+                    )
+                    .font(.system(size: 12))
+                    .foregroundStyle(CinemaTheme.muted)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 40)
+                    .padding(.horizontal, 24)
+                } else {
+                    LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
+                        ForEach(items) { entry in
+                            PosterCard(
+                                item: entry,
+                                width: 112,
+                                saved: HomeModel.shared.favorites.contains(entry.id),
+                                onOpen: { detailItem = entry }
+                            )
+                            .contextMenu {
+                                Button(role: .destructive) {
+                                    Haptics.tap()
+                                    store.remove(entry, from: listId)
+                                } label: {
+                                    Label("إزالة من القائمة", systemImage: "minus.circle")
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                }
+
+                Spacer(minLength: 40)
+            }
+            .padding(.top, 8)
+        }
+        .background(CinemaTheme.canvas.ignoresSafeArea())
+        .navigationTitle(list?.name ?? "قائمة")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if let list {
+                ToolbarItem(placement: .topBarTrailing) {
+                    ShareLink(item: store.shareText(list)) {
+                        Image(systemName: "square.and.arrow.up")
+                            .foregroundStyle(CinemaTheme.accent)
+                    }
+                }
+            }
+        }
+        .fullScreenCover(item: $detailItem) { entry in
+            DetailView(item: entry)
+        }
+    }
+}
+
+/// Puts a title into one of the viewer's lists, or into a new one.
+struct ListsPickerSheet: View {
+    let item: CinemaItem
+
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var store = ListsStore.shared
+    @State private var creating = false
+    @State private var newName = ""
+
+    var body: some View {
+        NavigationStack {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 10) {
+                        RemoteImage(url: item.posterURL)
+                            .frame(width: 42, height: 62)
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(item.name)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .lineLimit(2)
+                            Text("اختر قائمة أو أنشئ واحدة")
+                                .font(.system(size: 11))
+                                .foregroundStyle(CinemaTheme.muted)
+                        }
+                        Spacer()
+                    }
+
+                    if store.lists.isEmpty {
+                        Text("لا قوائم بعد. أنشئ واحدة وسيُضاف إليها هذا العنوان مباشرة.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(CinemaTheme.muted)
+                            .lineSpacing(4)
+                    } else {
+                        VStack(spacing: 0) {
+                            ForEach(Array(store.lists.enumerated()), id: \.element.id) { index, list in
+                                Button {
+                                    Haptics.tap()
+                                    store.toggle(item, in: list.id)
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        Image(
+                                            systemName: store.listIDs(holding: item.id).contains(list.id)
+                                                ? "checkmark.circle.fill"
+                                                : "circle"
+                                        )
+                                        .font(.system(size: 16))
+                                        .foregroundStyle(
+                                            store.listIDs(holding: item.id).contains(list.id)
+                                                ? CinemaTheme.accent
+                                                : CinemaTheme.muted
+                                        )
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(list.name)
+                                                .font(.system(size: 13, weight: .semibold))
+                                                .foregroundStyle(.white)
+                                                .lineLimit(1)
+                                            Text("\(list.items.count) عنوانًا")
+                                                .font(.system(size: 10))
+                                                .foregroundStyle(CinemaTheme.muted)
+                                        }
+                                        Spacer()
+                                    }
+                                    .padding(.vertical, 10)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                if index < store.lists.count - 1 {
+                                    Divider().overlay(CinemaTheme.hairline)
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 14)
+                        .background(
+                            CinemaTheme.surface,
+                            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        )
+                    }
+
+                    Button {
+                        Haptics.tap()
+                        newName = ""
+                        creating = true
+                    } label: {
+                        Label("قائمة جديدة", systemImage: "plus")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.accent)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(CinemaTheme.accent.opacity(0.14), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(20)
+            }
+            .background(CinemaTheme.canvas.ignoresSafeArea())
+            .navigationTitle("قوائمي")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("تم") { dismiss() }
+                        .foregroundStyle(CinemaTheme.accent)
+                }
+            }
+            .alert("قائمة جديدة", isPresented: $creating) {
+                TextField("اسم القائمة", text: $newName)
+                Button("إنشاء") {
+                    Haptics.select()
+                    let created = store.create(named: newName)
+                    store.add(item, to: created.id)
+                }
+                Button("إلغاء", role: .cancel) {}
+            } message: {
+                Text("سيُضاف \(item.name) إليها.")
+            }
+        }
+        .preferredColorScheme(.dark)
+    }
+}
 
 // MARK: - Downloads
 
