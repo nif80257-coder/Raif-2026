@@ -137,12 +137,22 @@ internal object AddonSpeedMemory {
  *
  * A source with no measurement yet sorts after the measured ones, so a new install keeps its
  * configured order until the first responses arrive.
+ *
+ * A source that failed its last request still carries a failure streak, and it is queued after
+ * every source that is answering — even a slower one. The first fetch slots are worth more to a
+ * source that returns links than to one that is about to time out again.
  */
 internal fun List<InstalledStreamAddonTarget>.orderedByRecordedSpeed(
     speeds: Map<String, Long>,
+    failureStreaks: Map<String, Int> = emptyMap(),
 ): List<InstalledStreamAddonTarget> {
-    if (speeds.isEmpty() || size < 2) return this
-    return sortedBy { addon -> speeds[addon.manifestUrl] ?: Long.MAX_VALUE / 2 }
+    if (size < 2) return this
+    if (speeds.isEmpty() && failureStreaks.isEmpty()) return this
+    return sortedWith(
+        compareBy<InstalledStreamAddonTarget> { addon ->
+            if ((failureStreaks[addon.manifestUrl] ?: 0) > 0) 1 else 0
+        }.thenBy { addon -> speeds[addon.manifestUrl] ?: Long.MAX_VALUE / 2 },
+    )
 }
 
 /**

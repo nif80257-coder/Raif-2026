@@ -235,12 +235,19 @@ internal fun decodeFailureRecord(
 /**
  * Drops add-ons that are paused, unless [includeAll] is set (a manual refresh).
  *
+ * [pausedManifestUrls] lets a caller that already read [AddonFailureMemory.snapshot] hand in the
+ * set, so one title load costs one storage read instead of two. Left out, the pause list is read
+ * here.
+ *
  * The full list comes back if the pause list would have covered every add-on, so a bad
  * streak across a whole install can never leave the screen with no sources at all.
  */
-internal fun List<ManagedAddon>.withoutPausedAddons(includeAll: Boolean): List<ManagedAddon> {
+internal fun List<ManagedAddon>.withoutPausedAddons(
+    includeAll: Boolean,
+    pausedManifestUrls: Set<String>? = null,
+): List<ManagedAddon> {
     if (includeAll) return this
-    val paused = AddonFailureMemory.pausedManifestUrls()
+    val paused = pausedManifestUrls ?: AddonFailureMemory.pausedManifestUrls()
     if (paused.isEmpty()) return this
     return filterNot { it.manifestUrl in paused }.ifEmpty { this }
 }

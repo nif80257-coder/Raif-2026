@@ -69,6 +69,48 @@ class AddonSpeedOrderingTest {
     }
 
     @Test
+    fun `a source with a failure streak is queued after the sources that answer`() {
+        val fastButFailing = target("https://failing.example/manifest.json")
+        val slowButAnswering = target("https://slow.example/manifest.json")
+
+        val ordered = listOf(fastButFailing, slowButAnswering).orderedByRecordedSpeed(
+            speeds = mapOf(
+                fastButFailing.manifestUrl to 300L,
+                slowButAnswering.manifestUrl to 8_000L,
+            ),
+            failureStreaks = mapOf(fastButFailing.manifestUrl to 2),
+        )
+
+        assertEquals(listOf(slowButAnswering, fastButFailing), ordered)
+    }
+
+    @Test
+    fun `a zero streak does not move a source`() {
+        val fast = target("https://fast.example/manifest.json")
+        val slow = target("https://slow.example/manifest.json")
+
+        val ordered = listOf(slow, fast).orderedByRecordedSpeed(
+            speeds = mapOf(fast.manifestUrl to 400L, slow.manifestUrl to 9_000L),
+            failureStreaks = mapOf(slow.manifestUrl to 0),
+        )
+
+        assertEquals(listOf(fast, slow), ordered)
+    }
+
+    @Test
+    fun `a streak reorders even before any source has been timed`() {
+        val failing = target("https://failing.example/manifest.json")
+        val fresh = target("https://fresh.example/manifest.json")
+
+        val ordered = listOf(failing, fresh).orderedByRecordedSpeed(
+            speeds = emptyMap(),
+            failureStreaks = mapOf(failing.manifestUrl to 1),
+        )
+
+        assertEquals(listOf(fresh, failing), ordered)
+    }
+
+    @Test
     fun `a measured time is written in seconds with one decimal`() {
         assertEquals("0.0", formatSourceSpeedSeconds(0L))
         assertEquals("0.4", formatSourceSpeedSeconds(400L))

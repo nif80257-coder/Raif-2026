@@ -3,6 +3,7 @@ package com.nuvio.app.features.streams
 import co.touchlab.kermit.Logger
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.features.addons.AddonFailureMemory
+import com.nuvio.app.features.addons.AddonFailureSnapshot
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.buildAddonResourceUrl
 import com.nuvio.app.features.addons.enabledAddons
@@ -175,12 +176,17 @@ object StreamsRepository {
         val serverSources = ServerStreams.sources(type, videoId, season, episode, forceRefresh)
         val preferredGroupIds = serverSources.filter { it.preferred }.mapTo(mutableSetOf()) { it.addonId }
         // Add-ons that failed three titles in a row are left out of automatic loads so they
-        // cannot keep holding a fetch worker; an explicit refresh asks all of them again.
+        // cannot keep holding a fetch worker; an explicit refresh asks all of them again. One read
+        // of the failure records serves both that filter and the fetch order below.
+        val failureSnapshot = if (isNativeServerRequest) AddonFailureSnapshot() else AddonFailureMemory.snapshot()
         val installedAddons = if (isNativeServerRequest) {
             emptyList()
         } else {
             AddonRepository.uiState.value.addons.enabledAddons()
-                .withoutPausedAddons(includeAll = forceRefresh)
+                .withoutPausedAddons(
+                    includeAll = forceRefresh,
+                    pausedManifestUrls = failureSnapshot.pausedManifestUrls,
+                )
         }
         val pluginScrapers = if (AppFeaturePolicy.pluginsEnabled && !isNativeServerRequest) {
             PluginRepository.getEnabledScrapersForType(type)
@@ -215,9 +221,11 @@ object StreamsRepository {
                 )
             }
             // The measured-fast sources take the first fetch slots, so real streams reach the
-            // sheet in a second or two instead of waiting behind the slowest scrapers.
+            // sheet in a second or two instead of waiting behind the slowest scrapers. A source
+            // that failed last time is queued after them until it answers again.
             .orderedByRecordedSpeed(
-                AddonSpeedMemory.speedByManifestUrl(ProfileRepository.activeProfileId),
+                speeds = AddonSpeedMemory.speedByManifestUrl(ProfileRepository.activeProfileId),
+                failureStreaks = failureSnapshot.failureStreaks,
             )
 
         /**
