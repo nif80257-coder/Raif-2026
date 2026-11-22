@@ -2896,4 +2896,5 @@
     <string name="home_paused_source_count">%1$d shelves hidden until it answers again</string>
     <string name="home_paused_source_resume">Resume</string>
     <string name="streams_paused_sources_retry">%1$d paused — retry</string>
+    <string name="search_library_section_title">In your library</string>
 </resources>

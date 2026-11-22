@@ -65,6 +65,7 @@ import com.nuvio.app.features.home.components.HomeEmptyStateCard
 import com.nuvio.app.features.home.components.homeSectionHorizontalPaddingForWidth
 import com.nuvio.app.features.home.components.HomeSkeletonRow
 import com.nuvio.app.features.home.components.posterGridColumnCountForWidth
+import com.nuvio.app.features.library.LibraryRepository
 import com.nuvio.app.features.watched.WatchedRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -88,6 +89,7 @@ import nuvio.composeapp.generated.resources.compose_search_empty_no_search_catal
 import nuvio.composeapp.generated.resources.compose_search_placeholder
 import nuvio.composeapp.generated.resources.compose_search_recent_searches
 import nuvio.composeapp.generated.resources.compose_search_remove_recent_search
+import nuvio.composeapp.generated.resources.search_library_section_title
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
@@ -119,6 +121,7 @@ fun SearchScreen(
         AddonRepository.initialize()
         WatchedRepository.ensureLoaded()
         SearchHistoryRepository.ensureLoaded()
+        LibraryRepository.ensureLoaded()
     }
 
     val addonsUiState by AddonRepository.uiState.collectAsStateWithLifecycle()
@@ -129,6 +132,10 @@ fun SearchScreen(
         HomeCatalogSettingsRepository.uiState
     }.collectAsStateWithLifecycle()
     val recentSearches by SearchHistoryRepository.uiState.collectAsStateWithLifecycle()
+    val libraryUiState by remember {
+        LibraryRepository.ensureLoaded()
+        LibraryRepository.uiState
+    }.collectAsStateWithLifecycle()
     val watchedUiState by WatchedRepository.uiState.collectAsStateWithLifecycle()
     val fullyWatchedSeriesKeys by WatchedRepository.fullyWatchedSeriesKeys.collectAsStateWithLifecycle()
     val networkStatusUiState by NetworkStatusRepository.uiState.collectAsStateWithLifecycle()
@@ -334,6 +341,34 @@ fun SearchScreen(
             } else {
                 val normalizedQuery = query.trim()
                 val isWaitingForSearch = normalizedQuery.isNotBlank() && lastRequestedQuery != normalizedQuery
+                // What the profile already saved is known locally, so it appears while the sources
+                // are still being asked.
+                if (normalizedQuery.isNotBlank() && libraryUiState.items.isNotEmpty()) {
+                    item(key = LibrarySearchSectionKey) {
+                        val librarySectionTitle = stringResource(Res.string.search_library_section_title)
+                        val librarySection = remember(
+                            normalizedQuery,
+                            libraryUiState.items,
+                            librarySectionTitle,
+                        ) {
+                            librarySearchSection(
+                                items = libraryUiState.items,
+                                query = normalizedQuery,
+                                title = librarySectionTitle,
+                            )
+                        }
+                        if (librarySection != null) {
+                            HomeCatalogRowSection(
+                                section = librarySection,
+                                modifier = Modifier.padding(bottom = 12.dp),
+                                watchedKeys = watchedUiState.watchedKeys,
+                                fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
+                                onPosterClick = onPosterClick,
+                                onPosterLongClick = onPosterLongClick,
+                            )
+                        }
+                    }
+                }
                 when {
                     isWaitingForSearch -> {
                         items(2) {
