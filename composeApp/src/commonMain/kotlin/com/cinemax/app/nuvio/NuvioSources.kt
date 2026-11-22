@@ -35,8 +35,11 @@ suspend fun nuvioSourcesFrom(
         .map { provider ->
             async {
                 try {
-                    val source = client.loadScript(provider.repository, provider.descriptor.filename)
+                    // The script itself is a network fetch, so the budget covers both
+                    // fetching it and running it: one slow provider cannot stall the
+                    // rest of the list any longer than this.
                     val streams = withTimeout(PluginSecurityPolicy.NETWORK_TIMEOUT_MILLIS) {
+                        val source = client.loadScript(provider.repository, provider.descriptor.filename)
                         runtime.streams(source, request)
                     }
                     val options = streams.mapNotNull { stream ->

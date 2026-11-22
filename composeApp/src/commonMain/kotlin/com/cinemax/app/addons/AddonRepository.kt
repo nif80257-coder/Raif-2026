@@ -115,8 +115,10 @@ class AddonRepository(
 
     private companion object {
         const val MANIFEST_TTL_MS = 10L * 60L * 1000L
-        const val CATALOG_TTL_MS = 3L * 60L * 1000L
+        const val CATALOG_TTL_MS = 5L * 60L * 1000L
         const val META_TTL_MS = 5L * 60L * 1000L
-        const val STREAM_TTL_MS = 60L * 1000L
+        // Reopening the same episode right away, or stepping back to one, answers
+        // from memory instead of asking every addon again.
+        const val STREAM_TTL_MS = 2L * 60L * 1000L
     }
 }

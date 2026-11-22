@@ -22,6 +22,7 @@ import io.ktor.http.encodeURLParameter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -115,6 +116,8 @@ data class AppleDetail(
 class CinemaxAppleBridge {
 
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    /** Live source fetches, keyed by the token the interface hands in. */
+    private val streamJobs = mutableMapOf<String, Job>()
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val addonStore = AddonSettingsStore()
     private val repository = AddonRepository(createCinemaxHttpClient())
@@ -615,17 +618,133 @@ class CinemaxAppleBridge {
                 // quicker than someone's home server, and a link routed through a
                 // free public proxy is the slowest of all. The score mixes those
                 // with the quality tier so the best link is the first row.
-                val sorted = (found + fromProviders)
-                    .distinctBy { it.url }
-                    .sortedWith(
-                        compareByDescending<AppleStream> { streamScore(it) }
-                            .thenByDescending { qualityRank(it.quality) }
-                            .thenBy { it.addon }
-                    )
+                val sorted = orderStreams(found + fromProviders)
                 onDone(json.encodeToString(AppleStreams(sorted, failures.distinct())))
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
                 onError(error.message ?: "تعذر جلب المصادر")
+            }
+        }
+    }
+
+    /** Turns one addon stream into what the interface shows, keeping playable links. */
+    private fun mapStream(
+        addonName: String,
+        stream: com.cinemax.app.addons.StremioStream
+    ): AppleStream? {
+        val url = stream.url ?: return null
+        // mpv carries its own network stack, so a plain http link plays just as well.
+        if (!url.startsWith("https://") && !url.startsWith("http://")) return null
+        return AppleStream(
+            url = url,
+            addon = addonName,
+            title = stream.title ?: stream.name ?: url,
+            quality = streamBadges(stream.name, stream.title).firstOrNull(),
+            headers = stream.behaviorHints.proxyHeaders?.request ?: emptyMap(),
+            size = sizeLabel(stream.behaviorHints)
+        )
+    }
+
+    /** The order a viewer sees: best link first, then quality, then the addon name. */
+    private fun orderStreams(streams: List<AppleStream>): List<AppleStream> =
+        streams.distinctBy { it.url }.sortedWith(
+            compareByDescending<AppleStream> { streamScore(it) }
+                .thenByDescending { qualityRank(it.quality) }
+                .thenBy { it.addon }
+        )
+
+    /** Stops a live fetch whose result the interface no longer shows. */
+    fun cancelStreams(token: String) {
+        streamJobs.remove(token)?.cancel()
+    }
+
+    /**
+     * A live version of [loadStreams]. Every addon answers in its own coroutine and
+     * the list is handed over the moment that answer lands, so one slow addon never
+     * holds back the twelve that already replied. A hard ceiling ends the wait, and
+     * `token` lets the caller cancel a fetch it has moved on from.
+     */
+    fun loadStreamsFast(
+        itemId: String,
+        type: String,
+        token: String,
+        onUpdate: (String) -> Unit,
+        onDone: (String) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        streamJobs.remove(token)?.cancel()
+        streamJobs[token] = scope.launch {
+            val found = mutableListOf<AppleStream>()
+            val failures = mutableListOf<String>()
+            var announced = 0
+
+            fun snapshot(): String =
+                json.encodeToString(AppleStreams(orderStreams(found.toList()), failures.distinct()))
+
+            fun publish() {
+                if (found.size == announced) return
+                announced = found.size
+                onUpdate(snapshot())
+            }
+
+            try {
+                // A TMDB row (or episode) has no id an addon knows, so it is
+                // translated to its IMDb id first — otherwise nothing is found.
+                val queryId = if (itemId.startsWith("tmdb:")) {
+                    resolveTmdbStreamId(itemId) ?: run {
+                        onDone(json.encodeToString(AppleStreams(emptyList())))
+                        return@launch
+                    }
+                } else {
+                    itemId
+                }
+                val addons = addonStore.load()
+                    .filter { AddonCapabilities.supportsStreams(it, type, queryId) }
+
+                val workers = addons.map { addon ->
+                    launch {
+                        val streams = try {
+                            withTimeoutOrNull(ADDON_BUDGET_MS) {
+                                repository.loadStreams(addon.manifestUrl, type, queryId)
+                            }
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (error: Throwable) {
+                            failures += addon.name + ": " + (error.message ?: "خطأ").take(90)
+                            null
+                        }
+                        if (streams == null) {
+                            if (failures.none { it.startsWith(addon.name + ":") }) {
+                                failures += "${addon.name}: لا يستجيب"
+                            }
+                        } else {
+                            found += streams.mapNotNull { mapStream(addon.name, it) }
+                        }
+                        publish()
+                    }
+                }
+                val providers = launch {
+                    val fromProviders = try {
+                        nuvioStreams(itemId, type, failures)
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: Throwable) {
+                        emptyList()
+                    }
+                    found += fromProviders
+                    publish()
+                }
+
+                withTimeoutOrNull(TOTAL_BUDGET_MS) {
+                    (workers + providers).forEach { it.join() }
+                }
+                (workers + providers).forEach { it.cancel() }
+                onDone(snapshot())
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                onError(error.message ?: "تعذر جلب المصادر")
+            } finally {
+                streamJobs.remove(token)
             }
         }
     }
@@ -1462,5 +1581,9 @@ class CinemaxAppleBridge {
         const val CLASSIC_INTERFACE_KEY = "cinemax.ui.classic"
         const val CN_SWITCH_NOTIFICATION = "CinemaxSwitchInterface"
         const val SHELVES_CACHE_KEY = "cinemax.apple.shelves.v1"
+        /** How long one addon may take before the list moves on without it. */
+        const val ADDON_BUDGET_MS = 7_000L
+        /** The whole wait, so a viewer never stares at a spinner for long. */
+        const val TOTAL_BUDGET_MS = 9_000L
     }
 }

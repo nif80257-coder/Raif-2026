@@ -12,9 +12,11 @@ fun createCinemaxHttpClient(): HttpClient = HttpClient {
     // URLs are requested, and iOS App Transport Security blocks plain HTTP hops.
     followRedirects = true
     install(HttpTimeout) {
-        connectTimeoutMillis = 10_000
-        requestTimeoutMillis = 30_000
-        socketTimeoutMillis = 30_000
+        // A viewer waits on the sources list, so a dead host must fail quickly and
+        // let the other addons through instead of holding the whole answer back.
+        connectTimeoutMillis = 6_000
+        requestTimeoutMillis = 20_000
+        socketTimeoutMillis = 20_000
     }
     install(ContentNegotiation) {
         json(Json { ignoreUnknownKeys = true })

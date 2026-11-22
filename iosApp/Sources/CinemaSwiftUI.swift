@@ -604,6 +604,41 @@ final class CinemaAPI {
         }
     }
 
+    /// A live source fetch: `onUpdate` fires each time an addon or provider answers,
+    /// so the list fills while the slow ones are still thinking. The token it returns
+    /// cancels the fetch when the viewer moves on to another title.
+    @discardableResult
+    func streamsFast(
+        for id: String,
+        type: String,
+        onUpdate: @escaping (StreamsPayload) -> Void,
+        onDone: @escaping (StreamsPayload) -> Void
+    ) -> String {
+        let token = UUID().uuidString
+        bridge.loadStreamsFast(
+            itemId: id,
+            type: type,
+            token: token,
+            onUpdate: { json in
+                guard let payload = try? self.decode(StreamsPayload.self, json) else { return }
+                onUpdate(payload)
+            },
+            onDone: { json in
+                let payload = (try? self.decode(StreamsPayload.self, json))
+                    ?? StreamsPayload(streams: [], failures: [])
+                onDone(payload)
+            },
+            onError: { message in
+                onDone(StreamsPayload(streams: [], failures: [message]))
+            }
+        )
+        return token
+    }
+
+    func cancelStreams(_ token: String) {
+        bridge.cancelStreams(token: token)
+    }
+
     /// Every subtitle the installed subtitle addons offer for this id.
     func subtitles(itemId: String, type: String) async -> [SubtitleChoice] {
         let payload = await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
@@ -3838,28 +3873,68 @@ final class DetailModel: ObservableObject {
     @Published var failures: [String] = []
     @Published var error: String?
 
+    /// The fetch currently filling the list, so a new title cancels the old one.
+    private var streamToken: String?
+    /// How long the first source took to appear, which is the number a viewer feels.
+    @Published var firstResultSeconds: Double?
+    private var streamStartedAt: Date?
+
     func load(item: CinemaItem) async {
         loading = true
+        // The details and the sources do not depend on each other, so both go out at
+        // once instead of the sources waiting for the metadata to come back.
+        async let detailTask = CinemaAPI.shared.detail(for: item)
+        startStreams(id: item.id, type: item.type)
         do {
-            detail = try await CinemaAPI.shared.detail(for: item)
+            detail = try await detailTask
         } catch {
             self.error = error.localizedDescription
         }
         loading = false
-        await loadStreams(id: item.id, type: item.type)
     }
 
+    /// Starts a live fetch that fills the list while the addons are still answering.
+    func startStreams(id: String, type: String) {
+        if let token = streamToken { CinemaAPI.shared.cancelStreams(token) }
+        loadingStreams = streams.isEmpty
+        firstResultSeconds = nil
+        streamStartedAt = Date()
+        streamToken = CinemaAPI.shared.streamsFast(
+            for: id,
+            type: type,
+            onUpdate: { [weak self] payload in
+                Task { @MainActor in self?.apply(payload) }
+            },
+            onDone: { [weak self] payload in
+                Task { @MainActor in
+                    self?.apply(payload)
+                    self?.loadingStreams = false
+                    self?.streamToken = nil
+                }
+            }
+        )
+    }
+
+    /// Kept for pull-to-refresh, which waits for the last addon before it stops.
     func loadStreams(id: String, type: String) async {
-        loadingStreams = true
-        do {
-            let report = try await CinemaAPI.shared.streamsReport(for: id, type: type)
-            streams = report.streams
-            failures = report.failures
-        } catch {
-            streams = []
-            failures = [error.localizedDescription]
+        startStreams(id: id, type: type)
+        for _ in 0..<120 where streamToken != nil {
+            try? await Task.sleep(nanoseconds: 150_000_000)
         }
         loadingStreams = false
+    }
+
+    /// The bridge always sends the whole ordered list, so this replaces it wholesale
+    /// and keeps the order the scoring already chose.
+    private func apply(_ payload: StreamsPayload) {
+        streams = payload.streams
+        failures = payload.failures ?? []
+        if !streams.isEmpty {
+            loadingStreams = false
+            if firstResultSeconds == nil, let started = streamStartedAt {
+                firstResultSeconds = Date().timeIntervalSince(started)
+            }
+        }
     }
 }
 
@@ -3877,6 +3952,7 @@ struct DetailView: View {
     @State private var addonFilter: String?
     @AppStorage("cinemax.sourcesCollapsed") private var sourcesCollapsed = false
     @State private var speeds: [String: Double] = [:]
+    @State private var probeTask: Task<Void, Never>?
     @State private var shared = false
     @State private var marked = false
     @State private var episodeQuery = ""
@@ -3968,10 +4044,17 @@ struct DetailView: View {
             similar = await CinemaAPI.shared.similar(item: item)
         }
         .onChange(of: model.streams) { streams in
-            speeds = [:]
-            Task {
-                let measured = await StreamProber.shared.speeds(for: streams)
-                await MainActor.run { speeds = measured }
+            // The list grows while the addons answer, so the measuring waits for it
+            // to settle and then only looks at links that have no number yet.
+            probeTask?.cancel()
+            probeTask = Task {
+                try? await Task.sleep(nanoseconds: 700_000_000)
+                guard !Task.isCancelled else { return }
+                let pending = streams.filter { speeds[$0.url] == nil }
+                guard !pending.isEmpty else { return }
+                let measured = await StreamProber.shared.speeds(for: pending)
+                guard !Task.isCancelled else { return }
+                await MainActor.run { speeds.merge(measured) { _, fresh in fresh } }
             }
         }
         .fullScreenCover(item: $playing, onDismiss: { playing = nil }) { choice in
@@ -4644,6 +4727,11 @@ struct DetailView: View {
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(CinemaTheme.favourite)
                     }
+                    if let seconds = model.firstResultSeconds {
+                        Text(String(format: "· أول مصدر في %.1f ث", seconds))
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(CinemaTheme.accent)
+                    }
                     Spacer()
                 }
                 .padding(.horizontal, 20)
@@ -4660,12 +4748,12 @@ struct DetailView: View {
             } else if model.loadingStreams {
                 HStack(spacing: 8) {
                     ProgressView().tint(CinemaTheme.accent)
-                    Text("جارٍ جلب المصادر…")
+                    Text("جارٍ جلب المصادر… أول ما يصل يظهر فورًا")
                         .font(.system(size: 13))
                         .foregroundStyle(CinemaTheme.muted)
                 }
                 .padding(.horizontal, 20)
-                Text("قد يستغرق حتى ٣٠ ثانية إذا فعّلت إضافات ومزوّدين كثر.")
+                Text("كل إضافة تُسأل بالتوازي، وأي إضافة تتأخر أكثر من ٧ ثوانٍ يُكمل البحث بدونها.")
                     .font(.system(size: 10))
                     .foregroundStyle(CinemaTheme.muted)
                     .padding(.horizontal, 20)
