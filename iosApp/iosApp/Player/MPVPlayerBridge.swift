@@ -561,14 +561,30 @@ final class MPVPlayerViewController: UIViewController {
         checkError(mpv_set_option_string(mpv, "hdr-compute-peak", "yes"))
 
         // Network playback. mpv's defaults are tuned for a LAN or a disk: a ten second read-ahead
-        // before it settles and a sixty second patience per connection. On a phone the read-ahead
-        // is most of the wait between tapping a source and seeing the first frame, and the long
-        // patience makes a host that stopped answering feel like a hang.
+        // before it settles, five seconds of probing before it announces the tracks, and a sixty
+        // second patience per connection. On a phone the read-ahead and the probe are most of the
+        // wait between tapping a source and seeing the first frame, and the long patience makes a
+        // host that stopped answering feel like a hang.
         checkError(mpv_set_option_string(mpv, "cache", "yes"))
+        checkError(mpv_set_option_string(mpv, "cache-on-disk", "no"))
         checkError(mpv_set_option_string(mpv, "cache-secs", "4"))
-        checkError(mpv_set_option_string(mpv, "demuxer-readahead-secs", "2"))
+        // One second of read-ahead rather than two: the demuxer starts feeding frames sooner, and
+        // the forward cache picks the rest up while the first frame is already on screen.
+        checkError(mpv_set_option_string(mpv, "demuxer-thread", "yes"))
+        checkError(mpv_set_option_string(mpv, "demuxer-readahead-secs", "1"))
         checkError(mpv_set_option_string(mpv, "demuxer-max-bytes", "64MiB"))
         checkError(mpv_set_option_string(mpv, "demuxer-max-back-bytes", "16MiB"))
+        // mpv's stream buffer is 128 KiB by default, which is a syscall per two frames on a fast
+        // host. Four megabytes let the demuxer work in batches instead.
+        checkError(mpv_set_option_string(mpv, "stream-buffer-size", "4194304"))
+        // FFmpeg probes five seconds and five megabytes of the stream before it reports the tracks.
+        // Every one of those is time spent on a black screen, and a host serving a proper container
+        // needs far less: 1.5 s and 1.5 MB still find the tracks of cumbersome files, and a file
+        // whose tracks sit past that point is re-probed when playback actually needs them. This
+        // trades a rare slower start for the common one.
+        checkError(mpv_set_option_string(mpv, "demuxer-lavf-o", "analyzeduration=1500000,probesize=1500000"))
+        // How long the player waits for the cache to refill after a stall before resuming.
+        checkError(mpv_set_option_string(mpv, "cache-pause-wait", "0.5"))
         checkError(mpv_set_option_string(mpv, "network-timeout", "15"))
 
 
