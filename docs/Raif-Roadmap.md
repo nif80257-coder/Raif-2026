@@ -307,3 +307,29 @@
 - **التمرير**: مطبَّق في مساري بناء القائمة (`StreamsRepository` و`PlayerStreamsRepository`)، فيصلح في شاشة المصادر ولوح المشغّل معًا.
 - **اختبار `M3uPlaylistTest`** (٦ حالات): تمييز `.m3u` عن `.m3u8`، الاسم والخيارات لكل مدخل، صيغة `#EXTHTTP`، تجاهل التعليقات والمسارات النسبية، حمولة ليست قائمة، وقائمة بلا اسم.
 - **التحقق**: `compileKotlinIosSimulatorArm64` و`compileTestKotlinIosSimulatorArm64` ينجحان، والاختبارات تُنفَّذ في CI.
+
+
+
+## المهارات التي وجّهت هذا العمل — نُفِّذ
+
+- **من أين جاء البند**: طلب المستخدم إضافة المهارات المتعلقة بـKMP والوسائط إلى المشروع وتفعيلها.
+  المهارات كانت مفعّلة على مستوى التطبيق (تُحمَّل بالاسم عبر `load_skill`) لكنها لم تكن في المستودع،
+  فمن يستنسخ المشروع لا يجدها.
+- **`skills/`**: صارت تحمل ثلاثًا وعشرين مهارة. التسع الأولى (SwiftUI، Swift concurrency،
+  anti-ui-slop، find-skills) كانت موجودة؛ وأُضيفت أربع عشرة تصف خط أنابيب المصادر والتشغيل، وهي
+  صغيرة ومكتفية بذاتها (بلا مجلد `references/`): `source-plugin-resilience`،
+  `source-racing-speed`، `plugin-sandbox-validation`، `ktor-client-performance`،
+  `stream-cache-expiry`، `video-instant-startup`، `avfoundation-hls-pip`، `libmpv-ffmpeg-ios`،
+  `subtitle-sync-parsing`، `ios-ui-fluidity`، `swiftui-scroll-fluency`، `instant-search-fluency`،
+  `swiftdata-migration`، `ios-app-intents`.
+- **ما لم يُنسخ ولماذا**: المهارات التي تعتمد على مجلد `references/` بآلاف الأسطر (`app-intents`،
+  `avkit`، `kmp-ktor`، `kmp-network-layer`، `swiftdata`، `swiftui-performance-audit`،
+  `swiftui-view-refactor`، `xcode-project-setup` ومهارات تصميم iOS) تبقى في مكانها الذي تُحمَّل منه
+  بالاسم؛ نسخة ناقصة من `SKILL.md` بلا مراجعها تُنتج إحالات ميتة، ونسخة كاملة تتفرّع عن الأصل.
+  `skills/README.md` يسمّيها كلها صراحة.
+- **الربط بالكود**: ما تصفه المهارات الجديدة ليس كلامًا نظريًا هنا — `AddonFailureMemory` (قاطع
+  الدائرة)، `AddonSpeedMemory` (ترتيب مزوّدين بزمن مقيس)، `AddonSilentSourceMemory`،
+  `SourceHealthReport`، `M3uPlaylist`، `PlaybackStallResume`، `PlaybackUrlCredentials`،
+  `SubtitleAppearance` كلها تنفيذ لما تقوله، والباقي موثّق هنا كبند تالٍ.
+- **التحقق**: الملفات منقولة حرفيًا من المصدر المفعّل؛ لا كود Kotlin أو Swift تغيّر في هذه الدفعة،
+  فلا ترجمة ولا بناء يلزمها.
