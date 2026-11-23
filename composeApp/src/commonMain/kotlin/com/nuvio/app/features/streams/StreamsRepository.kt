@@ -611,11 +611,14 @@ object StreamsRepository {
                     }
                     val group = outcome.fold(
                         onSuccess = { streams ->
-                            log.d { "Got ${streams.size} streams from ${displayName}" }
+                            // A link that is really an M3U list is replaced by the entries it
+                            // holds, so a row that looked like a dead link becomes playable.
+                            val expanded = streams.expandingPlaylistLinks()
+                            log.d { "Got ${expanded.size} streams from ${displayName}" }
                             AddonStreamGroup(
                                 addonName = displayName,
                                 addonId = addon.addonId,
-                                streams = streams.sortedForGroupedDisplay(preferredRankFor(addon.addonId)),
+                                streams = expanded.sortedForGroupedDisplay(preferredRankFor(addon.addonId)),
                                 isLoading = false,
                             )
                         },

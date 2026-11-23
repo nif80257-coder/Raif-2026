@@ -40,6 +40,7 @@ import com.nuvio.app.features.streams.toPluginProviderGroups
 import com.nuvio.app.features.streams.toStreamItem
 import com.nuvio.app.features.streams.AddonSpeedMemory
 import com.nuvio.app.features.streams.orderedByRecordedSpeed
+import com.nuvio.app.features.streams.expandingPlaylistLinks
 import com.nuvio.app.features.streams.fetchStreamSourcePayload
 import com.nuvio.app.features.streams.streamSourceFetchSemaphore
 import com.nuvio.app.features.streams.deduplicatedAcrossSources
@@ -525,10 +526,13 @@ object PlayerStreamsRepository {
                     }
                     val group = outcome.fold(
                         onSuccess = { streams ->
+                            // An M3U list behind one link becomes the entries it holds, with the
+                            // headers each entry asked for.
+                            val expanded = streams.expandingPlaylistLinks()
                             AddonStreamGroup(
                                 displayName,
                                 addon.addonId,
-                                streams.sortedForGroupedDisplay(preferredRankFor(addon.addonId)),
+                                expanded.sortedForGroupedDisplay(preferredRankFor(addon.addonId)),
                                 isLoading = false,
                             )
                         },
