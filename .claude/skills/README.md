@@ -19,7 +19,7 @@
 | `xcode-project-setup` | أي عمل على `project.pbxproj`: حزم SPM، ربط ملفات، قواعد Xcode الحديثة |
 | `swiftui-performance-audit` | تدقيق أداء SwiftUI من الكود: `body` الثقيل، `ForEach`، الهوية، التمرير |
 | `swiftui-view-refactor` | تقسيم الملفات الضخمة إلى مشاهد فرعية ونماذج، بلا تغيير سلوك |
-| `app-intents` | App Intents: أوامر Siri والاختصارات وSpotlight والويدجت |
+| `app-intents` | App Intents كاملًا (نسخة n0an، ١٧ مرجعًا): Siri AI 27.3، Spotlight، الاختصارات، الويدجت، الاختبار |
 | `swiftdata` | SwiftData: النماذج والوراثة والاستعلامات وتخزين أسرع من `UserDefaults` |
 | `kmp-ktor` | عميل Ktor في Kotlin Multiplatform لطبقة المصادر: مهلات، إعادة محاولة، بث |
 | `kmp-network-layer` | طبقة شبكة كاملة في KMP: محركات المنصات، تجديد التوتر، خرائط الأخطاء |
@@ -45,11 +45,8 @@
 
 | الاسم المطلوب | لماذا |
 |---|---|
-| `avfoundation-hls-pip` | صورة داخل صورة، ABR حقيقي، واستعادة أخطاء AVPlayer |
+| `avfoundation-hls-pip` | صورة داخل صورة، ABR حقيقي، واستعادة أخطاء AVPlayer بجانب mpv |
 | `libmpv-ffmpeg-ios` | ضبط libmpv والـFFmpeg على iOS والصورة داخل صورة لـmpv |
-| `swiftdata` | بديل تدريجي لتخزين `UserDefaults` في القوائم والتنزيلات |
-| `ktor-client-performance` | ضبط عميل Ktor في طبقة المصادر (اتصالات، ضغط، HTTP/2) |
-| `ios-app-intents` | أوامر Siri والاختصارات: «شغّل آخر حلقة»، «أضف إلى قوائمي» |
 | `swiftui-liquid-glass` | استخدام زجاج iOS 26 الأصلي في الأزرار والشريط العائم |
 
 مهارات من `openai/plugins/build-ios-apps` لم تُضف لأنها تحتاج ماكًا ومحاكيًا
