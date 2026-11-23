@@ -11,11 +11,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.compose_player_no_subtitles_found
 import org.jetbrains.compose.resources.getString
 
 object SubtitleRepository {
+    /** How long the file hash may delay the subtitle list; past it the list is fetched without one. */
+    private const val VideoHashBudgetMs = 3_000L
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private val _addonSubtitles = MutableStateFlow<List<AddonSubtitle>>(emptyList())
@@ -64,7 +68,11 @@ object SubtitleRepository {
             _addonSubtitles.value = cachedSubtitles(type, videoId, extras)
 
             val enrichedExtras = try {
-                val hashResult = computeVideoHash(sourceUrl, sourceHeaders)
+                // Two 64 KiB range requests, usually a few hundred milliseconds. Bounded anyway: a
+                // host that ignores ranges must not hold the subtitle list behind it.
+                val hashResult = withTimeoutOrNull(VideoHashBudgetMs) {
+                    computeVideoHash(sourceUrl, sourceHeaders)
+                }
                 if (hashResult != null) {
                     val (hash, fileSize) = hashResult
                     val updated = (extras ?: SubtitleRequestExtras()).copy(
