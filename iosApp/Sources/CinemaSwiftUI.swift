@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 import AVKit
 import AVFoundation
+import AppIntents
 import Charts
 import LocalAuthentication
 import Network
@@ -6739,6 +6740,92 @@ struct OnboardingView: View {
     }
 }
 
+// MARK: - Siri and Shortcuts
+
+/// A wish Siri leaves in the defaults; the app picks it up the moment it comes
+/// forward and clears it, so a phrase never fires twice.
+enum CinemaPendingCommand {
+    private static let key = "cinemax.pendingCommand"
+
+    static func put(_ value: String) {
+        UserDefaults.standard.set(value, forKey: key)
+    }
+
+    static func take() -> String? {
+        let value = UserDefaults.standard.string(forKey: key)
+        if value != nil { UserDefaults.standard.removeObject(forKey: key) }
+        return value
+    }
+}
+
+/// "أكمل آخر ما شاهدت" — Siri and Shortcuts can say it in Arabic or English.
+struct CinemaResumeIntent: AppIntent {
+    static var title: LocalizedStringResource = "أكمل آخر ما شاهدت"
+    static var description = IntentDescription("يفتح CINEMAX على آخر عنوان كنت تشاهده.")
+    static var openAppWhenRun: Bool = true
+
+    func perform() async throws -> some IntentResult {
+        CinemaPendingCommand.put("resume")
+        return .result()
+    }
+}
+
+/// "فاجئني" — opens the app on a title the viewer has not started.
+struct CinemaSurpriseIntent: AppIntent {
+    static var title: LocalizedStringResource = "فاجئني بعنوان"
+    static var description = IntentDescription("يفتح CINEMAX على عنوان لم تبدأه بعد.")
+    static var openAppWhenRun: Bool = true
+
+    func perform() async throws -> some IntentResult {
+        CinemaPendingCommand.put("surprise")
+        return .result()
+    }
+}
+
+/// "ابحث" — brings the app forward on its search screen.
+struct CinemaSearchIntent: AppIntent {
+    static var title: LocalizedStringResource = "ابحث في CINEMAX"
+    static var description = IntentDescription("يفتح شاشة البحث في CINEMAX.")
+    static var openAppWhenRun: Bool = true
+
+    func perform() async throws -> some IntentResult {
+        CinemaPendingCommand.put("search")
+        return .result()
+    }
+}
+
+struct CinemaAppShortcuts: AppShortcutsProvider {
+    static var appShortcuts: [AppShortcut] {
+        AppShortcut(
+            intent: CinemaResumeIntent(),
+            phrases: [
+                "أكمل آخر حلقة في \(.applicationName)",
+                "Resume watching in \(.applicationName)"
+            ],
+            shortTitle: "أكمل المشاهدة",
+            systemImageName: "play.circle.fill"
+        )
+        AppShortcut(
+            intent: CinemaSurpriseIntent(),
+            phrases: [
+                "فاجئني في \(.applicationName)",
+                "Surprise me in \(.applicationName)"
+            ],
+            shortTitle: "فاجئني",
+            systemImageName: "dice.fill"
+        )
+        AppShortcut(
+            intent: CinemaSearchIntent(),
+            phrases: [
+                "ابحث في \(.applicationName)",
+                "Search \(.applicationName)"
+            ],
+            shortTitle: "ابحث",
+            systemImageName: "magnifyingglass"
+        )
+    }
+}
+
 struct CinemaRootView: View {
     @AppStorage("cinemax.tab") private var selection = 0
     @AppStorage("cinemax.appLock") private var appLock = false
@@ -6750,6 +6837,7 @@ struct CinemaRootView: View {
     @AppStorage("cinemax.onboarded") private var onboarded = false
     @ObservedObject private var network = ConnectivityMonitor.shared
     @State private var showOnboarding = false
+    @State private var voiceItem: CinemaItem?
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -6791,9 +6879,13 @@ struct CinemaRootView: View {
         .task {
             if !onboarded { showOnboarding = true }
             if appLock { authenticate() }
+            handlePendingCommand()
         }
         .onChange(of: scenePhase) { phase in
-            if phase == .active, appLock { authenticate() }
+            if phase == .active {
+                if appLock { authenticate() }
+                handlePendingCommand()
+            }
         }
         .overlay {
             if appLock, !unlocked {
@@ -6840,6 +6932,35 @@ struct CinemaRootView: View {
                     showOnboarding = false
                 }
             )
+        }
+        .fullScreenCover(item: $voiceItem) { item in
+            DetailView(item: item)
+        }
+    }
+
+    /// Runs a wish left by Siri or the Shortcuts app: the last stop position, or a
+    /// title the viewer has not begun. Nothing happens when neither exists.
+    private func handlePendingCommand() {
+        guard let command = CinemaPendingCommand.take() else { return }
+        Task {
+            await LibraryModel.shared.load()
+            await HomeModel.shared.load()
+            await MainActor.run {
+                switch command {
+                case "resume":
+                    voiceItem = LibraryModel.shared.progress.first?.item
+                case "surprise":
+                    let started = Set(LibraryModel.shared.progress.map(\.item.id))
+                    let all = HomeModel.shared.visibleShelves.flatMap(\.items)
+                    let fresh = all.filter { !started.contains($0.id) }
+                    voiceItem = (fresh.isEmpty ? all : fresh).randomElement()
+                case "search":
+                    selection = 1
+                default:
+                    break
+                }
+                if voiceItem == nil { Haptics.tap() }
+            }
         }
     }
 
@@ -7260,6 +7381,7 @@ struct SettingsView: View {
             Destination(id: "layout", title: "التخطيط", detail: "تصميم الرئيسية، الهيرو، الصفوف", icon: "rectangle.3.group.fill", keywords: "تخطيط رئيسية صفوف هيرو بوستر home layout"),
             Destination(id: "addons", title: "الإضافات", detail: "تثبيت، فحص، تحديث، ترتيب، إعدادات كل إضافة", icon: "puzzlepiece.extension.fill", keywords: "اضافات ستريميو addons stremio manifest"),
             Destination(id: "sources", title: "المصادر", detail: "تشغيل إضافة أو إطفاؤها، المخفي، العرض", icon: "slider.horizontal.3", keywords: "مصادر اطفاء تشغيل اخفاء طي عرض sources hide off"),
+            Destination(id: "siri", title: "Siri والاختصارات", detail: "العبارات التي تنفّذها بصوتك", icon: "waveform", keywords: "siri سيري اختصارات shortcuts صوت"),
             Destination(id: "nuvio", title: "مزوّدو Nuvio", detail: "مستودعات، مزوّدون، بروكسي وكوكي", icon: "bolt.horizontal.circle.fill", keywords: "نيفيو مزود مستودع بروكسي كوكي nuvio provider repo"),
             Destination(id: "tmdb", title: "TMDB", detail: "مفتاح الكتالوج العربي", icon: "star.bubble.fill", keywords: "tmdb مفتاح كتالوج"),
             Destination(id: "sharing", title: "تصدير ومشاركة", detail: "روابط، ملف JSON، استيراد", icon: "square.and.arrow.up.on.square.fill", keywords: "تصدير استيراد مشاركة json نسخة روابط share"),
@@ -7290,6 +7412,7 @@ struct SettingsView: View {
         case "layout": LayoutSettings()
         case "addons": AddonsSettings()
         case "sources": SourcesControlSettings()
+        case "siri": SiriSettings()
         case "nuvio": NuvioSettings()
         case "tmdb": TmdbSettings()
         case "sharing": SharingSettings()
@@ -7505,6 +7628,17 @@ struct SettingsView: View {
                                 icon: "antenna.radiowaves.left.and.right",
                                 title: "البث والمشغل",
                                 detail: "فك الترميز العتادي، بروفايل الأداء، وحجم كاش البث"
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        NavigationLink {
+                            SiriSettings()
+                        } label: {
+                            SettingsRow(
+                                icon: "waveform",
+                                title: "Siri والاختصارات",
+                                detail: "قل «أكمل آخر حلقة» أو «فاجئني» فيعمل التطبيق"
                             )
                         }
                         .buttonStyle(.plain)
@@ -10485,6 +10619,108 @@ struct SourcesControlSettings: View {
             offAddons.insert(name)
         }
         SourcePrefs.setAddon(name, on: on)
+    }
+}
+
+/// What Siri and the Shortcuts app can do with CINEMAX, with the exact phrases a
+/// viewer can say and a way to reach the Shortcuts app to build their own.
+struct SiriSettings: View {
+    private let commands: [(phrase: String, detail: String, icon: String)] = [
+        (
+            "أكمل آخر حلقة في CINEMAX",
+            "يفتح آخر عنوان كنت تشاهده عند موضع التوقف",
+            "play.circle.fill"
+        ),
+        (
+            "فاجئني في CINEMAX",
+            "يفتح عنوانًا لم تبدأه بعد من صفوفك",
+            "dice.fill"
+        ),
+        (
+            "ابحث في CINEMAX",
+            "ينقلك مباشرة إلى شاشة البحث",
+            "magnifyingglass"
+        )
+    ]
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("يعمل CINEMAX مع Siri والاختصارات دون أي إعداد. قل العبارة، أو افتح تطبيق الاختصارات وأضف الإجراء بنفسك.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(CinemaTheme.muted)
+                    .lineSpacing(4)
+
+                VStack(spacing: 0) {
+                    ForEach(Array(commands.enumerated()), id: \.element.phrase) { index, command in
+                        HStack(spacing: 12) {
+                            Image(systemName: command.icon)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(CinemaTheme.accent)
+                                .frame(width: 28)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("«\(command.phrase)»")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                Text(command.detail)
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(CinemaTheme.muted)
+                            }
+                            Spacer(minLength: 6)
+                        }
+                        .padding(.vertical, 11)
+                        if index < commands.count - 1 {
+                            Divider().overlay(CinemaTheme.hairline)
+                        }
+                    }
+                }
+                .padding(.horizontal, 14)
+                .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+                Button {
+                    Haptics.tap()
+                    if let url = URL(string: "shortcuts://") {
+                        UIApplication.shared.open(url)
+                    }
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "square.stack.3d.up.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.accent)
+                            .frame(width: 24)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("افتح تطبيق الاختصارات")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(.white)
+                            Text("ابنِ اختصارًا يجمع الإجراء مع خطوات أخرى")
+                                .font(.system(size: 10))
+                                .foregroundStyle(CinemaTheme.muted)
+                        }
+                        Spacer()
+                        Image(systemName: "arrow.up.forward")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.muted)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 13)
+                    .background(
+                        CinemaTheme.surface,
+                        in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    )
+                }
+                .buttonStyle(.plain)
+
+                Text("العبارات تعمل بالعربية والإنجليزية، ويجب أن تحتوي اسم التطبيق. أول استخدام قد يطلب إذن Siri مرة واحدة.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(CinemaTheme.muted)
+                    .lineSpacing(4)
+            }
+            .padding(20)
+        }
+        .background(CinemaTheme.canvas.ignoresSafeArea())
+        .navigationTitle("Siri والاختصارات")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
