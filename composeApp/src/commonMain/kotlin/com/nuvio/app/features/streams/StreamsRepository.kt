@@ -239,25 +239,6 @@ object StreamsRepository {
                 resultCounts = AddonSpeedMemory.resultsByManifestUrl(ProfileRepository.activeProfileId),
             )
 
-        /**
-         * The quality the user settled on for this source last time. When a source
-         * list carries 4K next to 720p, the saved rank pulls the familiar tier first
-         * instead of always starting from the strongest advertised quality.
-         *
-         * Remembered per source for this load: a sixty-source install would otherwise read
-         * storage sixty times before the panel opens.
-         */
-        val preferredRanksByAddonId = mutableMapOf<String, Int?>()
-        fun preferredRankFor(addonId: String): Int? {
-            if (preferredRanksByAddonId.containsKey(addonId)) {
-                return preferredRanksByAddonId[addonId]
-            }
-            val rank = parentMetaId?.takeIf { it.isNotBlank() }
-                ?.let { loadPreferredSourceQualityRank(it, addonId) }
-            preferredRanksByAddonId[addonId] = rank
-            return rank
-        }
-
         log.d { "Found ${streamAddons.size} addons for stream type=$type id=$videoId" }
 
         if (streamAddons.isEmpty() && pluginProviderGroups.isEmpty() && serverSources.isEmpty()) {
@@ -270,11 +251,14 @@ object StreamsRepository {
             return
         }
 
-        // Sources found last time open the sheet immediately and the live responses replace
-        // them group by group. A manual retry ignores the cache so nothing stale survives it,
-        // and so does an auto-play run: choosing a link that may have expired is worse than
-        // waiting the extra second for the live list.
-        val streamContentKey = StreamResponseCache.contentKey(
+        // Sources found last time open the sheet with rows already in it. The payloads are read
+        // and parsed inside the load coroutine below, not here: this function runs on the
+        // caller's thread (a Compose effect), and decoding two dozen cached responses there is
+        // time the sheet spends with nothing on screen. A manual retry ignores the cache so
+        // nothing stale survives it, and so does an auto-play run: choosing a link that may have
+        // expired is worse than waiting the extra second for the live list.
+        val useCachedStreams = !(forceRefresh || isDirectAutoPlayFlow || streamAddons.isEmpty())
+        val cachedContentKey = StreamResponseCache.contentKey(
             type = type,
             videoId = videoId,
             parentMetaId = parentMetaId,
@@ -282,27 +266,6 @@ object StreamsRepository {
             episode = episode,
         )
         val streamCacheProfileId = ProfileRepository.activeProfileId
-        val cachedStreamsByAddonId: Map<String, List<StreamItem>> =
-            if (forceRefresh || isDirectAutoPlayFlow || streamAddons.isEmpty()) {
-                emptyMap()
-            } else {
-                val cachedPayloads = StreamResponseCache.load(
-                    profileId = streamCacheProfileId,
-                    contentKey = streamContentKey,
-                )
-                streamAddons.mapNotNull { addon ->
-                    val payload = cachedPayloads[addon.addonId] ?: return@mapNotNull null
-                    val streams = runCatching {
-                        StreamParser.parse(
-                            payload = payload,
-                            addonName = addon.addonName,
-                            addonId = addon.addonId,
-                            addonLogo = addon.manifest.logoUrl,
-                        )
-                    }.getOrNull() ?: return@mapNotNull null
-                    addon.addonId to streams.sortedForGroupedDisplay(preferredRankFor(addon.addonId))
-                }.toMap()
-            }
 
         // Initialise loading placeholders
         val installedAddonOrder = streamAddons.map { it.addonName }
@@ -310,7 +273,7 @@ object StreamsRepository {
             AddonStreamGroup(
                 addonName = addon.addonName,
                 addonId = addon.addonId,
-                streams = cachedStreamsByAddonId[addon.addonId].orEmpty(),
+                streams = emptyList(),
                 isLoading = true,
             )
         } + pluginProviderGroups.map { providerGroup ->
@@ -509,6 +472,53 @@ object StreamsRepository {
                 debridAvailabilityJobs += availabilityJob
             }
 
+            // The quality the user settled on for this source last time. When a source list carries
+            // 4K next to 720p, the saved rank pulls the familiar tier first instead of always
+            // starting from the strongest advertised quality. Read once, here, where the load
+            // already runs off the caller's thread, and kept read-only afterwards so the parallel
+            // fetches below can share it.
+            val preferredRanksByAddonId: Map<String, Int?> = streamAddons.associate { addon ->
+                addon.addonId to parentMetaId?.takeIf { it.isNotBlank() }
+                    ?.let { metaId -> loadPreferredSourceQualityRank(metaId, addon.addonId) }
+            }
+            fun preferredRankFor(addonId: String): Int? = preferredRanksByAddonId[addonId]
+
+            // Rows from last time, parsed off the caller's thread and published before the first
+            // network answer arrives, so opening the sheet shows a list at once and the live
+            // responses replace it group by group.
+            if (useCachedStreams) {
+                val cachedStreamsByAddonId = StreamResponseCache.load(
+                    profileId = streamCacheProfileId,
+                    contentKey = cachedContentKey,
+                ).mapNotNull { (addonId, payload) ->
+                    val addon = streamAddons.firstOrNull { it.addonId == addonId }
+                        ?: return@mapNotNull null
+                    val cachedStreams = runCatching {
+                        StreamParser.parse(
+                            payload = payload,
+                            addonName = addon.addonName,
+                            addonId = addonId,
+                            addonLogo = addon.manifest.logoUrl,
+                        )
+                    }.getOrNull() ?: return@mapNotNull null
+                    addonId to cachedStreams.sortedForGroupedDisplay(preferredRankFor(addonId))
+                }.toMap()
+                if (cachedStreamsByAddonId.isNotEmpty()) {
+                    _uiState.update { current ->
+                        current.copy(
+                            groups = current.groups.map { group ->
+                                val cachedStreams = cachedStreamsByAddonId[group.addonId]
+                                if (group.isLoading && !cachedStreams.isNullOrEmpty()) {
+                                    group.copy(streams = cachedStreams)
+                                } else {
+                                    group
+                                }
+                            },
+                        )
+                    }
+                }
+            }
+
             updateAutoPlayAfterStreamsChanged()
 
             val timeoutJob = if (isDirectAutoPlayFlow) {
@@ -574,7 +584,7 @@ object StreamsRepository {
                                 )
                                 StreamResponseCache.save(
                                     profileId = streamCacheProfileId,
-                                    contentKey = streamContentKey,
+                                    contentKey = cachedContentKey,
                                     addonId = addon.addonId,
                                     payload = payload,
                                 )
