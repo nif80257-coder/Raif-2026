@@ -253,12 +253,17 @@ object PlayerStreamsRepository {
         val isNativeServerRequest = ServerStreams.isNativeRequest(videoId)
         val serverSources = ServerStreams.sources(type, videoId, season, episode, forceRefresh)
         val preferredGroupIds = serverSources.filter { it.preferred }.mapTo(mutableSetOf()) { it.addonId }
-        // Same rule as the main source list: a manually refreshed list asks every add-on.
+        // Same rule as the main source list: a manually refreshed list asks every add-on. One
+        // storage read serves both the pause filter and the ordering below.
+        val failureSnapshot = AddonFailureMemory.snapshot()
         val installedAddons = if (isNativeServerRequest) {
             emptyList()
         } else {
             AddonRepository.uiState.value.addons.enabledAddons()
-                .withoutPausedAddons(includeAll = forceRefresh)
+                .withoutPausedAddons(
+                    includeAll = forceRefresh,
+                    pausedManifestUrls = failureSnapshot.pausedManifestUrls,
+                )
         }
         PlayerSettingsRepository.ensureLoaded()
         val playerSettings = PlayerSettingsRepository.uiState.value
@@ -294,9 +299,12 @@ object PlayerStreamsRepository {
                 )
             }
             // Measured-fast sources are queued first, so the panel fills with playable streams
-            // before the slow scrapers have answered.
+            // before the slow scrapers have answered. The same demotions as the main source list
+            // apply: a source that failed or answered with nothing waits behind one that answers.
             .orderedByRecordedSpeed(
-                AddonSpeedMemory.speedByManifestUrl(ProfileRepository.activeProfileId),
+                speeds = AddonSpeedMemory.speedByManifestUrl(ProfileRepository.activeProfileId),
+                failureStreaks = failureSnapshot.failureStreaks,
+                resultCounts = AddonSpeedMemory.resultsByManifestUrl(ProfileRepository.activeProfileId),
             )
 
         if (streamAddons.isEmpty() && pluginProviderGroups.isEmpty() && serverSources.isEmpty()) {

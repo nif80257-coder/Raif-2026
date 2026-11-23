@@ -222,10 +222,12 @@ object StreamsRepository {
             }
             // The measured-fast sources take the first fetch slots, so real streams reach the
             // sheet in a second or two instead of waiting behind the slowest scrapers. A source
-            // that failed last time is queued after them until it answers again.
+            // that failed last time, or that answered with no links, is queued after them until
+            // it proves otherwise.
             .orderedByRecordedSpeed(
                 speeds = AddonSpeedMemory.speedByManifestUrl(ProfileRepository.activeProfileId),
                 failureStreaks = failureSnapshot.failureStreaks,
+                resultCounts = AddonSpeedMemory.resultsByManifestUrl(ProfileRepository.activeProfileId),
             )
 
         /**

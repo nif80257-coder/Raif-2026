@@ -170,19 +170,30 @@ internal object AddonSpeedMemory {
  * A source with no measurement yet sorts after the measured ones, so a new install keeps its
  * configured order until the first responses arrive.
  *
- * A source that failed its last request still carries a failure streak, and it is queued after
- * every source that is answering — even a slower one. The first fetch slots are worth more to a
- * source that returns links than to one that is about to time out again.
+ * Three things hold a source back, in this order of importance:
+ * - it failed its last request, so it carries a failure streak: it is queued after every source
+ *   that is answering, even a slower one. The first fetch slots are worth more to a source that
+ *   returns links than to one that is about to time out again.
+ * - it answered and the answer held no links ([resultCounts]): the slot it takes produces nothing,
+ *   so a source known to return results goes first even if it is slower.
+ * - otherwise the measured time decides.
  */
 internal fun List<InstalledStreamAddonTarget>.orderedByRecordedSpeed(
     speeds: Map<String, Long>,
     failureStreaks: Map<String, Int> = emptyMap(),
+    resultCounts: Map<String, Int> = emptyMap(),
 ): List<InstalledStreamAddonTarget> {
     if (size < 2) return this
-    if (speeds.isEmpty() && failureStreaks.isEmpty()) return this
+    if (speeds.isEmpty() && failureStreaks.isEmpty() && resultCounts.isEmpty()) return this
     return sortedWith(
         compareBy<InstalledStreamAddonTarget> { addon ->
-            if ((failureStreaks[addon.manifestUrl] ?: 0) > 0) 1 else 0
+            val failing = (failureStreaks[addon.manifestUrl] ?: 0) > 0
+            val silent = resultCounts[addon.manifestUrl] == 0
+            when {
+                failing -> 2
+                silent -> 1
+                else -> 0
+            }
         }.thenBy { addon -> speeds[addon.manifestUrl] ?: Long.MAX_VALUE / 2 },
     )
 }
