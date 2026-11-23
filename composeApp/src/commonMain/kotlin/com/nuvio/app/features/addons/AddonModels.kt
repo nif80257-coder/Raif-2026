@@ -1,10 +1,5 @@
 package com.nuvio.app.features.addons
 
-import kotlinx.coroutines.runBlocking
-import nuvio.composeapp.generated.resources.Res
-import nuvio.composeapp.generated.resources.generic_addon
-import org.jetbrains.compose.resources.getString
-
 data class AddonManifest(
     val id: String,
     val name: String,
@@ -109,12 +104,19 @@ data class ManagedAddon(
     val isActive: Boolean
         get() = enabled && manifest != null
 
+    /**
+     * The name to show for this add-on.
+     *
+     * A source with no name at all is named after its manifest path, and a manifest URL that ends
+     * in a slash — so it has no last path segment — is named after its host. Nothing here may
+     * block: the title is read while a list row is being drawn, and looking a localized string up
+     * from a getter froze the frame for every add-on on screen at once.
+     */
     val displayTitle: String
         get() = userSetName?.takeIf { it.isNotBlank() && it != manifest?.name }
             ?: manifest?.name
-            ?: manifestUrl.substringBefore("?").substringAfterLast("/").ifBlank {
-                runBlocking { getString(Res.string.generic_addon) }
-            }
+            ?: manifestUrl.substringBefore("?").substringAfterLast("/")
+                .ifBlank { manifestUrl.repositoryHost().ifBlank { manifestUrl } }
 }
 
 data class AddonsUiState(
