@@ -48,4 +48,71 @@ class SubtitleOrderingTest {
     fun `an empty list stays empty`() {
         assertEquals(emptyList(), orderedAddonSubtitles(emptyList()))
     }
+
+    @Test
+    fun `the measured language leads when the viewer chose one`() {
+        val english = subtitle("en", "English — OpenSubtitles")
+        val arabic = subtitle("ar", "العربية — SubDL")
+
+        assertEquals(
+            listOf(english, arabic),
+            orderedAddonSubtitles(listOf(arabic, english), listOf("en", "ar")),
+        )
+    }
+
+    @Test
+    fun `the chosen language comes first and arabic stays on the list`() {
+        assertEquals(
+            listOf("en", "ar"),
+            preferredSubtitleLanguagePrefixes(
+                preferredSubtitleLanguage = "en",
+                secondaryPreferredSubtitleLanguage = null,
+                deviceLanguages = emptyList(),
+            ),
+        )
+        assertEquals(
+            listOf("en", "fr", "ar"),
+            preferredSubtitleLanguagePrefixes(
+                preferredSubtitleLanguage = "en",
+                secondaryPreferredSubtitleLanguage = "fr",
+                deviceLanguages = emptyList(),
+            ),
+        )
+    }
+
+    @Test
+    fun `subtitles turned off still order arabic first`() {
+        assertEquals(
+            listOf("ar"),
+            preferredSubtitleLanguagePrefixes(
+                preferredSubtitleLanguage = SubtitleLanguageOption.NONE,
+                secondaryPreferredSubtitleLanguage = null,
+                deviceLanguages = emptyList(),
+            ),
+        )
+    }
+
+    @Test
+    fun `the device setting follows the device languages`() {
+        assertEquals(
+            listOf("de", "ar"),
+            preferredSubtitleLanguagePrefixes(
+                preferredSubtitleLanguage = SubtitleLanguageOption.DEVICE,
+                secondaryPreferredSubtitleLanguage = null,
+                deviceLanguages = listOf("de"),
+            ),
+        )
+    }
+
+    @Test
+    fun `forced is never preferred as a spoken track`() {
+        assertEquals(
+            listOf("ar"),
+            preferredSubtitleLanguagePrefixes(
+                preferredSubtitleLanguage = SubtitleLanguageOption.FORCED,
+                secondaryPreferredSubtitleLanguage = null,
+                deviceLanguages = emptyList(),
+            ),
+        )
+    }
 }

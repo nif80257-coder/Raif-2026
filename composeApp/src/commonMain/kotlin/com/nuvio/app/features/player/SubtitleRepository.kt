@@ -1,5 +1,6 @@
 package com.nuvio.app.features.player
 
+import com.nuvio.app.features.profiles.ProfileRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -60,7 +61,7 @@ object SubtitleRepository {
         activeFetchJob = scope.launch {
             _isLoading.value = true
             _error.value = null
-            _addonSubtitles.value = emptyList()
+            _addonSubtitles.value = cachedSubtitles(type, videoId, extras)
 
             val enrichedExtras = try {
                 val hashResult = computeVideoHash(sourceUrl, sourceHeaders)
@@ -104,6 +105,31 @@ object SubtitleRepository {
         _error.value = null
     }
 
+    /** The viewer's own languages first, then Arabic, whatever the add-ons answered in. */
+    private fun preferredSubtitlePrefixes(): List<String> {
+        PlayerSettingsRepository.ensureLoaded()
+        val settings = PlayerSettingsRepository.uiState.value
+        return preferredSubtitleLanguagePrefixes(
+            preferredSubtitleLanguage = settings.preferredSubtitleLanguage,
+            secondaryPreferredSubtitleLanguage = settings.secondaryPreferredSubtitleLanguage,
+            deviceLanguages = DeviceLanguagePreferences.preferredLanguageCodes(),
+        )
+    }
+
+    /**
+     * The tracks this episode had last time, so the subtitle sheet opens on a list instead of on a
+     * spinner while five add-ons answer. The live requests replace it as they land.
+     */
+    private fun cachedSubtitles(
+        type: String,
+        videoId: String,
+        extras: SubtitleRequestExtras?,
+    ): List<AddonSubtitle> =
+        SubtitleListCache.load(
+            profileId = ProfileRepository.activeProfileId,
+            contentKey = SubtitleListCache.contentKey(type, videoId, extras),
+        )?.let { cached -> orderedAddonSubtitles(cached, preferredSubtitlePrefixes()) }.orEmpty()
+
     private suspend fun executeSubtitleFetch(
         type: String,
         videoId: String,
@@ -111,7 +137,7 @@ object SubtitleRepository {
     ) {
         _isLoading.value = true
         _error.value = null
-        _addonSubtitles.value = emptyList()
+        _addonSubtitles.value = cachedSubtitles(type, videoId, extras)
         executeSubtitleLoad(type, videoId, extras)
     }
 
@@ -127,17 +153,27 @@ object SubtitleRepository {
         }
 
         _loadingProgress.value = SubtitleLoadingProgress(total = requests.size)
+        val prefixes = preferredSubtitlePrefixes()
         loadAddonSubtitles(requests) { request, subtitles ->
-            // Keep the Arabic tracks at the top as the answers stream in, instead of showing
+            // Keep the viewer's own languages at the top as the answers stream in, instead of showing
             // whichever add-on replied first.
-            _addonSubtitles.update { current -> orderedAddonSubtitles(current + subtitles) }
+            _addonSubtitles.update { current -> orderedAddonSubtitles(current + subtitles, prefixes) }
             _loadingProgress.update { progress ->
                 progress?.copy(completed = progress.completed + 1, addonName = request.addonName)
             }
         }
-        _addonSubtitles.update { current -> orderedAddonSubtitles(current) }
+        _addonSubtitles.update { current -> orderedAddonSubtitles(current, prefixes) }
 
-        if (_addonSubtitles.value.isEmpty()) {
+        val loaded = _addonSubtitles.value
+        if (loaded.isNotEmpty()) {
+            SubtitleListCache.save(
+                profileId = ProfileRepository.activeProfileId,
+                contentKey = SubtitleListCache.contentKey(type, videoId, extras),
+                subtitles = loaded,
+            )
+        }
+
+        if (loaded.isEmpty()) {
             _error.value = getString(Res.string.compose_player_no_subtitles_found)
         }
         _isLoading.value = false

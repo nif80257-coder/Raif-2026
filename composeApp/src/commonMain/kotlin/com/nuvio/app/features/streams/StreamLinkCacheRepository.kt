@@ -10,6 +10,8 @@ data class CachedStreamLink(
     val addonName: String,
     val addonId: String,
     val cachedAtMs: Long,
+    /** When the link itself dies, when the URL says so; null when it carries no readable expiration. */
+    val expiresAtMs: Long? = null,
     val requestHeaders: Map<String, String> = emptyMap(),
     val responseHeaders: Map<String, String> = emptyMap(),
     val filename: String? = null,
@@ -65,7 +67,8 @@ object StreamLinkCacheRepository {
         addonLogo: String? = null,
         streamDescription: String? = null,
     ) {
-        if (url.isNotBlank() && url.hasLikelyExpiringPlaybackCredentials()) {
+        val nowMs = epochMs()
+        if (url.isNotBlank() && !StreamLinkExpiry.isReusable(url = url, nowMs = nowMs)) {
             remove(contentKey)
             return
         }
@@ -75,7 +78,10 @@ object StreamLinkCacheRepository {
             streamName = streamName,
             addonName = addonName,
             addonId = addonId,
-            cachedAtMs = epochMs(),
+            cachedAtMs = nowMs,
+            expiresAtMs = url
+                .takeIf { it.isNotBlank() }
+                ?.let { link -> StreamLinkExpiry.expiresAtMs(url = link, nowMs = nowMs) },
             requestHeaders = requestHeaders,
             responseHeaders = responseHeaders,
             filename = filename,
@@ -112,7 +118,13 @@ object StreamLinkCacheRepository {
             StreamLinkCacheStorage.removeEntry(hashedKey(contentKey))
             return null
         }
-        if (entry.url.isNotBlank() && entry.url.hasLikelyExpiringPlaybackCredentials()) {
+        if (entry.url.isNotBlank() &&
+            !StreamLinkExpiry.isReusable(
+                expiresAtMs = entry.expiresAtMs,
+                url = entry.url,
+                nowMs = epochMs(),
+            )
+        ) {
             StreamLinkCacheStorage.removeEntry(hashedKey(contentKey))
             return null
         }

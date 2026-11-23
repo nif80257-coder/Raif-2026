@@ -1,7 +1,7 @@
 package com.nuvio.app.features.downloads
 
-import com.nuvio.app.features.addons.httpGetTextWithHeaders
 import com.nuvio.app.features.player.PlayerSubtitleCueParser
+import com.nuvio.app.features.player.fetchSubtitleText
 import com.nuvio.app.features.player.loadAddonSubtitles
 import com.nuvio.app.features.streams.StreamSubtitle
 import kotlinx.coroutines.CancellationException
@@ -41,7 +41,10 @@ internal object DownloadSubtitles {
                     async {
                         val body = try {
                             withTimeoutOrNull(15_000L) {
-                                httpGetTextWithHeaders(subtitle.url, subtitle.headers.orEmpty())
+                                fetchSubtitleText(
+                                    url = subtitle.url,
+                                    headers = subtitle.headers.orEmpty(),
+                                )
                             }?.takeIf { it.isNotBlank() && PlayerSubtitleCueParser.parse(it, subtitle.url).isNotEmpty() }
                         } catch (error: Exception) {
                             if (error is CancellationException) throw error

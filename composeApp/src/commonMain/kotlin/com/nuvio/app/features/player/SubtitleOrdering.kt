@@ -23,3 +23,29 @@ internal fun orderedAddonSubtitles(
             .thenBy { subtitle -> subtitle.display.lowercase() },
     )
 }
+
+/**
+ * The languages whose tracks belong at the top of the list, in the order the viewer cares about.
+ *
+ * The setting is what decides: someone who chose English and then Spanish wants those two first, not
+ * Arabic. Arabic stays on the list as the app's default, because a viewer who never opened the
+ * setting is still served best by Arabic tracks above the English wall OpenSubtitles returns.
+ */
+internal fun preferredSubtitleLanguagePrefixes(
+    preferredSubtitleLanguage: String,
+    secondaryPreferredSubtitleLanguage: String?,
+    deviceLanguages: List<String>,
+): List<String> {
+    val targets = resolvePreferredSubtitleLanguageTargets(
+        preferredSubtitleLanguage = preferredSubtitleLanguage,
+        secondaryPreferredSubtitleLanguage = secondaryPreferredSubtitleLanguage,
+        deviceLanguages = deviceLanguages,
+    )
+    return buildList {
+        targets
+            .mapNotNull { target -> normalizeLanguageCode(target) }
+            .filter { code -> code != SubtitleLanguageOption.NONE && code != SubtitleLanguageOption.FORCED }
+            .forEach { code -> if (code !in this) add(code) }
+        if ("ar" !in this) add("ar")
+    }
+}

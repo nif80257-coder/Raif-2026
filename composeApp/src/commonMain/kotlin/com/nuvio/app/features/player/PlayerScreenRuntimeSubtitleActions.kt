@@ -2,7 +2,6 @@ package com.nuvio.app.features.player
 
 import com.nuvio.app.core.i18n.localizedNoSubtitleLinesFound
 import com.nuvio.app.core.i18n.localizedSubtitleLinesLoadError
-import com.nuvio.app.features.addons.httpGetTextWithHeaders
 import com.nuvio.app.features.autosync.AutoSyncPlayerController
 import com.nuvio.app.features.streams.StreamLinkCacheRepository
 import kotlinx.coroutines.launch
@@ -87,7 +86,7 @@ internal fun PlayerScreenRuntime.loadSubtitleAutoSyncCues(force: Boolean = false
     subtitleAutoSyncState = subtitleAutoSyncState.copy(isLoading = true, errorMessage = null)
     scope.launch {
         val result = runCatching {
-            val body = httpGetTextWithHeaders(
+            val body = fetchSubtitleText(
                 url = subtitle.url,
                 headers = sanitizePlaybackHeaders(activeSourceHeaders),
             )

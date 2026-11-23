@@ -19,6 +19,7 @@ import com.nuvio.app.features.collection.CollectionMobileSettingsRepository
 import com.nuvio.app.features.collection.CollectionRepository
 import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.details.MetaScreenSettingsRepository
+import com.nuvio.app.features.player.SubtitleListCache
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
 import com.nuvio.app.features.home.HomeRepository
 import com.nuvio.app.core.ui.CardDepthStyleRepository
@@ -307,6 +308,8 @@ object ProfileRepository {
         AddonSpeedMemory.clear(profileIndex)
         // So do the counts of sources that answered with nothing.
         AddonSilentSourceMemory.clear(profileIndex)
+        // And the subtitle lists kept for the profile's episodes.
+        SubtitleListCache.clear(profileIndex)
         if (AuthRepository.state.value.isAnonymous || !ServerConfigurationRepository.active.value.isCustom) {
             val remaining = _state.value.profiles.filter { it.profileIndex != profileIndex }
             ProfilePinCacheStorage.removePayload(profileIndex)

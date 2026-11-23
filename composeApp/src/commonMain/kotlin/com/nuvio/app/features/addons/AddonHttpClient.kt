@@ -73,12 +73,16 @@ internal suspend fun retryAddonFetch(
 /**
  * Fetches an add-on payload with retries. When [gate] is given, each attempt takes a permit only
  * for its own request, so a backoff never holds a slot other add-ons are waiting for.
+ *
+ * [maxAttempts] is 1 for a source answering a stream request: the caller already bounds that
+ * request with its own timeout, and a retry there spends the slot the next source is waiting for.
  */
 internal suspend fun fetchAddonResponseText(
     url: String,
     forceRefresh: Boolean = false,
     gate: Semaphore? = null,
-): String = retryAddonFetch {
+    maxAttempts: Int = ADDON_FETCH_MAX_ATTEMPTS,
+): String = retryAddonFetch(maxAttempts = maxAttempts) {
     val attempt: suspend () -> String = {
         if (forceRefresh) {
             httpGetTextWithHeaders(

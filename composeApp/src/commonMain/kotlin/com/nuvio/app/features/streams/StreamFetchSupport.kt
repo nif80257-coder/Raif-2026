@@ -15,8 +15,14 @@ import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.streams_plugin_repository_fallback
 import org.jetbrains.compose.resources.getString
 
-/** Upper bound on how many stream sources are being fetched at the same time. */
-internal val streamSourceFetchSemaphore = Semaphore(8)
+/**
+ * Upper bound on how many stream sources are being fetched at the same time.
+ *
+ * Sources live on different hosts, so the client's per-host connection limit is not what caps this.
+ * Twelve keeps a phone's radio busy without turning an open of the source sheet into a burst of
+ * thirty-three requests, and the first answers still appear while the rest are in flight.
+ */
+internal val streamSourceFetchSemaphore = Semaphore(12)
 
 /**
  * How long one source may take to answer a stream request.
@@ -35,13 +41,16 @@ internal class StreamSourceTimeoutException : IllegalStateException("Stream sour
  * Fetches one source's stream list inside [STREAM_SOURCE_TIMEOUT_MS]. A source that does not answer
  * in time fails with [StreamSourceTimeoutException], which both frees its slot and is remembered as
  * a timeout in the add-on failure memory.
+ *
+ * One attempt only: the timeout above is the whole budget for this source, so a retry does not add a
+ * chance of an answer, it only keeps a fetch slot occupied while the sources behind it wait.
  */
 internal suspend fun fetchStreamSourcePayload(
     url: String,
     forceRefresh: Boolean = false,
 ): String =
     withTimeoutOrNull(STREAM_SOURCE_TIMEOUT_MS) {
-        fetchAddonResponseText(url = url, forceRefresh = forceRefresh)
+        fetchAddonResponseText(url = url, forceRefresh = forceRefresh, maxAttempts = 1)
     } ?: throw StreamSourceTimeoutException()
 
 internal data class InstalledStreamAddonTarget(
