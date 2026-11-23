@@ -25,8 +25,26 @@
 | `kmp-network-layer` | طبقة شبكة كاملة في KMP: محركات المنصات، تجديد التوتر، خرائط الأخطاء |
 | `avkit` | AVKit/AVPlayer: صورة داخل صورة، AirPlay، معاينة الفيديو، ترجمة ووسائط |
 
-مهارات مفعّلة على مستوى التطبيق (خارج هذا المجلد) وتخص هذا المشروع:
-`addon-manifest-engine` · `stream-fetching-parser` · `swift-swiftui-ios-engineer` ·
+## حزمة مهارات الوسائط (١٤ مهارة)
+
+| المهارة | تُستخدم عند |
+|---|---|
+| `avfoundation-hls-pip` | HLS وABR وPiP واستعادة أخطاء AVPlayer |
+| `libmpv-ffmpeg-ios` | ترتيب تدمير mpv، فك ترميز عتادي، PiP مخصص |
+| `swiftdata-migration` | نقل المكتبة والتنزيلات من UserDefaults إلى SwiftData |
+| `ktor-client-performance` | عميل Ktor واحد: مهلات، إعادة محاولة، بث الردود |
+| `source-plugin-resilience` | توزيع المصادر بالتوازي وقاطع دائرة لكل مزوّد |
+| `ios-ui-fluidity` | لا تحليل على الخيط الرئيسي، تصغير الصور، إلغاء البحث |
+| `ios-app-intents` | أوامر Siri والاختصارات فوق مهارة `app-intents` |
+| `video-instant-startup` | تسخين AVURLAsset وpreroll قبل الضغط |
+| `source-racing-speed` | سباق المرايا واختيار أول رابط يعمل، وترتيب بالزمن المقاس |
+| `instant-search-fluency` | فهرس محلي فوري وتطبيع عربي وإلغاء النتائج القديمة |
+| `swiftui-scroll-fluency` | Lazy + هوية ثابتة + equatable + بلا ظلال في الخلايا |
+| `stream-cache-expiry` | صلاحية الروابط الموقّعة وتنظيف الكاش والملفات اليتيمة |
+| `subtitle-sync-parsing` | ترميز Windows-1256 وبحث ثنائي عن الترجمة النشطة |
+| `plugin-sandbox-validation` | تحقق من manifest، روابط آمنة، وعزل أخطاء الإضافات |
+
+مهارات مفعّلة على مستوى التطبيق (خارج هذا المجلد) وتخص هذا المشروع:`addon-manifest-engine` · `stream-fetching-parser` · `swift-swiftui-ios-engineer` ·
 `tmdb-metadata-catalog` · `watchlist-trakt-sync` · `apple-ios-hig-designer` ·
 `apple-ondevice-ai-integration` · `ios-appstore-release-qa`
 
