@@ -17,6 +17,8 @@
 | `anti-ui-slop` | تدقيق جودة الواجهة قبل الشحن |
 | `find-skills` | البحث عن مهارة إضافية |
 | `xcode-project-setup` | أي عمل على `project.pbxproj`: حزم SPM، ربط ملفات، قواعد Xcode الحديثة |
+| `swiftui-performance-audit` | تدقيق أداء SwiftUI من الكود: `body` الثقيل، `ForEach`، الهوية، التمرير |
+| `swiftui-view-refactor` | تقسيم الملفات الضخمة إلى مشاهد فرعية ونماذج، بلا تغيير سلوك |
 
 مهارات مفعّلة على مستوى التطبيق (خارج هذا المجلد) وتخص هذا المشروع:
 `addon-manifest-engine` · `stream-fetching-parser` · `swift-swiftui-ios-engineer` ·
@@ -42,3 +44,10 @@
 | `libmpv-ffmpeg-ios` | ضبط libmpv والـFFmpeg على iOS والصورة داخل صورة لـmpv |
 | `swiftdata` | بديل تدريجي لتخزين `UserDefaults` في القوائم والتنزيلات |
 | `ktor-client-performance` | ضبط عميل Ktor في طبقة المصادر (اتصالات، ضغط، HTTP/2) |
+| `ios-app-intents` | أوامر Siri والاختصارات: «شغّل آخر حلقة»، «أضف إلى قوائمي» |
+| `swiftui-liquid-glass` | استخدام زجاج iOS 26 الأصلي في الأزرار والشريط العائم |
+
+مهارات من `openai/plugins/build-ios-apps` لم تُضف لأنها تحتاج ماكًا ومحاكيًا
+وأدوات Instruments (`ios-ettrace-performance`، `ios-memgraph-leaks`،
+`ios-simulator-browser`، `ios-debugger-agent`)، أو لأنها تكرر مهارات موجودة
+(`swiftui-ui-patterns`).
