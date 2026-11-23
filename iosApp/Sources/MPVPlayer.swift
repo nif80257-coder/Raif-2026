@@ -678,5 +678,160 @@ enum CinemaxMPVRegistration {
     }
 }
 
+/// Reads an HLS master playlist and picks the rendition worth playing, so an
+/// adaptive link opens on a sensible variant instead of leaving the choice to a
+/// player that never adapts. A media playlist, a broken answer or a timeout all
+/// answer nil, and the caller plays the original link untouched.
+final class HLSParser {
+    static let shared = HLSParser()
+
+    struct Variant {
+        let url: URL
+        let bandwidth: Int
+        let height: Int?
+    }
+
+    private let session: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 4
+        configuration.httpMaximumConnectionsPerHost = 2
+        return URLSession(configuration: configuration)
+    }()
+
+    private var cache: [String: [Variant]] = [:]
+    private var cachedAt: [String: Date] = [:]
+
+    func isHLS(_ url: String) -> Bool {
+        let lowered = url.lowercased()
+        return lowered.contains(".m3u8") || lowered.contains("format=m3u8")
+    }
+
+    /// The variant to hand the player, or nil when this is not HLS or nothing came
+    /// back in time.
+    func bestStream(
+        for urlString: String,
+        headers: [String: String],
+        preferredQuality: String?
+    ) async -> (url: String, label: String)? {
+        guard isHLS(urlString), let url = URL(string: urlString) else { return nil }
+        guard let variants = try? await variants(for: url, headers: headers), !variants.isEmpty else {
+            return nil
+        }
+        guard let chosen = pick(from: variants, preferredQuality: preferredQuality) else { return nil }
+        let megabits = Double(chosen.bandwidth) / 1_000_000
+        let label = chosen.height.map { "\($0)p" } ?? String(format: "%.1f Mbps", megabits)
+        return (chosen.url.absoluteString, label)
+    }
+
+    private func variants(for url: URL, headers: [String: String]) async throws -> [Variant] {
+        let key = url.absoluteString + "|" + headers.keys.sorted().joined(separator: ",")
+        if let cached = cache[key], let at = cachedAt[key], Date().timeIntervalSince(at) < 600 {
+            return cached
+        }
+        var request = URLRequest(url: url)
+        // The host wants whatever the addon asked for, exactly as playback does.
+        for (name, value) in headers {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode < 400,
+              let text = String(data: data, encoding: .utf8) else {
+            throw URLError(.badServerResponse)
+        }
+        let parsed = Self.parse(text, base: url)
+        cache[key] = parsed
+        cachedAt[key] = Date()
+        if cache.count > 40 {
+            // Keep the small map small; an old playlist is worthless anyway.
+            cache.removeAll()
+            cachedAt.removeAll()
+        }
+        return parsed
+    }
+
+    /// Pulls the renditions out of a master playlist. A media playlist has none, and
+    /// an empty answer is what tells the caller to play the link as it is.
+    static func parse(_ text: String, base: URL) -> [Variant] {
+        guard text.contains("#EXTM3U") else { return [] }
+        var variants: [Variant] = []
+        var bandwidth = 0
+        var height: Int?
+
+        for rawLine in text.components(separatedBy: .newlines) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty { continue }
+
+            if line.hasPrefix("#EXT-X-STREAM-INF:") {
+                bandwidth = 0
+                height = nil
+                let attributes = line.dropFirst("#EXT-X-STREAM-INF:".count)
+                for pair in attributes.split(separator: ",") {
+                    let parts = pair.split(separator: "=", maxSplits: 1).map(String.init)
+                    guard parts.count == 2 else { continue }
+                    let name = parts[0].trimmingCharacters(in: .whitespaces).uppercased()
+                    let value = parts[1].trimmingCharacters(in: CharacterSet(charactersIn: "\" "))
+                    switch name {
+                    case "BANDWIDTH", "AVERAGE-BANDWIDTH":
+                        if let number = Int(value) { bandwidth = max(bandwidth, number) }
+                    case "RESOLUTION":
+                        let pieces = value.lowercased().split(separator: "x")
+                        if pieces.count == 2 { height = Int(pieces[1]) }
+                    default:
+                        break
+                    }
+                }
+                continue
+            }
+
+            if line.hasPrefix("#") { continue }
+
+            // A URI line only counts when the tag above it described a rendition.
+            guard bandwidth > 0 || height != nil,
+                  let resolved = URL(string: line, relativeTo: base) else {
+                bandwidth = 0
+                height = nil
+                continue
+            }
+            variants.append(Variant(url: resolved, bandwidth: bandwidth, height: height))
+            bandwidth = 0
+            height = nil
+        }
+        return variants
+    }
+
+    /// A quality the viewer picked wins; otherwise the highest rendition a medium
+    /// connection carries comfortably, so the first frame arrives quickly.
+    func pick(from variants: [Variant], preferredQuality: String?) -> Variant? {
+        guard !variants.isEmpty else { return nil }
+        let heightOrdered = variants.sorted {
+            let left = $0.height ?? 0
+            let right = $1.height ?? 0
+            if left == right { return $0.bandwidth < $1.bandwidth }
+            return left < right
+        }
+        let targetHeight: Int?
+        switch preferredQuality ?? "auto" {
+        case "4K": targetHeight = 2160
+        case "1080p": targetHeight = 1080
+        case "720p": targetHeight = 720
+        case "480p": targetHeight = 480
+        default: targetHeight = nil
+        }
+
+        if let targetHeight {
+            let atOrBelow = heightOrdered.last { variant in
+                guard let height = variant.height else { return false }
+                return height <= targetHeight
+            }
+            return atOrBelow ?? heightOrdered.first
+        }
+
+        // Auto: 3 Mbps is the point where a medium network stops stuttering.
+        let ceiling = 3_000_000
+        let withinBudget = heightOrdered.last { $0.bandwidth > 0 && $0.bandwidth <= ceiling }
+        return withinBudget ?? heightOrdered.first
+    }
+}
+
 
 #endif

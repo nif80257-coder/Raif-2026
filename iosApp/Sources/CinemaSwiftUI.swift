@@ -185,7 +185,8 @@ struct DetailPayload: Codable {
 }
 
 struct StreamChoice: Identifiable, Codable, Hashable {
-    let url: String
+    /// Replaced by the chosen rendition when the link is an adaptive HLS playlist.
+    var url: String
     let addon: String
     let title: String
     let quality: String?
@@ -4047,6 +4048,23 @@ enum SourcePrefs {
         if value { current.insert(group) } else { current.remove(group) }
         UserDefaults.standard.set(Array(current), forKey: foldedKey)
     }
+
+    /// What the native side measured for each addon on this device: its average
+    /// answer time. The sources list uses it to prefer what actually works here.
+    static func addonLatency() -> [String: Int64] {
+        guard let raw = UserDefaults.standard.string(forKey: "cinemax.sourceHealth.v1"),
+              let data = raw.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode([String: HealthEntry].self, from: data) else {
+            return [:]
+        }
+        return decoded.mapValues { $0.ms }
+    }
+
+    private struct HealthEntry: Codable {
+        var ms: Int64 = 0
+        var failures: Int = 0
+        var last: Int64 = 0
+    }
 }
 
 /// One sheet for both the trailer page and the lists picker. Two `.sheet`
@@ -4092,6 +4110,7 @@ struct DetailView: View {
     @State private var offAddons: Set<String> = SourcePrefs.offAddons
     @State private var foldedGroups: Set<String> = SourcePrefs.folded
     @State private var expandedGroups: Set<String> = []
+    @State private var addonLatency: [String: Int64] = [:]
     @AppStorage("cinemax.sourcesCompact") private var compactSources = false
     @AppStorage("cinemax.prefetchNext") private var prefetchNext = true
     @State private var prefetchedEpisode: String?
@@ -4181,6 +4200,7 @@ struct DetailView: View {
             hiddenSources = SourcePrefs.hidden
             offAddons = SourcePrefs.offAddons
             foldedGroups = SourcePrefs.folded
+            addonLatency = SourcePrefs.addonLatency()
         }
         .task(id: item.id) {
             similar = await CinemaAPI.shared.similar(item: item)
@@ -4375,8 +4395,7 @@ struct DetailView: View {
             HStack(spacing: 10) {
                 Button {
                     if let first = playableStreams.first {
-                        remember(first)
-                        playing = first
+                        play(first)
                     }
                 } label: {
                     Label(resumeEntry == nil ? "مشاهدة" : "أكمل", systemImage: "play.fill")
@@ -4856,6 +4875,31 @@ struct DetailView: View {
         UserDefaults.standard.set(stream.url, forKey: "cinemax.lastSource." + item.id)
     }
 
+    /// Remembers the chosen link so the next visit marks it, and picks an adaptive
+    /// link's rendition before the player opens instead of letting it guess.
+    private func play(_ stream: StreamChoice) {
+        remember(stream)
+        guard HLSParser.shared.isHLS(stream.url) else {
+            withAnimation(.easeInOut(duration: 0.15)) { playing = stream }
+            return
+        }
+        Task {
+            let resolved = await HLSParser.shared.bestStream(
+                for: stream.url,
+                headers: stream.headers ?? [:],
+                preferredQuality: CinemaxPrefs.preferredQuality
+            )
+            await MainActor.run {
+                var chosen = stream
+                if let resolved {
+                    chosen.url = resolved.url
+                    EventLog.shared.add("hls", "\(resolved.label) ← \(stream.addon)")
+                }
+                withAnimation(.easeInOut(duration: 0.15)) { playing = chosen }
+            }
+        }
+    }
+
     /// Warms the next episode's sources while the viewer is still deciding, so the
     /// next tap shows a ready list instead of asking every addon again.
     private func prefetchNextEpisode() {
@@ -4902,6 +4946,13 @@ struct DetailView: View {
         if let preferred = preferredTier, stream.quality == preferred {
             score += 3
         }
+        // What this device measured beats any guess: an addon that answers quickly
+        // is worth up to three points, an adaptive link a little, a proxy less.
+        if let ms = addonLatency[stream.addon], ms > 0 {
+            score += max(0, Double(3_000 - min(ms, 3_000)) / 1_000.0)
+        }
+        if HLSParser.shared.isHLS(stream.url) { score += 0.4 }
+        if isProxied(stream) { score -= 1 }
         return score
     }
 
@@ -5228,8 +5279,7 @@ struct DetailView: View {
                 detailSheet = .web(url)
                 return
             }
-            remember(stream)
-            withAnimation(.easeInOut(duration: 0.15)) { playing = stream }
+            play(stream)
         } label: {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 3) {
