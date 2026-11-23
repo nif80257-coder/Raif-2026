@@ -29,6 +29,17 @@ interface CinemaxNativePlayer {
     fun seekTo(positionMs: Long)
     fun setSpeed(speed: Float)
     fun setVolume(volume: Float)
+    /**
+     * Repeats the scene between two points, in milliseconds. A negative value
+     * clears that side; both negative removes the loop entirely.
+     */
+    fun setABLoop(startMs: Long, endMs: Long)
+    /**
+     * Asks the player to write its current frame as a PNG and answers the path it
+     * will appear at, or null when nothing is playing. The file arrives a moment
+     * later; the caller waits for it before using it.
+     */
+    fun captureFramePng(): String?
     fun setSubtitleUrl(url: String?)
     /** Embedded (in-file) subtitle tracks as JSON: see `parseEmbeddedSubtitleTracks`. */
     fun getEmbeddedSubtitleTracksJson(): String

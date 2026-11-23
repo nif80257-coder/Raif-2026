@@ -55,5 +55,8 @@
 	<!-- The optional app lock asks for the device passcode or Face ID. -->
 	<key>NSFaceIDUsageDescription</key>
 	<string>يُستخدم Face ID لفتح CINEMAX عندما يُفعّل قفل التطبيق.</string>
+	<!-- A frame grabbed from the player is written to the photo library. -->
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>لحفظ لقطة من الفيلم أو الحلقة في تطبيق الصور عندما تطلب ذلك من المشغّل.</string>
 </dict>
 </plist>

@@ -273,6 +273,32 @@ final class MPVViewController: UIViewController {
         setString(mpv, "speed", String(format: "%.2f", max(0.25, min(4.0, speed))))
     }
 
+    /// Repeats the scene between two points, in milliseconds. A negative side is
+    /// cleared, and two negative values remove the loop.
+    func setABLoop(startMs: Int64, endMs: Int64) {
+        guard let mpv else { return }
+        setString(
+            mpv,
+            "ab-loop-a",
+            startMs >= 0 ? String(format: "%.3f", Double(startMs) / 1000.0) : "no"
+        )
+        setString(
+            mpv,
+            "ab-loop-b",
+            endMs >= 0 ? String(format: "%.3f", Double(endMs) / 1000.0) : "no"
+        )
+    }
+
+    /// Asks libmpv to write the frame it is showing, and answers where it will land.
+    /// The write is asynchronous, so the caller waits for the file to appear.
+    func captureFramePng() -> String? {
+        guard let mpv, isLoaded else { return nil }
+        let name = "cinemax-frame-\(UUID().uuidString).png"
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent(name).path
+        command(mpv, "screenshot-to-file", [path, "video"])
+        return path
+    }
+
     /// Shifts subtitle timing in seconds; 0 puts it back in sync.
     func setSubtitleDelay(_ seconds: Double) {
         guard let mpv else { return }
@@ -638,6 +664,12 @@ final class MPVCinemaxPlayer: NSObject, CinemaxNativePlayer {
     func setSpeed(speed: Float) { viewController.setSpeed(Double(speed)) }
 
     func setVolume(volume: Float) { viewController.setVolumeLevel(Double(volume)) }
+
+    func setABLoop(startMs: Int64, endMs: Int64) {
+        viewController.setABLoop(startMs: startMs, endMs: endMs)
+    }
+
+    func captureFramePng() -> String? { viewController.captureFramePng() }
 
     func setGestureListener(listener: CinemaxPlayerGestures?) {
         viewController.setGestureListener(listener)

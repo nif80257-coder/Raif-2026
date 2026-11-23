@@ -5,6 +5,7 @@ import AVFoundation
 import AppIntents
 import Charts
 import LocalAuthentication
+import Photos
 import Network
 import SafariServices
 import UniformTypeIdentifiers
@@ -2112,6 +2113,9 @@ struct PlayerScreen: View {
     @State private var subtitleTracks: [TrackInfo] = []
     @State private var audioTracks: [TrackInfo] = []
     @State private var speed: Double = 1
+    @State private var loopA: Double?
+    @State private var loopB: Double?
+    @State private var shotNote: String?
     @State private var subtitlesOff = false
     @State private var subtitleDelay: Double = 0
     @State private var subtitleSize = UserDefaults.standard.string(forKey: "cinemax.subtitleSize") ?? "medium"
@@ -2183,6 +2187,95 @@ struct PlayerScreen: View {
                 .filter { $0.item.id == item.id && $0.fraction >= 0.9 }
                 .compactMap(\.episodeLabel)
         )
+    }
+
+    /// The speed this title was last watched at, kept per id so a series keeps it
+    /// across episodes and a film keeps it the next evening.
+    private func rememberedSpeed(for id: String?) -> Double? {
+        guard let id else { return nil }
+        let value = UserDefaults.standard.double(forKey: "cinemax.speed." + id)
+        return value > 0 ? value : nil
+    }
+
+    private func saveSpeed(_ value: Double) {
+        guard let id = videoId ?? item?.id else { return }
+        UserDefaults.standard.set(value, forKey: "cinemax.speed." + id)
+    }
+
+    /// The surface builds its player a moment after the screen appears, so the
+    /// remembered speed is pushed once that player exists, not before it.
+    private func applyRememberedSpeed() {
+        Task {
+            for _ in 0..<24 {
+                if player != nil { break }
+                try? await Task.sleep(nanoseconds: 50_000_000)
+            }
+            player?.setSpeed(speed)
+        }
+    }
+
+    /// Three taps of one button: point A, point B, then off again.
+    private func handleLoop() {
+        Haptics.select()
+        if loopA == nil {
+            loopA = position
+            shotNote = "نقطة أ عند \(clock(position))"
+            return
+        }
+        if loopB == nil {
+            guard position > (loopA ?? 0) + 3 else {
+                shotNote = "حرّك الشريط ثم اختر نقطة ب"
+                return
+            }
+            loopB = position
+            player?.setABLoop(startMs: Int64((loopA ?? 0) * 1000), endMs: Int64(position * 1000))
+            shotNote = "تكرار المقطع من أ إلى ب"
+            return
+        }
+        loopA = nil
+        loopB = nil
+        player?.setABLoop(startMs: -1, endMs: -1)
+        shotNote = "أُلغي التكرار"
+    }
+
+    /// Grabs the frame on screen, waits for libmpv to write it, then puts it in Photos.
+    private func takeScreenshot() {
+        Haptics.tap()
+        guard let path = player?.captureFramePng() else {
+            shotNote = "لا يوجد إطار الآن"
+            return
+        }
+        Task {
+            var exists = false
+            for _ in 0..<30 {
+                if FileManager.default.fileExists(atPath: path) {
+                    exists = true
+                    break
+                }
+                try? await Task.sleep(nanoseconds: 60_000_000)
+            }
+            guard exists, let image = UIImage(contentsOfFile: path) else {
+                await MainActor.run { shotNote = "تعذّر أخذ اللقطة" }
+                return
+            }
+            let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+            guard status == .authorized || status == .limited else {
+                await MainActor.run { shotNote = "السماح بالصور مطلوب لحفظ اللقطة" }
+                return
+            }
+            do {
+                try await PHPhotoLibrary.shared().performChanges {
+                    PHAssetChangeRequest.creationRequestForAsset(from: image)
+                }
+                await MainActor.run {
+                    shotNote = "حُفظت اللقطة في تطبيق الصور"
+                    EventLog.shared.add("player", "لقطة شاشة من \(title)")
+                }
+            } catch {
+                await MainActor.run { shotNote = "تعذّر الحفظ" }
+            }
+            try? FileManager.default.removeItem(atPath: path)
+        }
     }
 
     /// Jumps past an opening sequence without a tap, when the viewer asked for it.
@@ -2294,6 +2387,29 @@ struct PlayerScreen: View {
                         let next = options[(current + 1) % options.count]
                         speed = next
                         player?.setSpeed(next)
+                        saveSpeed(next)
+                    }
+                    CircleButton(
+                        system: loopA == nil ? "repeat" : (loopB == nil ? "repeat.1" : "repeat.circle.fill"),
+                        tint: loopA == nil ? .white : CinemaTheme.accent
+                    ) {
+                        handleLoop()
+                    }
+                    CircleButton(system: "camera") {
+                        takeScreenshot()
+                    }
+                    if let shotNote {
+                        Text(shotNote)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(.ultraThinMaterial, in: Capsule())
+                            .task {
+                                try? await Task.sleep(nanoseconds: 2_200_000_000)
+                                withAnimation(.easeInOut(duration: 0.2)) { self.shotNote = nil }
+                            }
                     }
                     CircleButton(system: "captions.bubble") {
                         Haptics.tap()
@@ -2611,6 +2727,7 @@ struct PlayerScreen: View {
                     onSpeed: { value in
                         speed = value
                         player?.setSpeed(value)
+                        saveSpeed(value)
                         Haptics.select()
                     },
                     onSubtitleDelay: { value in
@@ -2755,7 +2872,7 @@ struct PlayerScreen: View {
             currentTitle = title
             currentVideoId = videoId
             currentVideoLabel = videoLabel
-            speed = CinemaxPrefs.defaultSpeed
+            speed = rememberedSpeed(for: videoId ?? item?.id) ?? CinemaxPrefs.defaultSpeed
             savedBrightness = screenBrightness
             brightness = savedBrightness
             if let item, CinemaxPrefs.autoResume {
@@ -2766,6 +2883,7 @@ struct PlayerScreen: View {
             }
             ready = true
             startTicker()
+            applyRememberedSpeed()
         }
         .task(id: currentVideoId) {
             // Warms the next episode's links so the roll-over is instant.
@@ -2883,6 +3001,7 @@ struct PlayerScreen: View {
             switching = false
             player = nil
             startTicker()
+            applyRememberedSpeed()
         }
         return true
     }
