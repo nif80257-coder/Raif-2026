@@ -450,7 +450,7 @@ final class MPVViewController: UIViewController {
         setOption(ctx, "cache-secs", "120")
         setOption(ctx, "stream-buffer-size", "4194304")
         setOption(ctx, "network-timeout", "15")
-        setOption(ctx, "demuxer-lavf-o", "analyzeduration=2500000,probesize=2500000")
+        setOption(ctx, "demuxer-lavf-o", "analyzeduration=1500000,probesize=1500000")
         setOption(ctx, "stream-lavf-o", "reconnect=1,reconnect_streamed=1,reconnect_delay_max=5")
         setOption(ctx, "vd-lavc-threads", "4")
         setOption(ctx, "audio-buffer", "0.3")
@@ -458,7 +458,7 @@ final class MPVViewController: UIViewController {
         // source that starts fast and then crawls, and a seekable cache lets the
         // viewer scrub a file served over plain HTTP.
         setOption(ctx, "cache-pause", "yes")
-        setOption(ctx, "cache-pause-wait", "2")
+        setOption(ctx, "cache-pause-wait", "1")
         setOption(ctx, "force-seekable", "yes")
         setOption(ctx, "demuxer-seekable-cache", "yes")
 

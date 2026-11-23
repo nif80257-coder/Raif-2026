@@ -80,7 +80,11 @@ data class AppleStream(
     /** Referer / User-Agent the host demands; empty for an open link. */
     val headers: Map<String, String> = emptyMap(),
     /** A file size in MB or GB, when the source reports one. */
-    val size: String? = null
+    val size: String? = null,
+    /** A page or app to open when the addon has no direct link at all. */
+    val externalUrl: String? = null,
+    /** Why a row cannot be played here, shown instead of dropping it silently. */
+    val note: String? = null
 )
 
 @Serializable
@@ -628,28 +632,50 @@ class CinemaxAppleBridge {
         }
     }
 
-    /** Turns one addon stream into what the interface shows, keeping playable links. */
+    /**
+     * Turns one addon stream into what the interface shows. A link points either at a
+     * file — the normal case, played here — or at a page the addon wants opened. The
+     * second kind is still listed, so a source that only offers a page no longer
+     * vanishes without a word; only a bare torrent, which needs a debrid service
+     * this app does not use, is left out and counted.
+     */
     private fun mapStream(
         addonName: String,
         stream: com.cinemax.app.addons.StremioStream
     ): AppleStream? {
-        val url = stream.url ?: return null
-        // mpv carries its own network stack, so a plain http link plays just as well.
-        if (!url.startsWith("https://") && !url.startsWith("http://")) return null
-        return AppleStream(
-            url = url,
-            addon = addonName,
-            title = stream.title ?: stream.name ?: url,
-            quality = streamBadges(stream.name, stream.title).firstOrNull(),
-            headers = stream.behaviorHints.proxyHeaders?.request ?: emptyMap(),
-            size = sizeLabel(stream.behaviorHints)
-        )
+        val url = stream.url
+        val quality = streamBadges(stream.name, stream.title).firstOrNull()
+        if (url != null && (url.startsWith("https://") || url.startsWith("http://"))) {
+            // mpv carries its own network stack, so a plain http link plays as well.
+            return AppleStream(
+                url = url,
+                addon = addonName,
+                title = stream.title ?: stream.name ?: url,
+                quality = quality,
+                headers = stream.behaviorHints.proxyHeaders?.request ?: emptyMap(),
+                size = sizeLabel(stream.behaviorHints)
+            )
+        }
+        val page = stream.externalUrl
+            ?: stream.ytId?.takeIf { it.isNotBlank() }?.let { "https://www.youtube.com/watch?v=$it" }
+        if (page != null && page.startsWith("http")) {
+            return AppleStream(
+                url = page,
+                addon = addonName,
+                title = stream.title ?: stream.name ?: page,
+                quality = quality,
+                externalUrl = page,
+                note = "صفحة خارجية"
+            )
+        }
+        return null
     }
 
-    /** The order a viewer sees: best link first, then quality, then the addon name. */
+    /** The order a viewer sees: playable links first, then quality, then the addon. */
     private fun orderStreams(streams: List<AppleStream>): List<AppleStream> =
         streams.distinctBy { it.url }.sortedWith(
-            compareByDescending<AppleStream> { streamScore(it) }
+            compareBy<AppleStream> { it.externalUrl != null }
+                .thenByDescending { streamScore(it) }
                 .thenByDescending { qualityRank(it.quality) }
                 .thenBy { it.addon }
         )
@@ -678,12 +704,22 @@ class CinemaxAppleBridge {
             val found = mutableListOf<AppleStream>()
             val failures = mutableListOf<String>()
             var announced = 0
+            var lastPublishAt = 0L
+            var unplayable = 0
 
             fun snapshot(): String =
                 json.encodeToString(AppleStreams(orderStreams(found.toList()), failures.distinct()))
 
+            /**
+             * The first answer is shown at once; later ones are grouped so a burst of
+             * twelve addons does not repaint the list a dozen times in a second. The
+             * final snapshot always carries everything.
+             */
             fun publish() {
                 if (found.size == announced) return
+                val now = Clock.System.now().toEpochMilliseconds()
+                if (lastPublishAt != 0L && now - lastPublishAt < PUBLISH_INTERVAL_MS) return
+                lastPublishAt = now
                 announced = found.size
                 onUpdate(snapshot())
             }
@@ -730,7 +766,12 @@ class CinemaxAppleBridge {
                                 failures += "${addon.name}: لا يستجيب"
                             }
                         } else {
-                            found += streams.mapNotNull { mapStream(addon.name, it) }
+                            if (streams.isEmpty()) {
+                                failures += "${addon.name}: لا يوفّر رابطًا لهذا العنوان"
+                            }
+                            val mapped = streams.mapNotNull { mapStream(addon.name, it) }
+                            unplayable += streams.size - mapped.size
+                            found += mapped
                         }
                         publish()
                     }
@@ -751,6 +792,9 @@ class CinemaxAppleBridge {
                     (workers + providers).forEach { it.join() }
                 }
                 (workers + providers).forEach { it.cancel() }
+                if (unplayable > 0) {
+                    failures += "$unplayable رابطًا بلا ملف مباشر (تورنت يحتاج خدمة debrid)"
+                }
                 onDone(snapshot())
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
@@ -1693,6 +1737,8 @@ class CinemaxAppleBridge {
         const val ADDON_BUDGET_MS = 7_000L
         /** The whole wait, so a viewer never stares at a spinner for long. */
         const val TOTAL_BUDGET_MS = 9_000L
+        /** How often the growing list may be handed over, in milliseconds. */
+        const val PUBLISH_INTERVAL_MS = 450L
         /** Failures in a row before a source is left alone for a while. */
         const val BREAKER_FAILURES = 3
         /** How long it is left alone, in milliseconds. */

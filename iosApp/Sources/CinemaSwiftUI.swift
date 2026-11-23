@@ -193,6 +193,10 @@ struct StreamChoice: Identifiable, Codable, Hashable {
     var headers: [String: String]? = nil
     /// A file size label, when the source reports one.
     var size: String? = nil
+    /// A page the addon wants opened instead of a file, when there is no direct link.
+    var externalUrl: String? = nil
+    /// Why this row cannot be played here, shown instead of quietly dropping it.
+    var note: String? = nil
 
     var id: String { url }
 }
@@ -4051,11 +4055,13 @@ enum SourcePrefs {
 enum DetailSheet: Identifiable {
     case trailer(URL)
     case lists(CinemaItem)
+    case web(URL)
 
     var id: String {
         switch self {
         case .trailer(let url): return "trailer:" + url.absoluteString
         case .lists(let item): return "lists:" + item.id
+        case .web(let url): return "web:" + url.absoluteString
         }
     }
 }
@@ -4085,6 +4091,7 @@ struct DetailView: View {
     @State private var hiddenSources: Set<String> = SourcePrefs.hidden
     @State private var offAddons: Set<String> = SourcePrefs.offAddons
     @State private var foldedGroups: Set<String> = SourcePrefs.folded
+    @State private var expandedGroups: Set<String> = []
     @AppStorage("cinemax.sourcesCompact") private var compactSources = false
     @AppStorage("cinemax.prefetchNext") private var prefetchNext = true
     @State private var prefetchedEpisode: String?
@@ -4184,6 +4191,14 @@ struct DetailView: View {
             prefetchNextEpisode()
             probeTask?.cancel()
             probeTask = Task {
+                // The first rows are what a viewer taps, so the top three are measured
+                // at once instead of waiting for the whole list to settle.
+                let first = Array(streams.filter { speeds[$0.url] == nil }.prefix(3))
+                if !first.isEmpty {
+                    let quick = await StreamProber.shared.speeds(for: first)
+                    guard !Task.isCancelled else { return }
+                    await MainActor.run { speeds.merge(quick) { _, fresh in fresh } }
+                }
                 try? await Task.sleep(nanoseconds: 700_000_000)
                 guard !Task.isCancelled else { return }
                 let pending = streams.filter { speeds[$0.url] == nil }
@@ -4216,7 +4231,7 @@ struct DetailView: View {
                         videoLabel: episode?.name,
                         sourceNote: [choice.addon, choice.quality].compactMap { $0 }.joined(separator: " · "),
                         headers: choice.headers ?? [:],
-                        sources: filteredStreams,
+                        sources: playableStreams,
                         episodes: model.detail?.episodes ?? [],
                         type: item.type
                     )
@@ -4230,6 +4245,9 @@ struct DetailView: View {
                     .ignoresSafeArea()
             case .lists(let entry):
                 ListsPickerSheet(item: entry)
+            case .web(let url):
+                SafariView(url: url)
+                    .ignoresSafeArea()
             }
         }
     }
@@ -4356,7 +4374,7 @@ struct DetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
                 Button {
-                    if let first = filteredStreams.first ?? model.streams.first {
+                    if let first = playableStreams.first {
                         remember(first)
                         playing = first
                     }
@@ -4788,6 +4806,12 @@ struct DetailView: View {
 
     private func groupKey(_ quality: String) -> String { "quality:" + quality }
 
+    /// A quality group shows its first forty rows and the rest on request: a source
+    /// list of three hundred links must not build three hundred views to open.
+    private func groupLimit(_ quality: String) -> Int {
+        expandedGroups.contains(quality) ? Int.max : 40
+    }
+
     private func foldGroup(_ quality: String) {
         let key = groupKey(quality)
         if foldedGroups.contains(key) {
@@ -4892,6 +4916,11 @@ struct DetailView: View {
         let host = url.split(separator: "/").dropFirst(2).first.map(String.init) ?? ""
         return title.contains("proxy") || host.contains("prox")
             || url.contains("proxy") || url.contains("?proxy") || url.contains("&proxy")
+    }
+
+    /// Rows the player may use: a link this app can open, never a page for the browser.
+    private var playableStreams: [StreamChoice] {
+        filteredStreams.filter { $0.externalUrl == nil }
     }
 
     private var filteredStreams: [StreamChoice] {
@@ -5146,8 +5175,24 @@ struct DetailView: View {
                         .buttonStyle(.plain)
 
                         if !foldedGroups.contains(groupKey(group.id)) {
-                            ForEach(group.streams) { stream in
+                            ForEach(group.streams.prefix(groupLimit(group.id))) { stream in
                                 sourceRow(stream)
+                            }
+                            if group.streams.count > groupLimit(group.id) {
+                                Button {
+                                    Haptics.select()
+                                    withAnimation(.easeInOut(duration: 0.15)) {
+                                        expandedGroups.insert(group.id)
+                                    }
+                                } label: {
+                                    Text(
+                                        "عرض بقية \(group.id) (\(group.streams.count - groupLimit(group.id)))"
+                                    )
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(CinemaTheme.accent)
+                                    .padding(.vertical, 4)
+                                }
+                                .buttonStyle(.plain)
                             }
                         }
                     }
@@ -5177,6 +5222,12 @@ struct DetailView: View {
     private func sourceRow(_ stream: StreamChoice) -> some View {
         Button {
             Haptics.tap()
+            // A row that only points at a page opens that page, instead of trying to
+            // play something that was never a file and failing without a word.
+            if let external = stream.externalUrl, let url = URL(string: external) {
+                detailSheet = .web(url)
+                return
+            }
             remember(stream)
             withAnimation(.easeInOut(duration: 0.15)) { playing = stream }
         } label: {
@@ -5191,7 +5242,7 @@ struct DetailView: View {
                         .lineLimit(2)
                 }
                 Spacer()
-                if stream.url == filteredStreams.first?.url, stream.url != lastPlayedURL {
+                if stream.url == playableStreams.first?.url, stream.url != lastPlayedURL {
                     CinemaPill(text: "موصى به")
                 }
                 if stream.url == lastPlayedURL {
@@ -5206,11 +5257,18 @@ struct DetailView: View {
                 if let quality = stream.quality {
                     CinemaPill(text: quality)
                 }
+                if let note = stream.note {
+                    CinemaPill(text: note, tint: CinemaTheme.muted)
+                }
                 if isProxied(stream) {
                     CinemaPill(text: "بروكسي", tint: CinemaTheme.muted)
                 }
                 if playing?.url == stream.url {
                     ProgressView().tint(CinemaTheme.accent)
+                } else if stream.externalUrl != nil {
+                    Image(systemName: "safari")
+                        .font(.system(size: 20))
+                        .foregroundStyle(CinemaTheme.muted)
                 } else {
                     Image(systemName: "play.circle.fill")
                         .font(.system(size: 22))
