@@ -1,6 +1,7 @@
 package com.nuvio.app.features.player
 
 import com.nuvio.app.features.profiles.ProfileRepository
+import com.nuvio.app.features.streams.StreamLinkCacheRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -51,6 +52,10 @@ object SubtitleRepository {
     /**
      * Like [fetchAddonSubtitles], but first computes the OpenSubtitles video hash
      * when the stream extras do not already contain one.
+     *
+     * [contentKey] is the key of this episode's cached playback link. Its stored hash is used
+     * before any range request is made: the hash describes the file, so an episode fingerprinted
+     * once never pays for it again, and the second visit to the subtitle sheet answers at once.
      */
     fun fetchAddonSubtitlesWithHashComputation(
         type: String,
@@ -58,6 +63,7 @@ object SubtitleRepository {
         extras: SubtitleRequestExtras?,
         sourceUrl: String,
         sourceHeaders: Map<String, String>,
+        contentKey: String? = null,
         onExtrasUpdated: (SubtitleRequestExtras) -> Unit,
     ) {
         activeFetchJob?.cancel()
@@ -67,25 +73,38 @@ object SubtitleRepository {
             _error.value = null
             _addonSubtitles.value = cachedSubtitles(type, videoId, extras)
 
-            val enrichedExtras = try {
-                // Two 64 KiB range requests, usually a few hundred milliseconds. Bounded anyway: a
-                // host that ignores ranges must not hold the subtitle list behind it.
-                val hashResult = withTimeoutOrNull(VideoHashBudgetMs) {
-                    computeVideoHash(sourceUrl, sourceHeaders)
+            val known = contentKey?.let { key -> StreamLinkCacheRepository.knownVideoHash(key) }
+            val reusedExtras = extras.withKnownFileHash(
+                knownHash = known?.first,
+                knownSize = known?.second,
+            )
+            val reusedHash = reusedExtras?.videoHash
+            val enrichedExtras: SubtitleRequestExtras? = if (!reusedHash.isNullOrBlank() && reusedExtras != null) {
+                if (reusedExtras != extras) onExtrasUpdated(reusedExtras)
+                reusedExtras
+            } else {
+                try {
+                    // Two 64 KiB range requests, usually a few hundred milliseconds. Bounded
+                    // anyway: a host that ignores ranges must not hold the subtitle list behind it.
+                    val hashResult = withTimeoutOrNull(VideoHashBudgetMs) {
+                        computeVideoHash(sourceUrl, sourceHeaders)
+                    }
+                    if (hashResult != null) {
+                        val (hash, fileSize) = hashResult
+                        val updated = (reusedExtras ?: SubtitleRequestExtras()).copy(
+                            videoHash = hash,
+                            videoSize = reusedExtras?.videoSize ?: fileSize,
+                        )
+                        onExtrasUpdated(updated)
+                        updated
+                    } else {
+                        reusedExtras
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    reusedExtras
                 }
-                if (hashResult != null) {
-                    val (hash, fileSize) = hashResult
-                    val updated = (extras ?: SubtitleRequestExtras()).copy(
-                        videoHash = hash,
-                        videoSize = extras?.videoSize ?: fileSize,
-                    )
-                    onExtrasUpdated(updated)
-                    updated
-                } else extras
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                extras
             }
 
             executeSubtitleLoad(type, videoId, enrichedExtras)

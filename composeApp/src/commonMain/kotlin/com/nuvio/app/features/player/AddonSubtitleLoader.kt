@@ -74,6 +74,25 @@ data class SubtitleRequestExtras(
     }
 }
 
+/**
+ * Adds the file hash and size learned earlier for this very file, so a subtitle lookup does not
+ * spend its range requests on an answer that is already known. Whatever the stream itself declared
+ * wins over the remembered value, and nothing is invented when neither has it.
+ */
+internal fun SubtitleRequestExtras?.withKnownFileHash(
+    knownHash: String?,
+    knownSize: Long?,
+): SubtitleRequestExtras? {
+    val hash = knownHash?.trim()?.takeIf { it.isNotBlank() }
+    if (hash == null && knownSize == null) return this
+    val current = this ?: SubtitleRequestExtras()
+    if (!current.videoHash.isNullOrBlank() && current.videoSize != null) return current
+    return current.copy(
+        videoHash = current.videoHash?.takeIf { it.isNotBlank() } ?: hash,
+        videoSize = current.videoSize ?: knownSize,
+    )
+}
+
 internal fun buildSubtitleRequestUrl(
     manifestUrl: String,
     type: String,

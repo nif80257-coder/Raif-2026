@@ -31,19 +31,22 @@ internal fun PlayerScreenRuntime.fetchAddonSubtitlesForActiveItem() {
     // comes from the local engine once the stream is resolved, mirroring NuvioTV where
     // currentStreamUrl is set to the local engine URL for torrents.
     val hashableUrl = p2pResolvedSourceUrl ?: activeSourceUrl
+    val linkCacheKey = subtitleLinkCacheKey()
     if (extras?.videoHash == null && hashableUrl.isNotBlank() &&
         (hashableUrl.startsWith("http://", true) || hashableUrl.startsWith("https://", true))
     ) {
-        // Compute hash lazily — same pattern as NuvioTV.
+        // Compute hash lazily — same pattern as NuvioTV — unless this episode was fingerprinted
+        // before, in which case the stored hash answers without a single range request.
         SubtitleRepository.fetchAddonSubtitlesWithHashComputation(
             type = type,
             videoId = videoId,
             extras = extras,
             sourceUrl = hashableUrl,
             sourceHeaders = if (p2pResolvedSourceUrl != null) emptyMap() else activeSourceHeaders,
+            contentKey = linkCacheKey,
             onExtrasUpdated = { enriched ->
                 activeSubtitleExtras = enriched
-                persistComputedVideoHash(enriched)
+                persistComputedVideoHash(linkCacheKey, enriched)
             },
         )
     } else {
@@ -52,22 +55,30 @@ internal fun PlayerScreenRuntime.fetchAddonSubtitlesForActiveItem() {
 }
 
 /**
- * After lazy hash computation succeeds, patch the *existing* cached stream link
- * entry with the newly computed hash. Uses a read-modify-write so that we never
- * create a new entry (respecting server-stream exclusions and saveForReuse=false)
- * and never reset cachedAtMs.
+ * The cache key of the link playing right now, which is where the file hash is remembered between
+ * openings. Null when there is no video to key it by.
  */
-private fun PlayerScreenRuntime.persistComputedVideoHash(enriched: SubtitleRequestExtras) {
-    if (!playerSettingsUiState.streamReuseLastLinkEnabled) return
-    val vid = activeVideoId ?: return
-    val cacheKey = StreamLinkCacheRepository.contentKey(
+private fun PlayerScreenRuntime.subtitleLinkCacheKey(): String? {
+    val vid = activeVideoId ?: return null
+    return StreamLinkCacheRepository.contentKey(
         type = contentType ?: parentMetaType,
         videoId = vid,
         parentMetaId = parentMetaId,
         season = activeSeasonNumber,
         episode = activeEpisodeNumber,
     )
-    StreamLinkCacheRepository.updateVideoHash(cacheKey, enriched.videoHash, enriched.videoSize)
+}
+
+/**
+ * After lazy hash computation succeeds, patch the *existing* cached stream link
+ * entry with the newly computed hash. Uses a read-modify-write so that we never
+ * create a new entry (respecting server-stream exclusions and saveForReuse=false)
+ * and never reset cachedAtMs.
+ */
+private fun PlayerScreenRuntime.persistComputedVideoHash(cacheKey: String?, enriched: SubtitleRequestExtras) {
+    if (!playerSettingsUiState.streamReuseLastLinkEnabled) return
+    val key = cacheKey ?: return
+    StreamLinkCacheRepository.updateVideoHash(key, enriched.videoHash, enriched.videoSize)
 }
 
 internal fun PlayerScreenRuntime.setSubtitleDelay(delayMs: Int) {

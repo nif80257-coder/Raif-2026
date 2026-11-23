@@ -154,6 +154,22 @@ object StreamLinkCacheRepository {
         StreamLinkCacheStorage.saveEntry(hashed, payload)
     }
 
+    /**
+     * The file hash this episode was already fingerprinted with, and its size.
+     *
+     * Unlike [getValid] this ignores the age of the entry and the life of its link: the hash
+     * describes the file, not the URL that happened to play it, so it stays true after the link
+     * has expired. A subtitle lookup that finds one here can skip its two range requests.
+     */
+    fun knownVideoHash(contentKey: String): Pair<String, Long?>? {
+        val raw = StreamLinkCacheStorage.loadEntry(hashedKey(contentKey)) ?: return null
+        val entry = runCatching {
+            json.decodeFromString(CachedStreamLink.serializer(), raw)
+        }.getOrNull() ?: return null
+        val hash = entry.videoHash?.trim()?.takeIf { it.isNotBlank() } ?: return null
+        return hash to entry.videoSize
+    }
+
     private fun hashedKey(contentKey: String): String {
         val hash = contentKey.fold(0L) { acc, c -> acc * 31 + c.code }.toULong()
         return "stream_link_$hash"
