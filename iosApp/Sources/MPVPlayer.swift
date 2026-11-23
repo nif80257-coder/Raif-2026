@@ -833,5 +833,86 @@ final class HLSParser {
     }
 }
 
+/// Races a handful of candidate links with a small range request and answers the
+/// first that really serves bytes, so pressing play does not land on a dead mirror.
+final class StreamRacer {
+    static let shared = StreamRacer()
+
+    private let session: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 4
+        configuration.httpMaximumConnectionsPerHost = 6
+        return URLSession(configuration: configuration)
+    }()
+
+    /// The winner is the first candidate that answers, not the first in the list: a
+    /// mirror that responds in 200 ms beats a faster-looking one that never answers.
+    func firstPlayable(_ candidates: [StreamChoice]) async -> StreamChoice? {
+        let playable = candidates.filter { $0.externalUrl == nil }
+        guard !playable.isEmpty else { return nil }
+        if playable.count == 1 { return playable.first }
+        return await withTaskGroup(of: StreamChoice?.self) { group in
+            for stream in playable {
+                group.addTask { await self.probe(stream) }
+            }
+            for await winner in group {
+                if let winner {
+                    group.cancelAll()
+                    return winner
+                }
+            }
+            return nil
+        }
+    }
+
+    private func probe(_ stream: StreamChoice) async -> StreamChoice? {
+        guard let url = URL(string: stream.url) else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 4
+        // A kilobyte is enough to tell a working host from a dead one, and it costs
+        // the connection almost nothing.
+        request.setValue("bytes=0-1023", forHTTPHeaderField: "Range")
+        for (name, value) in stream.headers ?? [:] {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
+        do {
+            let (_, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else { return nil }
+            guard (200...399).contains(http.statusCode) else { return nil }
+            return stream
+        } catch {
+            return nil
+        }
+    }
+}
+
+/// Reads the expiry a signed link carries in its query, so a cached URL can be
+/// recognised as dead before the viewer presses play on it.
+enum StreamExpiry {
+    static func date(in urlString: String) -> Date? {
+        guard let components = URLComponents(string: urlString), let items = components.queryItems else {
+            return nil
+        }
+        for name in ["exp", "expires", "expiry", "token_expires", "valid_until"] {
+            guard let raw = items.first(where: { $0.name.lowercased() == name })?.value,
+                  let value = Double(raw), value > 0 else { continue }
+            if value > 10_000_000_000 {
+                return Date(timeIntervalSince1970: value / 1000)
+            }
+            if value > 1_000_000_000 {
+                return Date(timeIntervalSince1970: value)
+            }
+            // A small number is a duration, not a moment.
+            return Date().addingTimeInterval(value)
+        }
+        return nil
+    }
+
+    static func isExpiring(_ urlString: String, within seconds: TimeInterval = 300) -> Bool {
+        guard let date = date(in: urlString) else { return false }
+        return date.timeIntervalSinceNow < seconds
+    }
+}
+
 
 #endif

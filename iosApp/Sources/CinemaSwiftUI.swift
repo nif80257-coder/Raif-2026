@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 import AVKit
 import AVFoundation
+import Charts
 import LocalAuthentication
 import Network
 import SafariServices
@@ -653,6 +654,21 @@ final class CinemaAPI {
 
     func cancelStreams(_ token: String) {
         bridge.cancelStreams(token: token)
+    }
+
+    /// A source list with the cache deliberately skipped, for renewing a link whose
+    /// signature is about to expire.
+    func freshStreams(for id: String, type: String) async -> [StreamChoice] {
+        await withCheckedContinuation { (continuation: CheckedContinuation<[StreamChoice], Never>) in
+            streamsFast(
+                for: id,
+                type: type,
+                onUpdate: { _ in },
+                onDone: { payload in
+                    continuation.resume(returning: payload.streams)
+                }
+            )
+        }
     }
 
     /// Every subtitle the installed subtitle addons offer for this id.
@@ -1893,21 +1909,33 @@ struct CinematicHomeView: View {
             }
             .buttonStyle(.plain)
             Button {
-                Haptics.tap()
-                if let pick = model.heroItems.randomElement() { detailItem = pick }
+                surprise()
             } label: {
-                Image(systemName: "dice")
+                Image(systemName: "dice.fill")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(CinemaTheme.accent)
                     .frame(width: 34, height: 34)
                     .background(CinemaTheme.accent.opacity(0.14), in: Circle())
             }
             .buttonStyle(.plain)
-            .disabled(model.heroItems.isEmpty)
+            .disabled(model.visibleShelves.isEmpty)
         }
         .padding(.horizontal, 20)
         .padding(.top, 8)
         .padding(.bottom, 14)
+    }
+
+    /// A title the viewer has not started yet, taken from the rows already on screen:
+    /// instant, free, and always something they can actually play.
+    private func surprise() {
+        Haptics.select()
+        let started = Set(model.continueWatching.map(\.item.id))
+        let all = model.visibleShelves.flatMap(\.items)
+        let fresh = all.filter { !started.contains($0.id) }
+        let pool = fresh.isEmpty ? all : fresh
+        guard let pick = pool.randomElement() else { return }
+        EventLog.shared.add("discover", "فاجئني: \(pick.name)")
+        detailItem = pick
     }
 
     private var filterBar: some View {
@@ -4113,6 +4141,7 @@ struct DetailView: View {
     @State private var addonLatency: [String: Int64] = [:]
     @AppStorage("cinemax.sourcesCompact") private var compactSources = false
     @AppStorage("cinemax.prefetchNext") private var prefetchNext = true
+    @AppStorage("cinemax.raceSources") private var raceSources = true
     @State private var prefetchedEpisode: String?
 
     private var playlist: [CinemaItem] {
@@ -4394,9 +4423,7 @@ struct DetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
                 Button {
-                    if let first = playableStreams.first {
-                        play(first)
-                    }
+                    playBest()
                 } label: {
                     Label(resumeEntry == nil ? "مشاهدة" : "أكمل", systemImage: "play.fill")
                         .font(.system(size: 15, weight: .bold))
@@ -4875,10 +4902,56 @@ struct DetailView: View {
         UserDefaults.standard.set(stream.url, forKey: "cinemax.lastSource." + item.id)
     }
 
+    /// The watch button does not trust the first row blindly: with racing on, the top
+    /// few links are probed in parallel and the first that really serves bytes plays.
+    private func playBest() {
+        guard let first = playableStreams.first else { return }
+        guard raceSources, playableStreams.count > 1 else {
+            play(first)
+            return
+        }
+        Task {
+            let candidates = Array(playableStreams.prefix(3))
+            let winner = await StreamRacer.shared.firstPlayable(candidates) ?? first
+            await MainActor.run {
+                if winner.url != first.url {
+                    EventLog.shared.add("race", "فاز \(winner.addon) على \(first.addon)")
+                    Haptics.select()
+                }
+                play(winner)
+            }
+        }
+    }
+
     /// Remembers the chosen link so the next visit marks it, and picks an adaptive
     /// link's rendition before the player opens instead of letting it guess.
     private func play(_ stream: StreamChoice) {
         remember(stream)
+        guard StreamExpiry.isExpiring(stream.url) else {
+            launchPlayback(stream)
+            return
+        }
+        // The signature on this link is nearly gone: ask the addon for a fresh one and
+        // play that instead of handing the player a URL that will 403 mid-film.
+        EventLog.shared.add("sources", "رابط قارب على الانتهاء من \(stream.addon)")
+        Task {
+            let fresh = await CinemaAPI.shared.freshStreams(
+                for: episode?.id ?? item.id,
+                type: item.type
+            )
+            let replacement = fresh.first { $0.addon == stream.addon && $0.externalUrl == nil }
+                ?? fresh.first { $0.externalUrl == nil }
+                ?? stream
+            await MainActor.run {
+                if replacement.url != stream.url {
+                    EventLog.shared.add("sources", "جُدّد رابط \(replacement.addon)")
+                }
+                launchPlayback(replacement)
+            }
+        }
+    }
+
+    private func launchPlayback(_ stream: StreamChoice) {
         guard HLSParser.shared.isHLS(stream.url) else {
             withAnimation(.easeInOut(duration: 0.15)) { playing = stream }
             return
@@ -5309,6 +5382,9 @@ struct DetailView: View {
                 }
                 if let note = stream.note {
                     CinemaPill(text: note, tint: CinemaTheme.muted)
+                }
+                if StreamExpiry.isExpiring(stream.url) {
+                    CinemaPill(text: "ينتهي قريبًا", tint: CinemaTheme.favourite)
                 }
                 if isProxied(stream) {
                     CinemaPill(text: "بروكسي", tint: CinemaTheme.muted)
@@ -10082,6 +10158,7 @@ struct SourcesControlSettings: View {
     @AppStorage("cinemax.sourcesCompact") private var compact = false
     @AppStorage("cinemax.speedFirst") private var speedFirst = false
     @AppStorage("cinemax.prefetchNext") private var prefetchNext = true
+    @AppStorage("cinemax.raceSources") private var raceSources = true
     @AppStorage("cinemax.prefQuality") private var prefQuality = "auto"
 
     private let qualities: [(id: String, title: String)] = [
@@ -10286,6 +10363,18 @@ struct SourcesControlSettings: View {
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.white)
                     Text("يجهّز روابط الحلقة التالية أثناء المشاهدة لتفتح فورًا")
+                        .font(.system(size: 10))
+                        .foregroundStyle(CinemaTheme.muted)
+                }
+            }
+            .tint(CinemaTheme.accent)
+
+            Toggle(isOn: $raceSources) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("سباق الروابط قبل التشغيل")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Text("يجرّب أول ثلاثة روابط بطلب صغير ويشغّل أول واحد يستجيب فعلًا")
                         .font(.system(size: 10))
                         .foregroundStyle(CinemaTheme.muted)
                 }
@@ -10499,6 +10588,52 @@ struct StatsSettings: View {
                     tile("\(finished.count)", "تنزيل مكتمل", icon: "arrow.down.circle.fill")
                 }
 
+                if !library.progress.isEmpty {
+                    chartCard(
+                        title: "أكثر ما بقي لك مشاهدة",
+                        subtitle: "أعلى ستة عناوين بالدقائق المتبقية"
+                    ) {
+                        Chart(Array(library.progress.prefix(6))) { entry in
+                            BarMark(
+                                x: .value("الدقائق", max(1, entry.remainingMinutes)),
+                                y: .value("العنوان", shortName(entry.item.name))
+                            )
+                            .foregroundStyle(CinemaTheme.accent.gradient)
+                            .cornerRadius(4)
+                        }
+                        .chartXAxis(.hidden)
+                        .chartYAxis {
+                            AxisMarks(position: .trailing) { _ in
+                                AxisValueLabel()
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(CinemaTheme.muted)
+                            }
+                        }
+                        .frame(height: 190)
+                    }
+                }
+
+                if !library.favorites.isEmpty {
+                    chartCard(title: "ما حفظته", subtitle: "أفلام مقابل مسلسلات") {
+                        Chart {
+                            BarMark(
+                                x: .value("النوع", "أفلام"),
+                                y: .value("العدد", savedMovies)
+                            )
+                            .foregroundStyle(CinemaTheme.accent)
+                            .cornerRadius(6)
+                            BarMark(
+                                x: .value("النوع", "مسلسلات"),
+                                y: .value("العدد", savedSeries)
+                            )
+                            .foregroundStyle(CinemaTheme.favourite)
+                            .cornerRadius(6)
+                        }
+                        .chartYAxis(.hidden)
+                        .frame(height: 140)
+                    }
+                }
+
                 VStack(spacing: 0) {
                     row("متوسط ما شوهد", "\(averageProgress)٪")
                     Divider().overlay(CinemaTheme.hairline)
@@ -10550,6 +10685,38 @@ struct StatsSettings: View {
             return "\(Int(Double(millis) / 60_000)) دقيقة"
         }
         return String(format: "%.1f ساعة", hours)
+    }
+
+    private var savedMovies: Int {
+        library.favorites.filter { $0.type == "movie" }.count
+    }
+
+    private var savedSeries: Int {
+        library.favorites.filter { $0.type == "series" }.count
+    }
+
+    /// A title long enough to break a bar chart is shortened at a word boundary.
+    private func shortName(_ name: String) -> String {
+        guard name.count > 18 else { return name }
+        return String(name.prefix(17)) + "…"
+    }
+
+    private func chartCard<Content: View>(
+        title: String,
+        subtitle: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+            Text(subtitle)
+                .font(.system(size: 10))
+                .foregroundStyle(CinemaTheme.muted)
+            content()
+        }
+        .padding(14)
+        .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
     private var remainingLabel: String {
@@ -13040,6 +13207,37 @@ struct DownloadsView: View {
                         Image(systemName: "arrow.up.arrow.down")
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(CinemaTheme.accent)
+                    }
+                    Menu {
+                        Button {
+                            Haptics.select()
+                            for job in manager.jobs where job.state == "running" {
+                                manager.pause(job)
+                            }
+                        } label: {
+                            Label("إيقاف الكل", systemImage: "pause.circle")
+                        }
+                        Button {
+                            Haptics.select()
+                            for job in manager.jobs
+                            where job.state == "paused" || job.state == "failed" || job.state == "cancelled" {
+                                manager.resume(job)
+                            }
+                        } label: {
+                            Label("استكمال الكل", systemImage: "play.circle")
+                        }
+                        Button {
+                            Haptics.select()
+                            for job in manager.jobs where job.state == "done" {
+                                manager.remove(job)
+                            }
+                        } label: {
+                            Label("مسح المكتملة", systemImage: "checkmark.circle")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.muted)
                     }
                     Button {
                         Haptics.tap()
