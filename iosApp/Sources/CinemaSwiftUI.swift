@@ -1698,6 +1698,7 @@ final class HomeModel: ObservableObject {
 struct CinematicHomeView: View {
     @Binding var selection: Int
     @ObservedObject private var model = HomeModel.shared
+    @ObservedObject private var lists = ListsStore.shared
     @AppStorage("cinemax.showContinue") private var showContinue = true
     @AppStorage("cinemax.showHero") private var showHero = true
     @State private var glow: [Color] = [CinemaTheme.accent]
@@ -1748,6 +1749,30 @@ struct CinematicHomeView: View {
                                                 Label("إزالة من قيد المشاهدة", systemImage: "trash")
                                             }
                                         }
+                                }
+                            }
+                            .padding(.horizontal, 20)
+                        }
+                    }
+                    if let list = lists.lists.first(where: { !$0.items.isEmpty }) {
+                        SectionHeader(title: "قوائمي · \(list.name) · \(list.items.count)")
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            LazyHStack(alignment: .top, spacing: 12) {
+                                ForEach(list.items.prefix(20)) { item in
+                                    PosterCard(
+                                        item: item,
+                                        progress: model.continueWatching.first { $0.item.id == item.id }?.fraction ?? 0,
+                                        saved: model.favorites.contains(item.id),
+                                        onOpen: { detailItem = item }
+                                    )
+                                    .contextMenu {
+                                        Button(role: .destructive) {
+                                            Haptics.tap()
+                                            ListsStore.shared.remove(item, from: list.id)
+                                        } label: {
+                                            Label("إزالة من القائمة", systemImage: "minus.circle")
+                                        }
+                                    }
                                 }
                             }
                             .padding(.horizontal, 20)
@@ -5203,6 +5228,9 @@ struct DetailView: View {
             )
         }
         .buttonStyle(CinemaPressStyle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(stream.addon). \(stream.title). \(stream.quality ?? "")")
+        .accessibilityHint("تشغيل هذا المصدر")
         .contextMenu {
             Button {
                 Haptics.tap()
@@ -10366,6 +10394,8 @@ struct StatsSettings: View {
                 VStack(spacing: 0) {
                     row("متوسط ما شوهد", "\(averageProgress)٪")
                     Divider().overlay(CinemaTheme.hairline)
+                    row("ساعات المشاهدة المسجلة", watchedHours)
+                    Divider().overlay(CinemaTheme.hairline)
                     row("وقت متبقٍ في القائمة", remainingLabel)
                     Divider().overlay(CinemaTheme.hairline)
                     row("تنزيلات جارية", "\(downloads.jobs.filter { $0.state == "running" }.count)")
@@ -10401,6 +10431,17 @@ struct StatsSettings: View {
             watchedEpisodes = extra.watched
             addonCount = extra.addons
         }
+    }
+
+    /// Everything the app has clocked, added up: an honest number, not a guess.
+    private var watchedHours: String {
+        let millis = library.progress.reduce(Int64(0)) { $0 + $1.positionMillis }
+        guard millis > 0 else { return "٠" }
+        let hours = Double(millis) / 3_600_000
+        if hours < 1 {
+            return "\(Int(Double(millis) / 60_000)) دقيقة"
+        }
+        return String(format: "%.1f ساعة", hours)
     }
 
     private var remainingLabel: String {
@@ -12948,21 +12989,29 @@ struct DownloadsView: View {
                                 .foregroundStyle(CinemaTheme.accent)
                             }
                             if job.state == "done", let path = job.filePath {
-                                Button("تشغيل") {
-                                    let item = CinemaItem(
-                                        id: path,
-                                        type: "movie",
-                                        name: job.title,
-                                        poster: nil,
-                                        background: nil,
-                                        releaseInfo: nil,
-                                        rating: nil,
-                                        overview: nil
-                                    )
-                                    playing = item
+                                if FileManager.default.fileExists(atPath: path) {
+                                    Button("تشغيل") {
+                                        Haptics.tap()
+                                        // A local file is handed to mpv as a file URL, not
+                                        // as a bare path, so a name with spaces still opens.
+                                        playing = CinemaItem(
+                                            id: URL(fileURLWithPath: path).absoluteString,
+                                            type: "movie",
+                                            name: job.title,
+                                            poster: nil,
+                                            background: nil,
+                                            releaseInfo: nil,
+                                            rating: nil,
+                                            overview: nil
+                                        )
+                                    }
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(CinemaTheme.accent)
+                                } else {
+                                    Text("الملف مفقود")
+                                        .font(.system(size: 10, weight: .semibold))
+                                        .foregroundStyle(CinemaTheme.favourite)
                                 }
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(CinemaTheme.accent)
                             }
                             Button {
                                 manager.remove(job)
