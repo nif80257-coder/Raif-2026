@@ -19,6 +19,11 @@
 | `xcode-project-setup` | أي عمل على `project.pbxproj`: حزم SPM، ربط ملفات، قواعد Xcode الحديثة |
 | `swiftui-performance-audit` | تدقيق أداء SwiftUI من الكود: `body` الثقيل، `ForEach`، الهوية، التمرير |
 | `swiftui-view-refactor` | تقسيم الملفات الضخمة إلى مشاهد فرعية ونماذج، بلا تغيير سلوك |
+| `app-intents` | App Intents: أوامر Siri والاختصارات وSpotlight والويدجت |
+| `swiftdata` | SwiftData: النماذج والوراثة والاستعلامات وتخزين أسرع من `UserDefaults` |
+| `kmp-ktor` | عميل Ktor في Kotlin Multiplatform لطبقة المصادر: مهلات، إعادة محاولة، بث |
+| `kmp-network-layer` | طبقة شبكة كاملة في KMP: محركات المنصات، تجديد التوتر، خرائط الأخطاء |
+| `avkit` | AVKit/AVPlayer: صورة داخل صورة، AirPlay، معاينة الفيديو، ترجمة ووسائط |
 
 مهارات مفعّلة على مستوى التطبيق (خارج هذا المجلد) وتخص هذا المشروع:
 `addon-manifest-engine` · `stream-fetching-parser` · `swift-swiftui-ios-engineer` ·
