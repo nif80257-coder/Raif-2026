@@ -1,14 +1,6 @@
 ---
 name: swiftui-iphone-duo
-description: >-
-  Adapts and reviews SwiftUI apps for iPhone Duo (Xcode 27.1 / iOS 27.1 SDK)
-  and continuously changing window sizes. Use when supporting the foldable
-  iPhone Duo, outer or inner display, vertical bars (toolbarVerticalBehavior,
-  axisBehavior, visibilityPriority, ToolbarOverflowMenu), sheet placement,
-  reserved regions and the fold, ArrangementView, onHingeChange,
-  CameraCaptureAccessory, NavigationSplitView, adaptive TabView sidebar,
-  ViewThatFits, AnyLayout, or when replacing UIDevice / UIScreen.main / idiom /
-  orientation layout branches.
+description: "Adapts and reviews SwiftUI apps for iPhone Duo (Xcode 27.1 / iOS 27.1 SDK) and continuously changing window sizes. Use when supporting the foldable iPhone Duo, outer or inner display, vertical bars (toolbarVerticalBehavior, axisBehavior, visibilityPriority, ToolbarOverflowMenu), sheet placement, reserved regions and the fold, ArrangementView, onHingeChange, CameraCaptureAccessory, NavigationSplitView, adaptive TabView sidebar, ViewThatFits, AnyLayout, or when replacing UIDevice / UIScreen.main / idiom / orientation layout branches."
 ---
 
 # SwiftUI iPhone Duo
