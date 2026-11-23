@@ -5,6 +5,7 @@ import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.features.addons.AddonFailureMemory
 import com.nuvio.app.features.addons.AddonFailureSnapshot
 import com.nuvio.app.features.addons.AddonRepository
+import com.nuvio.app.features.addons.AddonSilentSourceMemory
 import com.nuvio.app.features.addons.buildAddonResourceUrl
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.addons.fetchAddonResponseText
@@ -179,6 +180,13 @@ object StreamsRepository {
         // cannot keep holding a fetch worker; an explicit refresh asks all of them again. One read
         // of the failure records serves both that filter and the fetch order below.
         val failureSnapshot = if (isNativeServerRequest) AddonFailureSnapshot() else AddonFailureMemory.snapshot()
+        // Sources that answered empty three times in a row are left out of automatic loads too:
+        // they do not fail, they simply never return a link, and every request waits for them.
+        val silentManifestUrls = if (isNativeServerRequest) {
+            emptySet()
+        } else {
+            AddonSilentSourceMemory.silentManifestUrls(ProfileRepository.activeProfileId)
+        }
         val installedAddons = if (isNativeServerRequest) {
             emptyList()
         } else {
@@ -186,6 +194,7 @@ object StreamsRepository {
                 .withoutPausedAddons(
                     includeAll = forceRefresh,
                     pausedManifestUrls = failureSnapshot.pausedManifestUrls,
+                    silentManifestUrls = silentManifestUrls,
                 )
         }
         val pluginScrapers = if (AppFeaturePolicy.pluginsEnabled && !isNativeServerRequest) {
@@ -581,13 +590,21 @@ object StreamsRepository {
                         }
                     }
                     if (outcome.isSuccess) {
+                        val returnedStreams = outcome.getOrNull().orEmpty()
                         AddonSpeedMemory.recordSuccess(
                             profileId = streamCacheProfileId,
                             manifestUrl = addon.manifestUrl,
                             elapsedMs = sourceElapsedMs,
-                            resultCount = outcome.getOrNull()?.size,
+                            resultCount = returnedStreams.size,
                         )
                         AddonFailureMemory.recordSuccess(addon.manifestUrl)
+                        // "No failure" is not the same as "useful": a source that answers with an
+                        // empty list is remembered separately so it can be left out for a while.
+                        if (returnedStreams.isEmpty()) {
+                            AddonSilentSourceMemory.recordEmptyAnswer(streamCacheProfileId, addon.manifestUrl)
+                        } else {
+                            AddonSilentSourceMemory.recordAnswerWithLinks(streamCacheProfileId, addon.manifestUrl)
+                        }
                     } else {
                         AddonSpeedMemory.recordFailure(streamCacheProfileId, addon.manifestUrl)
                         AddonFailureMemory.recordFailure(addon.manifestUrl, outcome.exceptionOrNull())

@@ -7,6 +7,7 @@ import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.buildAddonResourceUrl
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.addons.fetchAddonResponseText
+import com.nuvio.app.features.addons.AddonSilentSourceMemory
 import com.nuvio.app.features.addons.withoutPausedAddons
 import com.nuvio.app.features.debrid.DebridSettingsRepository
 import com.nuvio.app.features.debrid.DebridStreamPresentation
@@ -256,6 +257,11 @@ object PlayerStreamsRepository {
         // Same rule as the main source list: a manually refreshed list asks every add-on. One
         // storage read serves both the pause filter and the ordering below.
         val failureSnapshot = AddonFailureMemory.snapshot()
+        val silentManifestUrls = if (isNativeServerRequest) {
+            emptySet()
+        } else {
+            AddonSilentSourceMemory.silentManifestUrls(ProfileRepository.activeProfileId)
+        }
         val installedAddons = if (isNativeServerRequest) {
             emptyList()
         } else {
@@ -263,6 +269,7 @@ object PlayerStreamsRepository {
                 .withoutPausedAddons(
                     includeAll = forceRefresh,
                     pausedManifestUrls = failureSnapshot.pausedManifestUrls,
+                    silentManifestUrls = silentManifestUrls,
                 )
         }
         PlayerSettingsRepository.ensureLoaded()
@@ -499,13 +506,19 @@ object PlayerStreamsRepository {
                         }
                     }
                     if (outcome.isSuccess) {
+                        val returnedStreams = outcome.getOrNull().orEmpty()
                         AddonSpeedMemory.recordSuccess(
                             profileId = streamCacheProfileId,
                             manifestUrl = addon.manifestUrl,
                             elapsedMs = sourceElapsedMs,
-                            resultCount = outcome.getOrNull()?.size,
+                            resultCount = returnedStreams.size,
                         )
                         AddonFailureMemory.recordSuccess(addon.manifestUrl)
+                        if (returnedStreams.isEmpty()) {
+                            AddonSilentSourceMemory.recordEmptyAnswer(streamCacheProfileId, addon.manifestUrl)
+                        } else {
+                            AddonSilentSourceMemory.recordAnswerWithLinks(streamCacheProfileId, addon.manifestUrl)
+                        }
                     } else {
                         AddonSpeedMemory.recordFailure(streamCacheProfileId, addon.manifestUrl)
                         AddonFailureMemory.recordFailure(addon.manifestUrl, outcome.exceptionOrNull())

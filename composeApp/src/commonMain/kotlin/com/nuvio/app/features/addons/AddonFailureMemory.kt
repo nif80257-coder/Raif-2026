@@ -237,17 +237,22 @@ internal fun decodeFailureRecord(
  *
  * [pausedManifestUrls] lets a caller that already read [AddonFailureMemory.snapshot] hand in the
  * set, so one title load costs one storage read instead of two. Left out, the pause list is read
- * here.
+ * here. [silentManifestUrls] are the sources that answered with nothing too often
+ * ([AddonSilentSourceMemory]); they are left out of automatic loads for the same reason, because a
+ * fetch slot spent on a source that returns no link is a slot the list waits for and gets nothing
+ * from.
  *
- * The full list comes back if the pause list would have covered every add-on, so a bad
- * streak across a whole install can never leave the screen with no sources at all.
+ * The full list comes back if the skipped set would have covered every add-on, so a bad streak
+ * across a whole install can never leave the screen with no sources at all.
  */
 internal fun List<ManagedAddon>.withoutPausedAddons(
     includeAll: Boolean,
     pausedManifestUrls: Set<String>? = null,
+    silentManifestUrls: Set<String>? = null,
 ): List<ManagedAddon> {
     if (includeAll) return this
     val paused = pausedManifestUrls ?: AddonFailureMemory.pausedManifestUrls()
-    if (paused.isEmpty()) return this
-    return filterNot { it.manifestUrl in paused }.ifEmpty { this }
+    val skipped = if (silentManifestUrls.isNullOrEmpty()) paused else paused + silentManifestUrls
+    if (skipped.isEmpty()) return this
+    return filterNot { it.manifestUrl in skipped }.ifEmpty { this }
 }

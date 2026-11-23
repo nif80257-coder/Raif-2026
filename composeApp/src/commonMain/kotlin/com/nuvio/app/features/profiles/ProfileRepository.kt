@@ -11,6 +11,7 @@ import com.nuvio.app.core.poster.CustomPosterUrlRepository
 import com.nuvio.app.core.sync.ProfileSettingsSync
 import com.nuvio.app.core.sync.putSyncOriginClientId
 import com.nuvio.app.core.tracking.ensureTrackingProvidersRegistered
+import com.nuvio.app.features.addons.AddonSilentSourceMemory
 import com.nuvio.app.features.streams.AddonSpeedMemory
 import com.nuvio.app.features.addons.AddonPauseExceptions
 import com.nuvio.app.features.addons.AddonRepository
@@ -304,6 +305,8 @@ object ProfileRepository {
         AddonPauseExceptions.clear(profileIndex)
         // The measured source speeds belong to the profile's own add-on list as well.
         AddonSpeedMemory.clear(profileIndex)
+        // So do the counts of sources that answered with nothing.
+        AddonSilentSourceMemory.clear(profileIndex)
         if (AuthRepository.state.value.isAnonymous || !ServerConfigurationRepository.active.value.isCustom) {
             val remaining = _state.value.profiles.filter { it.profileIndex != profileIndex }
             ProfilePinCacheStorage.removePayload(profileIndex)
