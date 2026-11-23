@@ -334,6 +334,29 @@ data class AddonStreamGroup(
     val error: String? = null,
 )
 
+/** A source the app asked that answered successfully without a single playable link. */
+data class StreamEmptyAnswer(
+    val addonId: String,
+    val addonName: String,
+)
+
+/**
+ * The sources that answered the request with nothing to play.
+ *
+ * A group that is still loading has not answered yet, and one that carries an error already says
+ * why it failed. What remains is the case the user cannot see: a source that replied "there is
+ * nothing here" and left the sheet shorter with no explanation at all, which reads as the app
+ * having a bug or the title being missing rather than those sources having no links.
+ */
+internal fun List<AddonStreamGroup>.emptyAnswerSources(): List<StreamEmptyAnswer> =
+    mapNotNull { group ->
+        if (group.isLoading || !group.error.isNullOrBlank() || group.streams.isNotEmpty()) {
+            null
+        } else {
+            StreamEmptyAnswer(addonId = group.addonId, addonName = group.addonName)
+        }
+    }
+
 enum class StreamsEmptyStateReason {
     NoAddonsInstalled,
     NoCompatibleAddons,
@@ -364,4 +387,8 @@ data class StreamsUiState(
 
     val hasAnyStreams: Boolean
         get() = groups.any { it.streams.isNotEmpty() }
+
+    /** The sources that answered this request with nothing to play, in the list's own order. */
+    val emptyAnswerSources: List<StreamEmptyAnswer>
+        get() = groups.emptyAnswerSources()
 }

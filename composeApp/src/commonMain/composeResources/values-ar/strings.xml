@@ -1760,6 +1760,8 @@
     <string name="streams_empty_no_stream_addon_message">إضافاتك المثبتة لا توفر مصادر بث لهذا النوع من العناوين.</string>
     <string name="streams_empty_no_stream_addon_title">لا توجد إضافة بث متاحة</string>
     <string name="streams_empty_no_streams_message">لم تُرجع أي من إضافاتك المثبتة مصادر بث لهذا العنوان.</string>
+    <string name="streams_empty_answered_nothing_title">المصادر أجابت، لكن بلا روابط</string>
+    <string name="streams_empty_answered_nothing_message">وصلت %1$d من مصادرك إلى هذا العنوان ولم تُرجع شيئًا قابلًا للتشغيل: %2$s. أعد المحاولة بعد قليل، أو افحصها من الإعدادات ← فحص المصادر.</string>
     <string name="streams_episode_badge">S%1$d E%2$d</string>
     <string name="streams_episode_fallback_title">حلقة</string>
     <string name="streams_episode_title_with_name">S%1$d E%2$d - %3$s</string>

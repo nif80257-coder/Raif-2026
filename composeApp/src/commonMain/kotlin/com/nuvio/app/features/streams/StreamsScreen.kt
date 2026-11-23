@@ -774,7 +774,10 @@ internal fun StreamList(
 
             !hasAnyStreams && !uiState.isAnyLoading -> {
                 item {
-                    EmptyStateBlock(reason = uiState.emptyStateReason)
+                    EmptyStateBlock(
+                        reason = uiState.emptyStateReason,
+                        emptyAnswerNames = uiState.emptyAnswerSources.map { source -> source.addonName },
+                    )
                 }
             }
 
@@ -1184,9 +1187,13 @@ private fun LoadingStateBlock(
     }
 }
 
+/** How many source names the empty state lists before it stops naming them. */
+private const val EMPTY_ANSWER_NAMES_IN_MESSAGE = 4
+
 @Composable
 private fun EmptyStateBlock(
     reason: StreamsEmptyStateReason?,
+    emptyAnswerNames: List<String> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
     val title: String
@@ -1205,8 +1212,19 @@ private fun EmptyStateBlock(
         }
 
         StreamsEmptyStateReason.NoStreamsFound, null -> {
-            title = stringResource(Res.string.compose_player_no_streams_found)
-            message = stringResource(Res.string.streams_empty_no_streams_message)
+            // Every source reached is still better than none: saying which ones answered with
+            // nothing turns a silent empty screen into something the user can act on.
+            if (emptyAnswerNames.isEmpty()) {
+                title = stringResource(Res.string.compose_player_no_streams_found)
+                message = stringResource(Res.string.streams_empty_no_streams_message)
+            } else {
+                title = stringResource(Res.string.streams_empty_answered_nothing_title)
+                message = stringResource(
+                    Res.string.streams_empty_answered_nothing_message,
+                    emptyAnswerNames.size,
+                    emptyAnswerNames.take(EMPTY_ANSWER_NAMES_IN_MESSAGE).joinToString(separator = ", "),
+                )
+            }
         }
     }
 
