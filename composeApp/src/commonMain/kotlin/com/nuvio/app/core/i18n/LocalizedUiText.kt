@@ -1,6 +1,12 @@
 package com.nuvio.app.core.i18n
 
-import kotlinx.coroutines.runBlocking
+import androidx.compose.runtime.mutableStateMapOf
+import kotlinx.atomicfu.locks.SynchronizedObject
+import kotlinx.atomicfu.locks.synchronized
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.player_picture_in_picture
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_play
@@ -188,9 +194,39 @@ fun localizedByteUnit(unit: String): String =
 fun localizedPlayerPictureInPicture(): String =
     resourceString("RAIF is playing in Picture in Picture mode") { getString(Res.string.player_picture_in_picture) }
 
+/** Strings already read from the resources, keyed by the English text they replace. */
+private val resolvedStrings = mutableStateMapOf<String, String>()
+
+/** Strings a read is already running for, so one is not asked twice. */
+private val resolvingStrings = mutableSetOf<String>()
+private val resolvingLock = SynchronizedObject()
+private val resourceStringScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+/**
+ * The viewer's language for [fallback], read without blocking the frame.
+ *
+ * These helpers are called straight from composition — a title, a label, a menu line — and the
+ * resources call behind them suspends. `runBlocking` here froze the frame that drew the text
+ * until it arrived, on the main thread, for every one of the hundred-odd strings below. Instead
+ * the English text is returned at once and the translated one is read in the background into a
+ * snapshot map: the read of that map happens during composition, so the view redraws with the
+ * viewer's language as soon as it lands, and every later call returns it without asking again.
+ */
 private fun resourceString(
     fallback: String,
     provider: suspend () -> String,
-): String = runCatching {
-    runBlocking { provider() }
-}.getOrDefault(fallback)
+): String {
+    resolvedStrings[fallback]?.let { translated -> return translated }
+
+    val shouldStart = synchronized(resolvingLock) { resolvingStrings.add(fallback) }
+    if (shouldStart) {
+        resourceStringScope.launch {
+            val translated = runCatching { provider() }.getOrNull()
+            synchronized(resolvingLock) { resolvingStrings.remove(fallback) }
+            if (!translated.isNullOrBlank()) {
+                resolvedStrings[fallback] = translated
+            }
+        }
+    }
+    return fallback
+}
