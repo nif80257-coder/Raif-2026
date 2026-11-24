@@ -58,6 +58,21 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         return true
     }
 
+    /// iOS woke the app for a download it kept fetching while CINEMAX was closed.
+    /// The handler is held until every event reached the session's delegate, which
+    /// is what tells the system the wake-up is finished.
+    func application(
+        _ application: UIApplication,
+        handleEventsForBackgroundURLSession identifier: String,
+        completionHandler: @escaping () -> Void
+    ) {
+        guard identifier == BackgroundTransfers.identifier else {
+            completionHandler()
+            return
+        }
+        BackgroundTransfers.shared.hold(completionHandler)
+    }
+
     func application(
         _ application: UIApplication,
         supportedInterfaceOrientationsFor window: UIWindow?
@@ -104,6 +119,11 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             CinemaxMPVRegistration.register()
         }
         #endif
+
+        // Asking for the download list restores the transfers on the way in, so a
+        // file iOS kept downloading while the app was closed is joined now rather
+        // than on the first visit to its tab.
+        _ = DownloadManager.shared
 
         showLastKotlinCrashIfAny()
     }

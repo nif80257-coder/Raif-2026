@@ -2796,7 +2796,8 @@ struct PlayerScreen: View {
                         Haptics.tap()
                         DownloadManager.shared.start(
                             title: (item?.name ?? title) + " — " + currentURL.suffix(6),
-                            urlString: currentURL
+                            urlString: currentURL,
+                            headers: currentHeaders
                         )
                         showOptions = false
                     },
@@ -5550,7 +5551,11 @@ struct DetailView: View {
             }
             Divider()
             Button {
-                DownloadManager.shared.start(title: item.name, urlString: stream.url)
+                DownloadManager.shared.start(
+                    title: item.name,
+                    urlString: stream.url,
+                    headers: stream.headers ?? [:]
+                )
                 Haptics.tap()
             } label: {
                 Label("تنزيل على الجهاز", systemImage: "arrow.down.circle")
@@ -13134,6 +13139,8 @@ struct DownloadJob: Identifiable, Codable, Equatable {
     let id: String
     let title: String
     let url: String
+    /// Referer and User-Agent the host demands before it serves the file.
+    var headers: [String: String]?
     var received: Int64
     var total: Int64
     /// running · done · failed · cancelled
@@ -13152,9 +13159,368 @@ struct DownloadJob: Identifiable, Codable, Equatable {
     }
 }
 
+// MARK: - Background transfers
+
+/// A stable name for a value: a link names the same folder and the same task on
+/// every launch, unlike Swift's own hash which changes from run to run.
+enum CinemaHash {
+    static func stable(_ value: String) -> String {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in value.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x0000_0100_0000_01b3
+        }
+        return String(hash, radix: 16)
+    }
+}
+
+/// Runs a download's parts on a background URLSession, which iOS carries on in a
+/// process of its own: a film keeps downloading after the viewer closes the app,
+/// and every part it finished is already on disk when they come back. Four ranges
+/// still travel at once, so a host that caps one connection stays fast, and a
+/// transfer iOS kept alive is adopted instead of being asked for twice.
+final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate {
+    static let shared = BackgroundTransfers()
+    static let identifier = "com.cinemax.transfers"
+    /// The fixed number of ranges a file is cut into, kept here so a transfer
+    /// picked up after a relaunch plans the very same parts.
+    static let parts = 4
+
+    private struct Plan {
+        let jobKey: String
+        let index: Int
+        let expected: Int64
+        let directory: URL
+        var written: Int64
+    }
+
+    private struct Wing {
+        var total: Int64
+        var baseline: Int64
+        var open: Int
+        var failure: Error?
+        var waiter: CheckedContinuation<Void, Error>?
+        var report: ((Int64) -> Void)?
+    }
+
+    private let lock = NSLock()
+    private var plans: [Int: Plan] = [:]
+    private var wings: [String: Wing] = [:]
+    /// The tasks travelling for each job, so a pause stops exactly those.
+    private var travelling: [String: [Int]] = [:]
+    private var resumeHandler: (() -> Void)?
+    private var backgroundSession: URLSession?
+
+    /// The session is built once and kept: iOS hands its events to whatever
+    /// object is its delegate when the app wakes up for a finished transfer.
+    private func session() -> URLSession {
+        lock.lock()
+        if let backgroundSession {
+            lock.unlock()
+            return backgroundSession
+        }
+        lock.unlock()
+        let configuration = URLSessionConfiguration.background(withIdentifier: Self.identifier)
+        // Waking the app for a finished transfer is what makes a download end on
+        // disk even when CINEMAX was closed halfway through it.
+        configuration.sessionSendsLaunchEvents = true
+        // Not discretionary: a transfer the viewer asked for starts now, not when
+        // the system decides the phone is idle enough for it.
+        configuration.isDiscretionary = false
+        configuration.httpMaximumConnectionsPerHost = Self.parts + 2
+        configuration.waitsForConnectivity = true
+        let created = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+        lock.lock()
+        backgroundSession = created
+        lock.unlock()
+        return created
+    }
+
+    /// Keeps the completion handler iOS hands the app when it wakes it for a
+    /// transfer, and makes sure the session exists to deliver the events to it.
+    func hold(_ handler: @escaping () -> Void) {
+        lock.lock()
+        resumeHandler = handler
+        lock.unlock()
+        _ = session()
+    }
+
+    /// The transfers iOS still has for these jobs, by their stable key.
+    func liveKeys() async -> Set<String> {
+        let tasks = await session().allTasks
+        var keys = Set<String>()
+        for task in tasks {
+            if let key = Self.key(from: task.taskDescription) { keys.insert(key) }
+        }
+        return keys
+    }
+
+    /// Reads the job key out of a task's own description, which is what survives
+    /// a relaunch while the task itself travels on.
+    static func key(from description: String?) -> String? {
+        guard let description else { return nil }
+        let pieces = description.split(separator: "|")
+        guard pieces.count == 3 else { return nil }
+        return String(pieces[0])
+    }
+
+    private func tag(_ jobKey: String, _ index: Int) -> String {
+        "\(jobKey)|\(index)|\(Self.parts)"
+    }
+
+    private func bounds(_ index: Int, total: Int64) -> (from: Int64, to: Int64) {
+        let chunk = max(1, total / Int64(Self.parts))
+        let from = Int64(index) * chunk
+        let to = index == Self.parts - 1 ? total - 1 : from + chunk - 1
+        return (from, to)
+    }
+
+    /// Starts the ranges that are missing and waits until every one of them has
+    /// landed in the job's folder. Cancelling the waiting task stops the
+    /// transfers while keeping the parts that already landed.
+    func begin(
+        jobKey: String,
+        url: URL,
+        headers: [String: String],
+        directory: URL,
+        total: Int64,
+        missing: [Int],
+        alreadyLanded: Int64,
+        report: @escaping (Int64) -> Void
+    ) async throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let queue = session()
+
+        // Whatever iOS kept for this job is registered before anything else is
+        // planned, so a part already travelling is never requested a second time.
+        let live = await queue.allTasks
+        var adopted: [Int: URLSessionTask] = [:]
+        for task in live {
+            guard let description = task.taskDescription,
+                  Self.key(from: description) == jobKey else { continue }
+            let pieces = description.split(separator: "|")
+            guard pieces.count == 3, let index = Int(pieces[1]) else { continue }
+            adopted[index] = task
+        }
+
+        lock.lock()
+        wings[jobKey] = Wing(
+            total: total,
+            baseline: alreadyLanded,
+            open: 0,
+            failure: nil,
+            waiter: nil,
+            report: report
+        )
+        travelling[jobKey] = []
+        for (index, task) in adopted {
+            let (from, to) = bounds(index, total: total)
+            plans[task.taskIdentifier] = Plan(
+                jobKey: jobKey,
+                index: index,
+                expected: to - from + 1,
+                directory: directory,
+                written: 0
+            )
+            wings[jobKey]?.open += 1
+            travelling[jobKey]?.append(task.taskIdentifier)
+        }
+        lock.unlock()
+
+        for index in missing where adopted[index] == nil {
+            let (from, to) = bounds(index, total: total)
+            var request = URLRequest(url: url)
+            request.setValue("bytes=\(from)-\(to)", forHTTPHeaderField: "Range")
+            for (name, value) in headers {
+                request.setValue(value, forHTTPHeaderField: name)
+            }
+            let task = queue.downloadTask(with: request)
+            task.taskDescription = tag(jobKey, index)
+            lock.lock()
+            plans[task.taskIdentifier] = Plan(
+                jobKey: jobKey,
+                index: index,
+                expected: to - from + 1,
+                directory: directory,
+                written: 0
+            )
+            wings[jobKey]?.open += 1
+            travelling[jobKey]?.append(task.taskIdentifier)
+            let stillOpen = wings[jobKey]?.open ?? 0
+            lock.unlock()
+            if stillOpen > 0 { task.resume() }
+        }
+
+        lock.lock()
+        let left = wings[jobKey]?.open ?? 0
+        lock.unlock()
+
+        if left > 0 {
+            do {
+                try await withTaskCancellationHandler {
+                    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                        lock.lock()
+                        if let wing = wings[jobKey], wing.open > 0 {
+                            wings[jobKey]?.waiter = continuation
+                            lock.unlock()
+                        } else {
+                            let failure = wings[jobKey]?.failure
+                            lock.unlock()
+                            if let failure {
+                                continuation.resume(throwing: failure)
+                            } else {
+                                continuation.resume()
+                            }
+                        }
+                    }
+                } onCancel: {
+                    self.cancel(jobKey: jobKey)
+                }
+            } catch {
+                lock.lock()
+                wings[jobKey] = nil
+                travelling[jobKey] = nil
+                lock.unlock()
+                throw error
+            }
+        }
+
+        lock.lock()
+        let failure = wings[jobKey]?.failure
+        wings[jobKey] = nil
+        travelling[jobKey] = nil
+        lock.unlock()
+        if let failure { throw failure }
+    }
+
+    /// Stops this job's transfers, keeping whatever parts already landed so the
+    /// transfer continues from them the next time it is started.
+    func cancel(jobKey: String) {
+        let queue = session()
+        lock.lock()
+        let identifiers = travelling[jobKey] ?? []
+        travelling[jobKey] = nil
+        for identifier in identifiers { plans[identifier] = nil }
+        let waiter = wings[jobKey]?.waiter
+        wings[jobKey] = nil
+        lock.unlock()
+        queue.getTasksWithCompletionHandler { tasks, _, _ in
+            for task in tasks where identifiers.contains(task.taskIdentifier) {
+                task.cancel()
+            }
+        }
+        waiter?.resume(throwing: CancellationError())
+    }
+
+    // MARK: - URLSessionDownloadDelegate
+
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didWriteData bytesWritten: Int64,
+        totalBytesWritten: Int64,
+        totalBytesExpectedToWrite: Int64
+    ) {
+        lock.lock()
+        guard var plan = plans[downloadTask.taskIdentifier] else {
+            lock.unlock()
+            return
+        }
+        plan.written = totalBytesWritten
+        plans[downloadTask.taskIdentifier] = plan
+        var landed: Int64 = 0
+        for (_, entry) in plans where entry.jobKey == plan.jobKey {
+            landed += entry.written
+        }
+        guard let wing = wings[plan.jobKey] else {
+            lock.unlock()
+            return
+        }
+        let value = min(wing.total, wing.baseline + landed)
+        let report = wing.report
+        lock.unlock()
+        report?(value)
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didFinishDownloadingTo location: URL
+    ) {
+        lock.lock()
+        guard let plan = plans[downloadTask.taskIdentifier] else {
+            lock.unlock()
+            return
+        }
+        lock.unlock()
+        let target = plan.directory.appendingPathComponent("part-\(plan.index)")
+        do {
+            try FileManager.default.createDirectory(
+                at: plan.directory,
+                withIntermediateDirectories: true
+            )
+            if FileManager.default.fileExists(atPath: target.path) {
+                try FileManager.default.removeItem(at: target)
+            }
+            // The system's temporary file is gone the moment this returns, so the
+            // part is moved before anything else happens.
+            try FileManager.default.moveItem(at: location, to: target)
+        } catch {
+            note(plan.jobKey, error: error)
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        lock.lock()
+        guard let plan = plans.removeValue(forKey: task.taskIdentifier) else {
+            lock.unlock()
+            return
+        }
+        travelling[plan.jobKey]?.removeAll { $0 == task.taskIdentifier }
+        if let error, let wing = wings[plan.jobKey] {
+            wings[plan.jobKey]?.failure = wing.failure ?? error
+        }
+        if let wing = wings[plan.jobKey] {
+            wings[plan.jobKey]?.open = max(0, wing.open - 1)
+        }
+        var waiter: CheckedContinuation<Void, Error>?
+        var failure: Error?
+        if let wing = wings[plan.jobKey], wing.open == 0 {
+            waiter = wing.waiter
+            failure = wing.failure
+            wings[plan.jobKey]?.waiter = nil
+        }
+        lock.unlock()
+        if let waiter {
+            if let failure {
+                waiter.resume(throwing: failure)
+            } else {
+                waiter.resume()
+            }
+        }
+    }
+
+    func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
+        lock.lock()
+        let handler = resumeHandler
+        resumeHandler = nil
+        lock.unlock()
+        handler?()
+    }
+
+    private func note(_ jobKey: String, error: Error) {
+        lock.lock()
+        if let wing = wings[jobKey] {
+            wings[jobKey]?.failure = wing.failure ?? error
+        }
+        lock.unlock()
+    }
+}
+
 /// Downloads a link to the device over several parallel range requests, which is
 /// the fastest free way to pull a file: most servers cap a single connection, so
-/// four ranges together finish far sooner than one stream.
+/// four ranges together finish far sooner than one stream. The transfers run on
+/// the background session, so closing the app no longer stops them.
 @MainActor
 final class DownloadManager: ObservableObject {
     static let shared = DownloadManager()
@@ -13170,14 +13536,56 @@ final class DownloadManager: ObservableObject {
     private let storageKey = "cinemax.downloads.v1"
 
     private init() {
-        load()
+        let interrupted = load()
+        reattach(interrupted)
+    }
+
+    /// Picks back up what iOS kept downloading while the app was closed: a job
+    /// iOS is still fetching carries on from the parts it has, and one whose
+    /// parts all landed is joined and finished as soon as the app opens.
+    private func reattach(_ candidates: [String]) {
+        guard !candidates.isEmpty else { return }
+        Task { @MainActor in
+            let live = await BackgroundTransfers.shared.liveKeys()
+            var changed = false
+            for id in candidates {
+                guard let job = jobs.first(where: { $0.id == id }) else { continue }
+                if live.contains(CinemaHash.stable(id)) {
+                    update(id) { $0.state = "running" }
+                    launch(job)
+                    EventLog.shared.add("download", "استئناف \(job.title) بعد إغلاق التطبيق")
+                    changed = true
+                } else if partsComplete(job) {
+                    update(id) { $0.state = "running" }
+                    launch(job)
+                    changed = true
+                }
+            }
+            if changed { save() }
+        }
+    }
+
+    /// True when every part of the file already landed, so only joining is left.
+    private func partsComplete(_ job: DownloadJob) -> Bool {
+        guard job.total > 1_048_576 else { return false }
+        let directory = partsDirectory(for: job.id)
+        let parts = BackgroundTransfers.parts
+        let chunk = max(1, job.total / Int64(parts))
+        for index in 0..<parts {
+            let from = Int64(index) * chunk
+            let to = index == parts - 1 ? job.total - 1 : from + chunk - 1
+            let part = directory.appendingPathComponent("part-\(index)")
+            let size = (try? part.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+            if Int64(size) != to - from + 1 { return false }
+        }
+        return true
     }
 
     func isRunning(_ url: String) -> Bool {
         jobs.contains { $0.id == url && $0.state == "running" }
     }
 
-    func start(title: String, urlString: String) {
+    func start(title: String, urlString: String, headers: [String: String] = [:]) {
         guard URL(string: urlString) != nil else { return }
         if jobs.contains(where: { $0.id == urlString && $0.state == "running" }) { return }
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
@@ -13185,6 +13593,7 @@ final class DownloadManager: ObservableObject {
             id: urlString,
             title: title,
             url: urlString,
+            headers: headers.isEmpty ? nil : headers,
             received: 0,
             total: 0,
             state: "running",
@@ -13201,8 +13610,11 @@ final class DownloadManager: ObservableObject {
         runners[job.id]?.cancel()
         runners[job.id] = nil
         speeds[job.id] = nil
+        // The background session is told directly too: a transfer iOS is running
+        // for this job must not keep pulling bytes the viewer stopped.
+        BackgroundTransfers.shared.cancel(jobKey: CinemaHash.stable(job.id))
         update(job.id) { entry in
-            if entry.state == "running" { entry.state = "paused" }
+            if entry.state == "running" || entry.state == "retrying" { entry.state = "paused" }
         }
         save()
     }
@@ -13225,8 +13637,9 @@ final class DownloadManager: ObservableObject {
         let id = job.id
         let title = job.title
         let urlString = job.url
+        let headers = job.headers ?? [:]
         runners[id] = Task { [weak self] in
-            await self?.run(id: id, title: title, urlString: urlString)
+            await self?.run(id: id, title: title, urlString: urlString, headers: headers)
         }
     }
 
@@ -13234,6 +13647,7 @@ final class DownloadManager: ObservableObject {
         runners[job.id]?.cancel()
         runners[job.id] = nil
         speeds[job.id] = nil
+        BackgroundTransfers.shared.cancel(jobKey: CinemaHash.stable(job.id))
         update(job.id) { entry in
             entry.state = "cancelled"
         }
@@ -13244,6 +13658,7 @@ final class DownloadManager: ObservableObject {
         runners[job.id]?.cancel()
         runners[job.id] = nil
         speeds[job.id] = nil
+        BackgroundTransfers.shared.cancel(jobKey: CinemaHash.stable(job.id))
         if let path = job.filePath {
             try? FileManager.default.removeItem(atPath: path)
         }
@@ -13257,17 +13672,7 @@ final class DownloadManager: ObservableObject {
     private func partsDirectory(for id: String) -> URL {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         let root = caches.appendingPathComponent("CINEMAX-parts", isDirectory: true)
-        return root.appendingPathComponent(stableHash(id), isDirectory: true)
-    }
-
-    /// FNV-1a: the same link always names the same folder, unlike Swift's hash.
-    private func stableHash(_ value: String) -> String {
-        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
-        for byte in value.utf8 {
-            hash ^= UInt64(byte)
-            hash = hash &* 0x0000_0100_0000_01b3
-        }
-        return String(hash, radix: 16)
+        return root.appendingPathComponent(CinemaHash.stable(id), isDirectory: true)
     }
 
     /// Measures how fast the transfer moves, for the speed and the remaining time.
@@ -13294,7 +13699,7 @@ final class DownloadManager: ObservableObject {
         return dir
     }
 
-    private func run(id: String, title: String, urlString: String) async {
+    private func run(id: String, title: String, urlString: String, headers: [String: String]) async {
         guard let url = URL(string: urlString) else { return }
         lastSample[id] = (Date(), jobs.first { $0.id == id }?.received ?? 0)
         let sampler = Task { @MainActor [weak self] in
@@ -13315,12 +13720,23 @@ final class DownloadManager: ObservableObject {
         EventLog.shared.add("download", "بدأ \(title)")
         while !finished {
             do {
-                let total = try await contentLength(url)
+                let total = try await contentLength(url, headers: headers)
                 update(id) { entry in entry.total = total }
                 if total > 1_048_576 {
-                    try await downloadInParts(url: url, total: total, destination: destination, id: id)
+                    try await downloadInParts(
+                        url: url,
+                        total: total,
+                        destination: destination,
+                        id: id,
+                        headers: headers
+                    )
                 } else {
-                    try await downloadWhole(url: url, destination: destination, id: id)
+                    try await downloadWhole(
+                        url: url,
+                        destination: destination,
+                        id: id,
+                        headers: headers
+                    )
                 }
                 update(id) { entry in
                     entry.state = "done"
@@ -13402,29 +13818,58 @@ final class DownloadManager: ObservableObject {
         UNUserNotificationCenter.current().add(request) { _ in }
     }
 
-    private func contentLength(_ url: URL) async throws -> Int64 {
-        var request = URLRequest(url: url)
-        request.httpMethod = "HEAD"
-        request.timeoutInterval = 20
-        let (_, response) = try await URLSession.shared.data(for: request)
+    private func contentLength(_ url: URL, headers: [String: String]) async throws -> Int64 {
+        var head = URLRequest(url: url)
+        head.httpMethod = "HEAD"
+        head.timeoutInterval = 20
+        for (name, value) in headers {
+            head.setValue(value, forHTTPHeaderField: name)
+        }
+        if let (_, answer) = try? await URLSession.shared.data(for: head),
+           let http = answer as? HTTPURLResponse,
+           http.statusCode < 400,
+           http.expectedContentLength > 0 {
+            return http.expectedContentLength
+        }
+        // A host that refuses HEAD still states the size of the file in its answer
+        // to a single byte, so the download does not stop on the method.
+        var ranged = URLRequest(url: url)
+        ranged.setValue("bytes=0-0", forHTTPHeaderField: "Range")
+        ranged.timeoutInterval = 20
+        for (name, value) in headers {
+            ranged.setValue(value, forHTTPHeaderField: name)
+        }
+        let (_, response) = try await URLSession.shared.data(for: ranged)
         guard let http = response as? HTTPURLResponse, http.statusCode < 400 else {
             throw CinemaError(message: "تعذر قراءة حجم الملف")
+        }
+        if let header = http.value(forHTTPHeaderField: "Content-Range"),
+           let raw = header.split(separator: "/").last,
+           let total = Int64(raw.trimmingCharacters(in: .whitespaces)), total > 0 {
+            return total
         }
         return max(0, http.expectedContentLength)
     }
 
-    /// Splits the file into four ranges that travel side by side. The parts live in
-    /// the job's own folder, so a paused or failed transfer continues from what
-    /// already landed instead of starting the whole file again.
-    private func downloadInParts(url: URL, total: Int64, destination: URL, id: String) async throws {
-        let parts = 4
-        let chunk = max(1, total / Int64(parts))
+    /// Cuts the file into four ranges that travel on the background session, so
+    /// closing the app no longer stops the transfer. The parts live in the job's
+    /// own folder, so a paused or failed transfer continues from what already
+    /// landed instead of starting the whole file again.
+    private func downloadInParts(
+        url: URL,
+        total: Int64,
+        destination: URL,
+        id: String,
+        headers: [String: String]
+    ) async throws {
+        let parts = BackgroundTransfers.parts
         let directory = partsDirectory(for: id)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
         func partURL(_ index: Int) -> URL { directory.appendingPathComponent("part-\(index)") }
 
         func bounds(_ index: Int) -> (from: Int64, to: Int64) {
+            let chunk = max(1, total / Int64(parts))
             let from = Int64(index) * chunk
             let to = index == parts - 1 ? total - 1 : from + chunk - 1
             return (from, to)
@@ -13442,38 +13887,33 @@ final class DownloadManager: ObservableObject {
 
         // Whatever a previous run left behind counts before anything is requested.
         var present: Int64 = 0
-        for index in 0..<parts where onDisk(index) == expected(index) {
-            present += expected(index)
+        var missing: [Int] = []
+        for index in 0..<parts {
+            if onDisk(index) == expected(index) {
+                present += expected(index)
+            } else {
+                missing.append(index)
+            }
         }
         if present > 0 {
             update(id) { entry in entry.received = min(entry.total, present) }
         }
 
-        try await withThrowingTaskGroup(of: Int64.self) { group in
-            for index in 0..<parts where onDisk(index) != expected(index) {
-                let (from, to) = bounds(index)
-                let target = partURL(index)
-                group.addTask {
-                    var request = URLRequest(url: url)
-                    request.setValue("bytes=\(from)-\(to)", forHTTPHeaderField: "Range")
-                    request.timeoutInterval = 60
-                    let (tmp, response) = try await URLSession.shared.download(for: request)
-                    guard let http = response as? HTTPURLResponse, http.statusCode < 400 else {
-                        throw CinemaError(message: "تعذر تنزيل جزء من الملف")
+        if !missing.isEmpty {
+            try await BackgroundTransfers.shared.begin(
+                jobKey: CinemaHash.stable(id),
+                url: url,
+                headers: headers,
+                directory: directory,
+                total: total,
+                missing: missing,
+                alreadyLanded: present,
+                report: { [weak self] value in
+                    Task { @MainActor in
+                        self?.update(id) { entry in entry.received = min(entry.total, value) }
                     }
-                    try Task.checkCancellation()
-                    if FileManager.default.fileExists(atPath: target.path) {
-                        try FileManager.default.removeItem(at: target)
-                    }
-                    try FileManager.default.moveItem(at: tmp, to: target)
-                    return to - from + 1
                 }
-            }
-            var finished = present
-            while let size = try await group.next() {
-                finished += size
-                update(id) { entry in entry.received = min(entry.total, finished) }
-            }
+            )
         }
 
         // One part at a time into the final file, in chunks, keeps memory flat even
@@ -13501,8 +13941,18 @@ final class DownloadManager: ObservableObject {
         try? FileManager.default.removeItem(at: directory)
     }
 
-    private func downloadWhole(url: URL, destination: URL, id: String) async throws {
-        let (tmp, response) = try await URLSession.shared.download(from: url)
+    private func downloadWhole(
+        url: URL,
+        destination: URL,
+        id: String,
+        headers: [String: String]
+    ) async throws {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 60
+        for (name, value) in headers {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
+        let (tmp, response) = try await URLSession.shared.download(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode < 400 else {
             throw CinemaError(message: "تعذر تنزيل الملف")
         }
@@ -13528,16 +13978,24 @@ final class DownloadManager: ObservableObject {
         }
     }
 
-    private func load() {
+    /// Restores the transfers, and answers the ids that were still moving when the
+    /// app went away, so the ones iOS kept alive are picked back up instead of
+    /// waiting for the viewer to find the resume button.
+    @discardableResult
+    private func load() -> [String] {
         guard let data = UserDefaults.standard.data(forKey: storageKey),
-              let stored = try? JSONDecoder().decode([DownloadJob].self, from: data) else { return }
-        // Anything that was running when the app closed waits as paused, with its
-        // parts on disk ready to continue.
+              let stored = try? JSONDecoder().decode([DownloadJob].self, from: data) else {
+            return []
+        }
+        let moving = stored.filter { $0.state == "running" || $0.state == "retrying" }
+        // Anything that was moving waits as paused until the background session
+        // says whether iOS is still fetching it or the parts are all on disk.
         jobs = stored.map { job in
             var copy = job
-            if copy.state == "running" { copy.state = "paused" }
+            if copy.state == "running" || copy.state == "retrying" { copy.state = "paused" }
             return copy
         }
+        return moving.map(\.id)
     }
 }
 
