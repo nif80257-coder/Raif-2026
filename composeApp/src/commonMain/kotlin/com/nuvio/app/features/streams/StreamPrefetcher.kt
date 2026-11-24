@@ -44,6 +44,15 @@ internal object StreamPrefetcher {
     /** How long a failed or fruitless warm-up is remembered before it may be tried again. */
     private const val CooldownMs = 10 * 60 * 1000L
 
+    /**
+     * A title where every source answered with nothing is remembered for a day, not forever: the
+     * sources may have had a bad evening, and asking them again tomorrow is worth one visit.
+     */
+    private const val FruitlessWarmAgeMs = 24 * 60 * 60 * 1000L
+
+    /** How many warm-up attempts are remembered at once, so browsing does not grow a map. */
+    private const val MaxRememberedAttempts = 32
+
     /** Content keys warmed in this session, with when they were last tried. */
     private val lastAttemptAtMs = mutableMapOf<String, Long>()
 
@@ -68,13 +77,28 @@ internal object StreamPrefetcher {
         val nowMs = EpisodeReleaseDatePlatform.nowEpochMs()
         val lastAttempt = lastAttemptAtMs[contentKey]
         if (lastAttempt != null && nowMs - lastAttempt < CooldownMs) return
-        // A fresh list for this film is already the answer; asking again would only rewrite it.
-        if (StreamResponseCache.load(profileId, contentKey).isNotEmpty()) return
+        // A visit remembered for this film is already the answer, whether the sources returned
+        // links or answered with nothing: asking them again would repeat it for thirty-three of
+        // them, and a film where everything was silent used to ask again at every launch.
+        if (StreamResponseCache.wasCheckedWithin(profileId, contentKey, FruitlessWarmAgeMs)) return
 
         lastAttemptAtMs[contentKey] = nowMs
+        if (lastAttemptAtMs.size > MaxRememberedAttempts) {
+            lastAttemptAtMs.entries
+                .sortedByDescending { (_, attemptedAt) -> attemptedAt }
+                .drop(MaxRememberedAttempts)
+                .forEach { (key, _) -> lastAttemptAtMs.remove(key) }
+        }
         job?.cancel()
         job = scope.launch {
-            runWarm(profileId = profileId, type = type, videoId = titleId, contentKey = contentKey)
+            val warmed = runWarm(
+                profileId = profileId,
+                type = type,
+                videoId = titleId,
+                contentKey = contentKey,
+            )
+            // "Nothing here" is remembered too, so the next launch does not ask all of them again.
+            if (warmed == 0) StreamResponseCache.markChecked(profileId, contentKey)
         }
     }
 
@@ -92,7 +116,7 @@ internal object StreamPrefetcher {
         type: String,
         videoId: String,
         contentKey: String,
-    ) {
+    ): Int {
         val failureSnapshot = AddonFailureMemory.snapshot()
         val silentManifestUrls = AddonSilentSourceMemory.silentManifestUrls(profileId)
         val targets = AddonRepository.uiState.value.addons.enabledAddons()
@@ -111,7 +135,7 @@ internal object StreamPrefetcher {
                     manifest = manifest,
                 )
             }
-        if (targets.isEmpty()) return
+        if (targets.isEmpty()) return 0
 
         log.d { "Warming ${targets.size} sources for $contentKey" }
         val warmed = coroutineScope {
@@ -149,5 +173,6 @@ internal object StreamPrefetcher {
             }.awaitAll().count { it }
         }
         log.d { "Warmed $warmed of ${targets.size} sources for $contentKey" }
+        return warmed
     }
 }

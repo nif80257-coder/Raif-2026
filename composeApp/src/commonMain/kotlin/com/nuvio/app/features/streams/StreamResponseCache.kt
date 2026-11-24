@@ -103,6 +103,39 @@ internal object StreamResponseCache {
         AddonStorage.saveStartupCache(profileId = profileId, name = cacheName, payload = "")
     }
 
+    /**
+     * Records that this title was asked about, even when every source answered with nothing.
+     *
+     * [save] only keeps what is worth showing again, so a title where all sources were silent
+     * left no trace and the warm-up asked all thirty-three of them again on the next launch.
+     * This keeps the visit itself, with no payloads, so the answer "nothing here" is remembered
+     * too.
+     */
+    fun markChecked(
+        profileId: Int,
+        contentKey: String,
+        nowMs: Long = EpisodeReleaseDatePlatform.nowEpochMs(),
+    ) {
+        if (contentKey.isBlank()) return
+        val entries = readEntries(profileId).toMutableMap()
+        val existing = entries[contentKey]
+        if (!existing?.payloads.isNullOrEmpty()) return
+        entries[contentKey] = Entry(cachedAtMs = nowMs, payloads = emptyMap())
+        writeEntries(profileId, trimToNewest(entries))
+    }
+
+    /** Whether this title was asked about within [maxAgeMs], whatever the sources answered. */
+    fun wasCheckedWithin(
+        profileId: Int,
+        contentKey: String,
+        maxAgeMs: Long,
+    ): Boolean {
+        if (contentKey.isBlank() || maxAgeMs <= 0L) return false
+        val entry = readEntries(profileId)[contentKey] ?: return false
+        if (entry.cachedAtMs <= 0L) return false
+        return EpisodeReleaseDatePlatform.nowEpochMs() - entry.cachedAtMs <= maxAgeMs
+    }
+
     private fun trimToNewest(entries: Map<String, Entry>): Map<String, Entry> {
         if (entries.size <= MaxContentKeys) return entries
         return entries.entries
