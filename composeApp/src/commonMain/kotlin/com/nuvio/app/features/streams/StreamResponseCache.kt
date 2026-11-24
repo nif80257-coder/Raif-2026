@@ -23,6 +23,15 @@ internal object StreamResponseCache {
     /** A single add-on response bigger than this is not stored. */
     private const val MaxAddonPayloadChars = 6_000
 
+    /**
+     * How long a remembered list may open the sheet.
+     *
+     * The links inside a payload are signed and short-lived, so an old answer is worse than no
+     * answer: the sheet fills with rows whose first tap fails. Half a day keeps the head start for
+     * a binge without carrying yesterday's dead links into today.
+     */
+    private const val MaxAgeMs = 12 * 60 * 60 * 1000L
+
     /** Total add-on payloads kept per title. */
     private const val MaxAddonsPerContent = 24
 
@@ -61,7 +70,10 @@ internal object StreamResponseCache {
 
     fun load(profileId: Int, contentKey: String): Map<String, String> {
         if (contentKey.isBlank()) return emptyMap()
-        return readEntries(profileId)[contentKey]?.payloads.orEmpty()
+        val entry = readEntries(profileId)[contentKey] ?: return emptyMap()
+        val age = EpisodeReleaseDatePlatform.nowEpochMs() - entry.cachedAtMs
+        if (entry.cachedAtMs <= 0L || age > MaxAgeMs) return emptyMap()
+        return entry.payloads
     }
 
     fun save(
