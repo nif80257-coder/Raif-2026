@@ -206,7 +206,6 @@ import nuvio.composeapp.generated.resources.settings_debrid_rule_excluded_releas
 import nuvio.composeapp.generated.resources.settings_debrid_rule_excluded_release_groups_desc
 import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.stringResource
-import kotlinx.coroutines.runBlocking
 
 private const val CLOUD_SERVICES_FAQ_URL = "https://nuvioapp.space/faq#common-cloud-library-and-cloud-services"
 
@@ -581,9 +580,12 @@ private enum class DebridTemplateField {
     DESCRIPTION,
 }
 
+@Composable
 private fun templatePreview(value: String, defaultValue: String): String {
-    val defaultFormat = runBlocking { getString(Res.string.settings_debrid_template_default_format) }
-    val originalFormat = runBlocking { getString(Res.string.settings_debrid_template_original_format) }
+    // Read through the composition, not through a blocked thread: this runs while the template
+    // field is being drawn, and a runBlocking there froze the frame until the string arrived.
+    val defaultFormat = stringResource(Res.string.settings_debrid_template_default_format)
+    val originalFormat = stringResource(Res.string.settings_debrid_template_original_format)
     val trimmed = value.trim()
     if (trimmed.isBlank()) return originalFormat
     if (trimmed == defaultValue.trim()) return defaultFormat
