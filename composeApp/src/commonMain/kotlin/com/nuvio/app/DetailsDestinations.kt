@@ -5,6 +5,7 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
@@ -79,6 +80,11 @@ internal fun DetailsDestination(
     // source list per episode, and guessing the episode would spend a fetch on a guess.
     LaunchedEffect(route.type, route.id) {
         StreamPrefetcher.warmMovie(type = route.type, titleId = route.id)
+    }
+    // Leaving the page takes its warm-up with it: thirty answers nobody will read should not keep
+    // the radio busy on a page the viewer has already closed.
+    DisposableEffect(route.type, route.id) {
+        onDispose { StreamPrefetcher.cancel() }
     }
     // Roles come from TMDB in English; comparing them by their literal names is
     // what preferCrew expects, so these stay untranslated on purpose.
