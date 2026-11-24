@@ -4,6 +4,7 @@ import AVKit
 import AVFoundation
 import AppIntents
 import Charts
+import CoreSpotlight
 import LocalAuthentication
 import Photos
 import Network
@@ -6861,6 +6862,51 @@ struct OnboardingView: View {
 
 // MARK: - Siri and Shortcuts
 
+// MARK: - Spotlight
+
+/// Puts the viewer's own library into the system's search: a saved or started
+/// title appears on the Spotlight screen and opens its page with one tap.
+enum SpotlightIndexer {
+    private static let prefix = "item:"
+
+    static func reindex(favorites: [CinemaItem], progress: [ProgressItem], lists: [CinemaList]) {
+        var seen = Set<String>()
+        var entries: [CSSearchableItem] = []
+
+        func add(_ item: CinemaItem, keyword: String) {
+            guard seen.insert(item.id).inserted else { return }
+            let attributes = CSSearchableItemAttributeSet(contentType: .movie)
+            attributes.title = item.name
+            attributes.contentDescription = [item.releaseInfo, item.overview]
+                .compactMap { $0 }
+                .joined(separator: " · ")
+            attributes.keywords = [
+                "CINEMAX",
+                keyword,
+                item.type == "series" ? "مسلسل" : "فيلم"
+            ]
+            if let poster = item.posterURL {
+                attributes.thumbnailURL = poster
+            }
+            entries.append(
+                CSSearchableItem(
+                    uniqueIdentifier: prefix + item.id,
+                    domainIdentifier: "cinemax.library",
+                    attributeSet: attributes
+                )
+            )
+        }
+
+        progress.forEach { add($0.item, keyword: "قيد المشاهدة") }
+        favorites.forEach { add($0, keyword: "محفوظ") }
+        lists.forEach { list in
+            list.items.forEach { add($0, keyword: list.name) }
+        }
+        guard !entries.isEmpty else { return }
+        CSSearchableIndex.default().indexSearchableItems(entries) { _ in }
+    }
+}
+
 /// A wish Siri leaves in the defaults; the app picks it up the moment it comes
 /// forward and clears it, so a phrase never fires twice.
 enum CinemaPendingCommand {
@@ -6999,6 +7045,12 @@ struct CinemaRootView: View {
             if !onboarded { showOnboarding = true }
             if appLock { authenticate() }
             handlePendingCommand()
+            await LibraryModel.shared.load()
+            SpotlightIndexer.reindex(
+                favorites: LibraryModel.shared.favorites,
+                progress: LibraryModel.shared.progress,
+                lists: ListsStore.shared.lists
+            )
         }
         .onChange(of: scenePhase) { phase in
             if phase == .active {
@@ -7076,7 +7128,14 @@ struct CinemaRootView: View {
                 case "search":
                     selection = 1
                 default:
-                    break
+                    // A title tapped in the system's search arrives as "item:<id>".
+                    if command.hasPrefix("item:") {
+                        let wanted = String(command.dropFirst("item:".count))
+                        let pool = LibraryModel.shared.favorites
+                            + LibraryModel.shared.progress.map(\.item)
+                            + ListsStore.shared.lists.flatMap(\.items)
+                        voiceItem = pool.first { $0.id == wanted }
+                    }
                 }
                 if voiceItem == nil { Haptics.tap() }
             }

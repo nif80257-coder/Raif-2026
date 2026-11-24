@@ -1,6 +1,7 @@
 import UIKit
 import SwiftUI
 import AVFoundation
+import CoreSpotlight
 import CinemaxKit
 
 /// Which orientations the window allows right now. The app itself stays portrait;
@@ -105,6 +106,17 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         #endif
 
         showLastKotlinCrashIfAny()
+    }
+
+    /// A title the viewer tapped in the system's search: the identifier carries the
+    /// media id, and the root screen opens that title's page once it is active.
+    func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
+        guard userActivity.activityType == CSSearchableItemActionType,
+              let identifier = userActivity.userInfo?[CSSearchableItemActivityIdentifier] as? String,
+              identifier.hasPrefix("item:") else {
+            return
+        }
+        UserDefaults.standard.set(identifier, forKey: "cinemax.pendingCommand")
     }
 
     /// The SwiftUI interface owns the window; the Kotlin framework underneath is
