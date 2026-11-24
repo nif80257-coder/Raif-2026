@@ -34,6 +34,29 @@ internal val streamSourceFetchSemaphore = Semaphore(12)
  */
 internal const val STREAM_SOURCE_TIMEOUT_MS = 15_000L
 
+/**
+ * The shortest time a measured source is given, however fast it has answered so far.
+ *
+ * Half the budget: a host that answered in a fraction of a second every time may still be
+ * having a slow minute, and six seconds is enough for it to show that it is alive.
+ */
+internal const val MIN_STREAM_SOURCE_TIMEOUT_MS = 6_000L
+
+/**
+ * How long a source that usually answers in [averageElapsedMs] may take this time.
+ *
+ * Six times its own measured average plus three seconds, never less than
+ * [MIN_STREAM_SOURCE_TIMEOUT_MS] and never more than [STREAM_SOURCE_TIMEOUT_MS]: a source
+ * measured at half a second gets six seconds, one measured at two seconds keeps the whole budget.
+ * A source that has always answered in a fraction of a second does not suddenly need fifteen, and
+ * holding its slot that long is exactly what makes the sources behind it wait. A source that does
+ * need the full budget — or that has never been measured — still gets it.
+ */
+internal fun streamSourceTimeoutMs(averageElapsedMs: Long?): Long {
+    val average = averageElapsedMs?.takeIf { it > 0L } ?: return STREAM_SOURCE_TIMEOUT_MS
+    return (average * 6L + 3_000L).coerceIn(MIN_STREAM_SOURCE_TIMEOUT_MS, STREAM_SOURCE_TIMEOUT_MS)
+}
+
 /** Named so the failure memory records it as a timeout rather than a generic failure. */
 internal class StreamSourceTimeoutException : IllegalStateException("Stream source timed out")
 
@@ -45,11 +68,20 @@ internal class StreamSourceTimeoutException : IllegalStateException("Stream sour
  * One attempt only: the timeout above is the whole budget for this source, so a retry does not add a
  * chance of an answer, it only keeps a fetch slot occupied while the sources behind it wait.
  */
+/**
+ * Fetches one source's stream list inside [timeoutMs]. A source that does not answer in time
+ * fails with [StreamSourceTimeoutException], which both frees its slot and is remembered as
+ * a timeout in the add-on failure memory.
+ *
+ * One attempt only: the timeout is the whole budget for this source, so a retry does not add a
+ * chance of an answer, it only keeps a fetch slot occupied while the sources behind it wait.
+ */
 internal suspend fun fetchStreamSourcePayload(
     url: String,
     forceRefresh: Boolean = false,
+    timeoutMs: Long = STREAM_SOURCE_TIMEOUT_MS,
 ): String =
-    withTimeoutOrNull(STREAM_SOURCE_TIMEOUT_MS) {
+    withTimeoutOrNull(timeoutMs) {
         fetchAddonResponseText(url = url, forceRefresh = forceRefresh, maxAttempts = 1)
     } ?: throw StreamSourceTimeoutException()
 

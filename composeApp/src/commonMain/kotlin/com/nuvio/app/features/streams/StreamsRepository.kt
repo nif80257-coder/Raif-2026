@@ -220,6 +220,9 @@ object StreamsRepository {
             return
         }
 
+        // Read once: the same measurements decide both the queue order and how long each source is
+        // allowed to take this time, and one read serves both.
+        val measuredSpeeds = AddonSpeedMemory.speedByManifestUrl(ProfileRepository.activeProfileId)
         val streamAddons = installedAddons
             .mapNotNull { addon ->
                 val manifest = addon.manifest ?: return@mapNotNull null
@@ -237,7 +240,7 @@ object StreamsRepository {
             // that failed last time, or that answered with no links, is queued after them until
             // it proves otherwise.
             .orderedByRecordedSpeed(
-                speeds = AddonSpeedMemory.speedByManifestUrl(ProfileRepository.activeProfileId),
+                speeds = measuredSpeeds,
                 failureStreaks = failureSnapshot.failureStreaks,
                 resultCounts = AddonSpeedMemory.resultsByManifestUrl(ProfileRepository.activeProfileId),
             )
@@ -584,6 +587,9 @@ object StreamsRepository {
                                 val payload = fetchStreamSourcePayload(
                                     url = url,
                                     forceRefresh = forceRefresh,
+                                    // A source measured at half a second does not get fifteen:
+                                    // the slot it holds is the source behind it.
+                                    timeoutMs = streamSourceTimeoutMs(measuredSpeeds[addon.manifestUrl]),
                                 )
                                 StreamResponseCache.save(
                                     profileId = streamCacheProfileId,

@@ -29,6 +29,7 @@ import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.streams.StreamLoadCompletion
 import com.nuvio.app.features.streams.StreamParser
 import com.nuvio.app.features.streams.StreamResponseCache
+import com.nuvio.app.features.streams.streamSourceTimeoutMs
 import com.nuvio.app.features.streams.StreamsUiState
 import com.nuvio.app.features.streams.isJunkRelease
 import com.nuvio.app.features.streams.runCatchingUnlessCancelled
@@ -294,6 +295,9 @@ object PlayerStreamsRepository {
             return
         }
 
+        // Read once: the same measurements decide both the queue order and how long each source is
+        // allowed to take, and the panel and the sheet time a source the same way.
+        val measuredSpeeds = AddonSpeedMemory.speedByManifestUrl(ProfileRepository.activeProfileId)
         val streamAddons = installedAddons
             .mapNotNull { addon ->
                 val manifest = addon.manifest ?: return@mapNotNull null
@@ -310,7 +314,7 @@ object PlayerStreamsRepository {
             // before the slow scrapers have answered. The same demotions as the main source list
             // apply: a source that failed or answered with nothing waits behind one that answers.
             .orderedByRecordedSpeed(
-                speeds = AddonSpeedMemory.speedByManifestUrl(ProfileRepository.activeProfileId),
+                speeds = measuredSpeeds,
                 failureStreaks = failureSnapshot.failureStreaks,
                 resultCounts = AddonSpeedMemory.resultsByManifestUrl(ProfileRepository.activeProfileId),
             )
@@ -494,6 +498,7 @@ object PlayerStreamsRepository {
                                 val payload = fetchStreamSourcePayload(
                                     url = url,
                                     forceRefresh = forceRefresh,
+                                    timeoutMs = streamSourceTimeoutMs(measuredSpeeds[addon.manifestUrl]),
                                 )
                                 StreamResponseCache.save(
                                     profileId = streamCacheProfileId,
