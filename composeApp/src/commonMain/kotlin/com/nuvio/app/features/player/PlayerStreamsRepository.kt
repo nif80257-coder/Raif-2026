@@ -332,6 +332,10 @@ object PlayerStreamsRepository {
         val cachedContentKey = StreamResponseCache.contentKey(
             type = type,
             videoId = videoId,
+            // The sheet keys an episode by its series, season and episode; without these the
+            // panel would warm a different entry and the preloaded next episode would never make
+            // the sheet's own list instant.
+            parentMetaId = parentMetaId,
             season = season,
             episode = episode,
         )
