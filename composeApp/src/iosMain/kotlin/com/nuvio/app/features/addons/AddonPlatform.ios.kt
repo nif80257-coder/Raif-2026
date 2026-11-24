@@ -11,10 +11,12 @@ import io.ktor.client.request.post
 import io.ktor.client.request.request
 import io.ktor.client.request.setBody
 import io.ktor.client.request.url
+import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
+import io.ktor.http.contentLength
 import io.ktor.http.isSuccess
 import kotlinx.coroutines.runBlocking
 import nuvio.composeapp.generated.resources.Res
@@ -110,13 +112,46 @@ private fun parseEnabledStateLine(line: String): Pair<String, Boolean>? {
     return url to enabled
 }
 
+/**
+ * One client for every add-on request.
+ *
+ * A source sheet asks thirty-three add-ons at once and several of them live on the same host.
+ * NSURLSession's default of six connections per host leaves the rest of those answers queued, so
+ * the sheet waits for work that could already be in flight; eight keeps a phone's radio busy
+ * without opening a door per add-on. `waitsForConnectivity` is off so an offline phone fails at
+ * once instead of parking the request until iOS finds a link again.
+ *
+ * The connect timeout is the one that matters when a host is simply gone. Sixty seconds was the
+ * default here, and with retries a dead manifest could hold the add-on screen for minutes while
+ * the sources behind it never started.
+ */
 private val addonHttpClient = HttpClient(Darwin) {
+    engine {
+        configureSession {
+            HTTPMaximumConnectionsPerHost = 8
+            waitsForConnectivity = false
+        }
+    }
     install(HttpTimeout) {
         requestTimeoutMillis = 60_000
-        connectTimeoutMillis = 60_000
-        socketTimeoutMillis = 60_000
+        connectTimeoutMillis = 10_000
+        socketTimeoutMillis = 20_000
     }
     expectSuccess = false
+}
+
+/**
+ * Ceiling for a manifest, catalog or source list. A Stremio answer is JSON in the hundreds of
+ * kilobytes; anything past this comes from a wrong or hostile host, and reading it whole is what
+ * turns one bad add-on into a memory spike on a phone.
+ */
+private const val ADDON_RESPONSE_MAX_BYTES = 8 * 1024 * 1024
+
+private fun HttpResponse.rejectOversizedBody() {
+    val declared = contentLength()
+    if (declared != null && declared > ADDON_RESPONSE_MAX_BYTES) {
+        throw IllegalStateException("Add-on response of $declared bytes exceeds the limit")
+    }
 }
 
 actual suspend fun httpGetText(url: String): String =
@@ -125,6 +160,7 @@ actual suspend fun httpGetText(url: String): String =
             accept(ContentType.Application.Json)
         }
         .let { response ->
+            response.rejectOversizedBody()
             val payload = response.bodyAsText()
             if (!response.status.isSuccess()) {
                 throw AddonHttpStatusException(
@@ -147,6 +183,7 @@ actual suspend fun httpPostJson(url: String, body: String): String =
             setBody(body)
         }
         .let { response ->
+            response.rejectOversizedBody()
             val payload = response.bodyAsText()
             if (!response.status.isSuccess()) {
                 error(runBlocking { getString(Res.string.network_request_failed_http, response.status.value) })
@@ -169,6 +206,7 @@ actual suspend fun httpGetTextWithHeaders(
             }
         }
         .let { response ->
+            response.rejectOversizedBody()
             val payload = response.bodyAsText()
             if (!response.status.isSuccess()) {
                 throw AddonHttpStatusException(
@@ -198,6 +236,7 @@ actual suspend fun httpPostJsonWithHeaders(
             setBody(body)
         }
         .let { response ->
+            response.rejectOversizedBody()
             val payload = response.bodyAsText()
             if (!response.status.isSuccess()) {
                 error(runBlocking { getString(Res.string.network_request_failed_http, response.status.value) })
