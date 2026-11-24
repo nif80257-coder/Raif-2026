@@ -30,6 +30,7 @@ loadable by name from the app itself.
 | `source-racing-speed` | Probing mirrors, first playable link, provider ranking by measured latency |
 | `plugin-sandbox-validation` | Lenient manifest decoding, URL scheme checks, one bad addon stays contained |
 | `ktor-client-performance` | One shared Ktor client, Darwin engine, timeouts, streamed bodies |
+| `kmp-ktor` | Client lifetime, origin guard, bearer refresh, retries, WebSocket/SSE |
 | `stream-cache-expiry` | Signed stream URLs, refresh before a 403, cleanup on launch |
 | `addon-manifest-engine` | Manifest install/validation and stream extraction (loads from the app) |
 | `stream-fetching-parser` | Header injection, M3U/M3U8 parsing, local caching (loads from the app) |
@@ -40,6 +41,8 @@ loadable by name from the app itself.
 | `ios-ui-fluidity` | No parsing on main, downsampled posters, debounced and cancelled search |
 | `swiftui-scroll-fluency` | Lazy containers, stable identity, equatable cells, bounded caches |
 | `instant-search-fluency` | Local normalized index, Arabic letter folding, stale-result cancellation |
+| `swiftdata` | Model hierarchies: register the base class, deep and type-filtered queries |
+| `swiftdata/inheritance` | `@Model` on every subclass, `super.init()`, one level deep |
 | `swiftdata-migration` | One-time idempotent migration out of `UserDefaults`, unique media ids |
 | `ios-app-intents` | Siri/Shortcuts entry points over the watchlist and history |
 
@@ -47,10 +50,10 @@ loadable by name from the app itself.
 
 These carry large `references/` trees (several thousand lines) whose copies would drift from the
 versioned originals, so they stay where the agent loads them by name: `app-intents`, `avkit`,
-`kmp-ktor`, `kmp-network-layer`, `swiftdata`, `swiftui-performance-audit`,
-`swiftui-view-refactor`, `xcode-project-setup`, `apple-ios-hig-designer`,
-`apple-ondevice-ai-integration`, `ios-appstore-release-qa`, `swift-swiftui-ios-engineer`,
-`tmdb-metadata-catalog`, `watchlist-trakt-sync`.
+`kmp-network-layer`, `swiftui-performance-audit`, `swiftui-view-refactor`, `xcode-project-setup`,
+`apple-ios-hig-designer`, `apple-ondevice-ai-integration`, `ios-appstore-release-qa`,
+`swift-swiftui-ios-engineer`, `tmdb-metadata-catalog`, `watchlist-trakt-sync`.
+
 
 Not installed at all, because they target a different stack: `expo-*`,
 `vercel-react-native-skills` (React Native/Expo), `ai-sdk` (JS), `build-iphone-apps`,
