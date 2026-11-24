@@ -83,6 +83,9 @@ object StreamsRepository {
     }
 
     private fun load(type: String, videoId: String, parentMetaId: String?, season: Int?, episode: Int?, manualSelection: Boolean, forceRefresh: Boolean) {
+        // The sheet is about to ask the sources itself; a warm-up still in flight would only
+        // duplicate those requests and hold fetch slots the live list needs.
+        StreamPrefetcher.cancel()
         val pluginUiState = if (AppFeaturePolicy.pluginsEnabled) {
             PluginRepository.initialize()
             PluginRepository.uiState.value

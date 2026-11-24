@@ -5,12 +5,14 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import com.nuvio.app.features.details.MetaDetailsScreen
 import com.nuvio.app.features.details.PersonDetailScreen
 import com.nuvio.app.features.details.TmdbEntityBrowseScreen
 import com.nuvio.app.features.home.MetaPreview
+import com.nuvio.app.features.streams.StreamPrefetcher
 import com.nuvio.app.features.tmdb.TmdbEntityKind
 import com.nuvio.app.features.tmdb.TmdbService
 import com.nuvio.app.navigation.DetailRoute
@@ -72,6 +74,12 @@ internal fun DetailsDestination(
 ) {
     val onBack = rememberGuardedPopBackStack(navController, route)
     val onOpenMeta = rememberOpenMeta(navController)
+    // Reading a film's page is when the viewer is most likely to press play next, so the sources
+    // are asked now and their answers are waiting when the sheet opens. A series is skipped: one
+    // source list per episode, and guessing the episode would spend a fetch on a guess.
+    LaunchedEffect(route.type, route.id) {
+        StreamPrefetcher.warmMovie(type = route.type, titleId = route.id)
+    }
     // Roles come from TMDB in English; comparing them by their literal names is
     // what preferCrew expects, so these stay untranslated on purpose.
     val directorRole = "Director"
