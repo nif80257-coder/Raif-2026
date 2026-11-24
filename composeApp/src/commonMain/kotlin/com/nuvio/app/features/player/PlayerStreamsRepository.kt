@@ -323,59 +323,24 @@ object PlayerStreamsRepository {
             return
         }
 
-        /**
-         * The quality the user settled on for this source last time, used to pull the
-         * familiar tier of a multi-quality source to the top of its group.
-         *
-         * Read once per source per load; the panel can hold dozens of sources.
-         */
-        val preferredRanksByAddonId = mutableMapOf<String, Int?>()
-        fun preferredRankFor(addonId: String): Int? {
-            if (preferredRanksByAddonId.containsKey(addonId)) {
-                return preferredRanksByAddonId[addonId]
-            }
-            val rank = parentMetaId?.takeIf { it.isNotBlank() }
-                ?.let { loadPreferredSourceQualityRank(it, addonId) }
-            preferredRanksByAddonId[addonId] = rank
-            return rank
-        }
-
         val installedAddonOrder = streamAddons.map { it.addonName }
-        // The panel opens on the sources it found last time; each live response replaces its
-        // own group as it arrives. A manual refresh asks the add-ons again without the cache.
-        val streamContentKey = StreamResponseCache.contentKey(
+        // The panel opens on the sources it found last time; each live response replaces its own
+        // group as it arrives. Those payloads are read and parsed inside the load coroutine below,
+        // not here: this function runs on the caller's thread, and decoding two dozen responses
+        // there is time the panel spends empty. A manual refresh ignores the cache entirely.
+        val useCachedStreams = !(forceRefresh || streamAddons.isEmpty())
+        val cachedContentKey = StreamResponseCache.contentKey(
             type = type,
             videoId = videoId,
             season = season,
             episode = episode,
         )
         val streamCacheProfileId = ProfileRepository.activeProfileId
-        val cachedStreamsByAddonId: Map<String, List<StreamItem>> =
-            if (forceRefresh || streamAddons.isEmpty()) {
-                emptyMap()
-            } else {
-                val cachedPayloads = StreamResponseCache.load(
-                    profileId = streamCacheProfileId,
-                    contentKey = streamContentKey,
-                )
-                streamAddons.mapNotNull { addon ->
-                    val payload = cachedPayloads[addon.addonId] ?: return@mapNotNull null
-                    val streams = runCatching {
-                        StreamParser.parse(
-                            payload = payload,
-                            addonName = addon.addonName,
-                            addonId = addon.addonId,
-                            addonLogo = addon.manifest.logoUrl,
-                        )
-                    }.getOrNull() ?: return@mapNotNull null
-                    addon.addonId to streams.sortedForGroupedDisplay(preferredRankFor(addon.addonId))
-                }.toMap()
-            }
         val initialGroups = StreamAutoPlaySelector.orderAddonStreams(streamAddons.map { addon ->
             AddonStreamGroup(
                 addonName = addon.addonName,
                 addonId = addon.addonId,
-                streams = cachedStreamsByAddonId[addon.addonId].orEmpty(),
+                streams = emptyList(),
                 isLoading = true,
             )
         } + pluginProviderGroups.map { providerGroup ->
@@ -394,6 +359,15 @@ object PlayerStreamsRepository {
         )
 
         val job = scope.launch {
+            // The quality the user settled on for each source last time, read once here — the load
+            // already runs off the caller's thread — and kept read-only so the parallel fetches
+            // below can share it.
+            val preferredRanksByAddonId: Map<String, Int?> = streamAddons.associate { addon ->
+                addon.addonId to parentMetaId?.takeIf { it.isNotBlank() }
+                    ?.let { metaId -> loadPreferredSourceQualityRank(metaId, addon.addonId) }
+            }
+            fun preferredRankFor(addonId: String): Int? = preferredRanksByAddonId[addonId]
+
             val installedAddonIds = streamAddons.map { it.addonId }.toSet()
             val installedAddonNames = installedAddonOrder.toSet()
             val pluginRemainingByAddonId = pluginProviderGroups
@@ -470,6 +444,34 @@ object PlayerStreamsRepository {
                 debridAvailabilityJobs += availabilityJob
             }
 
+            // Rows from last time, published before the first answer arrives, so the panel opens
+            // with a list instead of a placeholder and the live responses replace it group by group.
+            if (useCachedStreams) {
+                val cachedStreamsByAddonId = StreamResponseCache.load(
+                    profileId = streamCacheProfileId,
+                    contentKey = cachedContentKey,
+                ).mapNotNull { (addonId, payload) ->
+                    val addon = streamAddons.firstOrNull { it.addonId == addonId }
+                        ?: return@mapNotNull null
+                    val cachedStreams = runCatching {
+                        StreamParser.parse(
+                            payload = payload,
+                            addonName = addon.addonName,
+                            addonId = addonId,
+                            addonLogo = addon.manifest.logoUrl,
+                        )
+                    }.getOrNull() ?: return@mapNotNull null
+                    addonId to cachedStreams.sortedForGroupedDisplay(preferredRankFor(addonId))
+                }.toMap()
+                cachedStreamsByAddonId.forEach { (addonId, streams) ->
+                    val cachedGroup = stateFlow.value.groups.firstOrNull { it.addonId == addonId }
+                        ?: return@forEach
+                    if (cachedGroup.isLoading && streams.isNotEmpty()) {
+                        publishStreamGroup(cachedGroup.copy(streams = streams))
+                    }
+                }
+            }
+
             streamAddons.forEach { addon ->
                 launch {
                     val url = buildAddonResourceUrl(
@@ -491,7 +493,7 @@ object PlayerStreamsRepository {
                                 )
                                 StreamResponseCache.save(
                                     profileId = streamCacheProfileId,
-                                    contentKey = streamContentKey,
+                                    contentKey = cachedContentKey,
                                     addonId = addon.addonId,
                                     payload = payload,
                                 )
