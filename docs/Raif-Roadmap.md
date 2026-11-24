@@ -608,3 +608,20 @@
 - **الناقص الوحيد**: `autosync_toast_no_fit` كان في الإنجليزية بلا مقابل عربي — أُضيف:
   «فشلت المزامنة: هذه الترجمة لا تطابق هذه النسخة من الفيديو.» صار العدد ٣١٠٨ مفتاحًا في اللغتين.
 - **التحقق**: `compileKotlinIosSimulatorArm64` نجح بعد الإضافة، وتوليد الموارد يتحقق من صحة XML.
+
+
+
+## مسار جلب الإضافات صار بلا `runBlocking` — نُفِّذ
+
+- **المشكلة**: `AddonPlatform.ios.kt` — وهو الملف الذي يمرّ منه **كل** طلب إلى أي إضافة — كان يستدعي
+  `runBlocking { getString(...) }` في تسعة مواضع: أربعة لرسالة «فشل الطلب (HTTP n)» و«استجابة فارغة»،
+  وأربعة في مسارَي POST. أي أن كل ردّ فاشل من مصدر كان يُجمّد خيطًا كاملًا حتى تُقرأ سلسلة نصية، مع
+  خطر التعليق الكامل إن كان العامل الوحيد على مُوزّعه.
+- **الحل**: الاستدعاءات الأربعة داخل دوال `suspend` (‏`httpGetText`, `httpPostJson`,
+  `httpGetTextWithHeaders`, `httpPostJsonWithHeaders`)، فـ`getString` تُستدعى مباشرة بلا `runBlocking`،
+  وحُذف الاستيراد الذي لم يبقَ له مستعمل. الرسائل نفسها حرفيًا، فلا يتغيّر نص ما يراه المستخدم.
+- **النتيجة**: ٩ ← ٠ في هذا الملف، وإجمالي المشروع ٢٢١ ← ٢١٢ موضعًا.
+- **بقي من العائلة نفسها**: `DownloadsPlatformDownloader.ios.kt` (٧)، `AppUpdaterPlatform.ios.kt` (٢)،
+  ثم مواضع الواجهة (`LocalizedUiText`, `DebridSettingsPage`, `TmdbMetadataService`)، وهي العمل التالي.
+- **التحقق**: `compileKotlinIosSimulatorArm64` و`compileTestKotlinIosSimulatorArm64` نجحا — أي أن
+  `getString` تُستدعى فعلًا داخل تلك الكتل بلا `runBlocking`.

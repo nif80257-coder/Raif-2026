@@ -18,7 +18,6 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.contentLength
 import io.ktor.http.isSuccess
-import kotlinx.coroutines.runBlocking
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.network_empty_response_body
 import nuvio.composeapp.generated.resources.network_request_failed_http
@@ -166,11 +165,11 @@ actual suspend fun httpGetText(url: String): String =
                 throw AddonHttpStatusException(
                     statusCode = response.status.value,
                     retryAfterHeader = response.headers[HttpHeaders.RetryAfter],
-                    message = runBlocking { getString(Res.string.network_request_failed_http, response.status.value) },
+                    message = getString(Res.string.network_request_failed_http, response.status.value),
                 )
             }
             if (payload.isBlank()) {
-                throw IllegalStateException(runBlocking { getString(Res.string.network_empty_response_body) })
+                throw IllegalStateException(getString(Res.string.network_empty_response_body))
             }
             payload
         }
@@ -186,10 +185,10 @@ actual suspend fun httpPostJson(url: String, body: String): String =
             response.rejectOversizedBody()
             val payload = response.bodyAsText()
             if (!response.status.isSuccess()) {
-                error(runBlocking { getString(Res.string.network_request_failed_http, response.status.value) })
+                error(getString(Res.string.network_request_failed_http, response.status.value))
             }
             if (payload.isBlank()) {
-                throw IllegalStateException(runBlocking { getString(Res.string.network_empty_response_body) })
+                throw IllegalStateException(getString(Res.string.network_empty_response_body))
             }
             payload
         }
@@ -212,11 +211,11 @@ actual suspend fun httpGetTextWithHeaders(
                 throw AddonHttpStatusException(
                     statusCode = response.status.value,
                     retryAfterHeader = response.headers[HttpHeaders.RetryAfter],
-                    message = runBlocking { getString(Res.string.network_request_failed_http, response.status.value) },
+                    message = getString(Res.string.network_request_failed_http, response.status.value),
                 )
             }
             if (payload.isBlank()) {
-                throw IllegalStateException(runBlocking { getString(Res.string.network_empty_response_body) })
+                throw IllegalStateException(getString(Res.string.network_empty_response_body))
             }
             payload
         }
@@ -239,10 +238,10 @@ actual suspend fun httpPostJsonWithHeaders(
             response.rejectOversizedBody()
             val payload = response.bodyAsText()
             if (!response.status.isSuccess()) {
-                error(runBlocking { getString(Res.string.network_request_failed_http, response.status.value) })
+                error(getString(Res.string.network_request_failed_http, response.status.value))
             }
             if (payload.isBlank()) {
-                throw IllegalStateException(runBlocking { getString(Res.string.network_empty_response_body) })
+                throw IllegalStateException(getString(Res.string.network_empty_response_body))
             }
             payload
         }
