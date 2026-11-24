@@ -3321,7 +3321,26 @@ struct SystemPlayerScreen: View {
     /// The links of the episode on screen, replaced on every roll-over so a
     /// failure never falls back to a source of another episode.
     @State private var pool: [StreamChoice] = []
-    @State private var showEpisodes = false
+    @State private var showOptions = false
+    @State private var speed = 1.0
+    @State private var sleepMinutes: Int?
+    @State private var sleepDeadline: Date?
+    @State private var sleepRemaining = 0
+    /// One sheet for the episode list and the card: two `.sheet` modifiers on the
+    /// same screen compete for the presentation, and one never appears.
+    @State private var sheet: SystemSheet?
+
+    private enum SystemSheet: Identifiable {
+        case episodes
+        case card(ShareImage)
+
+        var id: String {
+            switch self {
+            case .episodes: return "episodes"
+            case .card(let entry): return "card:" + entry.id.uuidString
+            }
+        }
+    }
 
     var body: some View {
         ZStack {
@@ -3348,10 +3367,21 @@ struct SystemPlayerScreen: View {
                             .foregroundStyle(CinemaTheme.muted)
                     }
                     Spacer()
+                    Button {
+                        Haptics.tap()
+                        showOptions = true
+                    } label: {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 36, height: 36)
+                            .background(.ultraThinMaterial, in: Circle())
+                    }
+                    .buttonStyle(.plain)
                     if !episodes.isEmpty {
                         CircleButton(system: "list.bullet") {
                             Haptics.tap()
-                            showEpisodes = true
+                            sheet = .episodes
                         }
                     }
                     if let next = upNext {
@@ -3428,6 +3458,28 @@ struct SystemPlayerScreen: View {
                     .padding(.bottom, 60)
                 }
             }
+            if showOptions {
+                SystemOptionsSheet(
+                    title: stageTitle,
+                    speed: speed,
+                    sleepMinutes: sleepMinutes,
+                    sleepRemaining: sleepRemaining,
+                    canShareCard: item != nil,
+                    onSpeed: { value in
+                        speed = value
+                        saveSpeed(value)
+                        player.defaultRate = Float(value)
+                        if player.rate > 0 { player.rate = Float(value) }
+                        Haptics.select()
+                    },
+                    onSleep: { minutes in setSleep(minutes) },
+                    onCard: {
+                        showOptions = false
+                        buildCard()
+                    },
+                    onClose: { showOptions = false }
+                )
+            }
         }
         .preferredColorScheme(.dark)
         .task {
@@ -3458,18 +3510,23 @@ struct SystemPlayerScreen: View {
             )
             saveProgress()
         }
-        .sheet(isPresented: $showEpisodes) {
-            PlayerEpisodeSheet(
-                episodes: episodes,
-                currentVideoId: stageVideoId,
-                watchedLabels: watchedLabels,
-                onPick: { entry in
-                    showEpisodes = false
-                    roll(to: entry)
-                },
-                onClose: { showEpisodes = false }
-            )
-            .presentationDetents([.medium, .large])
+        .sheet(item: $sheet) { value in
+            switch value {
+            case .episodes:
+                PlayerEpisodeSheet(
+                    episodes: episodes,
+                    currentVideoId: stageVideoId,
+                    watchedLabels: watchedLabels,
+                    onPick: { entry in
+                        sheet = nil
+                        roll(to: entry)
+                    },
+                    onClose: { sheet = nil }
+                )
+                .presentationDetents([.medium, .large])
+            case .card(let entry):
+                ShareSheet(items: [entry.image])
+            }
         }
     }
 
@@ -3494,6 +3551,7 @@ struct SystemPlayerScreen: View {
         duration = 0
         position = 0
         ready = false
+        speed = rememberedSpeed(for: videoId ?? item?.id) ?? CinemaxPrefs.defaultSpeed
         prepare()
         startTicker()
     }
@@ -3551,6 +3609,46 @@ struct SystemPlayerScreen: View {
         )
     }
 
+    /// Writes the sleep timer's end, or clears it.
+    private func setSleep(_ minutes: Int?) {
+        Haptics.select()
+        sleepMinutes = minutes
+        if let minutes {
+            sleepDeadline = Date().addingTimeInterval(Double(minutes) * 60)
+            sleepRemaining = minutes * 60
+        } else {
+            sleepDeadline = nil
+            sleepRemaining = 0
+        }
+    }
+
+    /// The speed this title was last watched at, kept per id the way libmpv's
+    /// player keeps it, so a series holds one speed across its episodes.
+    private func rememberedSpeed(for id: String?) -> Double? {
+        guard let id else { return nil }
+        let value = UserDefaults.standard.double(forKey: "cinemax.speed." + id)
+        return value > 0 ? value : nil
+    }
+
+    private func saveSpeed(_ value: Double) {
+        guard let id = stageVideoId ?? item?.id else { return }
+        UserDefaults.standard.set(value, forKey: "cinemax.speed." + id)
+    }
+
+    /// Draws this title as a card and hands it to the share sheet without
+    /// leaving the film.
+    private func buildCard() {
+        guard let target = item else { return }
+        Task { @MainActor in
+            guard let image = await CinemaCards.title(target) else {
+                nextNote = "تعذّر إنشاء البطاقة"
+                return
+            }
+            sheet = .card(ShareImage(image: image))
+            EventLog.shared.add("card", "بطاقة \(target.name)")
+        }
+    }
+
     /// Rolls into the next episode: asks the addons for a link, picks the one this
     /// engine can read, and swaps the player without closing the screen.
     private func roll(to next: CinemaItem) {
@@ -3563,14 +3661,16 @@ struct SystemPlayerScreen: View {
             let playable = streams.filter { $0.externalUrl == nil }
             // The next file opens best in the engine that reads its container, and
             // the system player only takes what it plays natively.
-            let chosen = playable.first { CinemaxPrefs.engine(for: $0.url) == "system" }
-                ?? playable.first
+            // The next file must be one this engine reads: a container only
+            // libmpv understands would open a player that fails at once.
+            let chosen = playable.first { CinemaxPrefs.systemReadable($0.url) }
             await MainActor.run {
                 switching = false
                 nextNote = nil
                 guard let chosen else {
-                    // Nothing played this one: the list stays open for a new tap.
-                    dismiss()
+                    // The next episode is a container this engine cannot read: the
+                    // note says so instead of opening a player that will fail.
+                    nextNote = "الحلقة التالية بصيغة لا يقرأها هذا المشغل — افتحها في libmpv"
                     return
                 }
                 EventLog.shared.add("next", "\(next.name) · \(chosen.addon)")
@@ -3614,6 +3714,10 @@ struct SystemPlayerScreen: View {
             fresh.seek(to: CMTime(value: startMs, timescale: 1000))
         }
         fresh.play()
+        // The speed this title was last watched at follows the film here too, and
+        // a paused player keeps it as its default for the next press of play.
+        fresh.defaultRate = Float(speed)
+        if abs(speed - 1) > 0.01 { fresh.rate = Float(speed) }
         ready = true
     }
 
@@ -3630,6 +3734,19 @@ struct SystemPlayerScreen: View {
                     // A host that died is not the end of the film: the next link
                     // that this engine can read takes its place.
                     tryFailover()
+                }
+                // The sleep timer counts down on the same tick, so it needs no
+                // timer of its own and stops the film while the screen is open.
+                if let deadline = sleepDeadline {
+                    let left = deadline.timeIntervalSinceNow
+                    sleepRemaining = max(0, Int(left.rounded(.up)))
+                    if left <= 0 {
+                        sleepDeadline = nil
+                        sleepMinutes = nil
+                        sleepRemaining = 0
+                        player.pause()
+                        nextNote = "توقف بمؤقت النوم"
+                    }
                 }
                 if duration > 1, position >= duration - 1.5, !finished {
                     finished = true
@@ -4532,12 +4649,15 @@ enum DetailSheet: Identifiable {
     case trailer(URL)
     case lists(CinemaItem)
     case web(URL)
+    /// A card drawn in the app, shown in the share sheet.
+    case card(UIImage)
 
     var id: String {
         switch self {
         case .trailer(let url): return "trailer:" + url.absoluteString
         case .lists(let item): return "lists:" + item.id
         case .web(let url): return "web:" + url.absoluteString
+        case .card: return "card"
         }
     }
 }
@@ -4561,6 +4681,7 @@ struct DetailView: View {
     @State private var speeds: [String: Double] = [:]
     @State private var probeTask: Task<Void, Never>?
     @State private var shared = false
+    @State private var buildingCard = false
     @State private var marked = false
     @State private var episodeQuery = ""
     @State private var similar: [CinemaItem] = []
@@ -4733,6 +4854,8 @@ struct DetailView: View {
             case .web(let url):
                 SafariView(url: url)
                     .ignoresSafeArea()
+            case .card(let image):
+                ShareSheet(items: [image])
             }
         }
     }
@@ -4796,6 +4919,10 @@ struct DetailView: View {
                     try? await Task.sleep(nanoseconds: 1_600_000_000)
                     shared = false
                 }
+            }
+            CircleButton(system: "photo.on.rectangle") {
+                Haptics.tap()
+                buildCard()
             }
             CircleButton(system: "square.and.arrow.up") {
                 Haptics.tap()
@@ -5004,6 +5131,27 @@ struct DetailView: View {
     private var imdbID: String? {
         let id = model.detail?.item.id ?? item.id
         return id.hasPrefix("tt") ? String(id.split(separator: ":").first ?? "") : nil
+    }
+
+    /// Draws the title as a card and hands it to the share sheet, so the film is
+    /// sent to a friend as a picture rather than as a bare link.
+    private func buildCard() {
+        guard !buildingCard else { return }
+        buildingCard = true
+        Task { @MainActor in
+            let badge = saved ? "من مكتبتك" : nil
+            let image = await CinemaCards.title(
+                model.detail?.item ?? item,
+                badge: badge
+            )
+            buildingCard = false
+            guard let image else {
+                copied = "تعذّر إنشاء البطاقة"
+                return
+            }
+            detailSheet = .card(image)
+            EventLog.shared.add("card", "بطاقة \(item.name)")
+        }
     }
 
     private func share() {
@@ -11658,6 +11806,9 @@ struct StatsSettings: View {
     @ObservedObject private var downloads = DownloadManager.shared
     @State private var watchedEpisodes = 0
     @State private var addonCount = 0
+    /// The card the viewer asked for, and whether one is being drawn now.
+    @State private var card: ShareImage?
+    @State private var buildingCard = false
 
     private var finished: [DownloadJob] { downloads.jobs.filter { $0.state == "done" } }
 
@@ -11679,6 +11830,23 @@ struct StatsSettings: View {
                     tile("\(library.progress.count)", "قيد المشاهدة", icon: "play.circle.fill")
                     tile("\(finished.count)", "تنزيل مكتمل", icon: "arrow.down.circle.fill")
                 }
+
+                Button {
+                    Haptics.tap()
+                    buildCard()
+                } label: {
+                    Label(
+                        buildingCard ? "يُجهّز البطاقة…" : "بطاقة إحصاءاتي",
+                        systemImage: "photo.on.rectangle"
+                    )
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.black)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(CinemaTheme.accent, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(buildingCard)
 
                 if !library.progress.isEmpty {
                     chartCard(
@@ -11760,6 +11928,9 @@ struct StatsSettings: View {
         .background(CinemaTheme.canvas.ignoresSafeArea())
         .navigationTitle("الإحصاءات")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $card) { entry in
+            ShareSheet(items: [entry.image])
+        }
         .task {
             await library.load()
             let extra = await CinemaAPI.shared.extraCounts()
@@ -11785,6 +11956,46 @@ struct StatsSettings: View {
 
     private var savedSeries: Int {
         library.favorites.filter { $0.type == "series" }.count
+    }
+
+    /// Draws the numbers as a card and hands it to the share sheet, so what the
+    /// app recorded travels as a picture instead of a paragraph.
+    private func buildCard() {
+        guard !buildingCard else { return }
+        buildingCard = true
+        Task { @MainActor in
+            let millis = library.progress.reduce(Int64(0)) { $0 + $1.positionMillis }
+            let hours = Double(millis) / 3_600_000
+            let hoursLabel: String
+            if millis <= 0 {
+                hoursLabel = "٠"
+            } else if hours < 1 {
+                hoursLabel = "\(max(1, Int(Double(millis) / 60_000)))د"
+            } else {
+                hoursLabel = String(format: "%.1f", hours)
+            }
+            let completed = library.progress.filter { $0.fraction >= 0.9 }.count
+            let image = CinemaCards.stats(
+                hours: hoursLabel,
+                finished: completed,
+                saved: library.favorites.count,
+                lists: ListsStore.shared.lists.count,
+                downloaded: downloadedShortLabel
+            )
+            buildingCard = false
+            guard let image else { return }
+            card = ShareImage(image: image)
+            EventLog.shared.add("card", "بطاقة إحصاءاتي")
+        }
+    }
+
+    /// The downloads' size in the units a viewer reads, for the card's column.
+    private var downloadedShortLabel: String {
+        let bytes = finished.reduce(Int64(0)) { $0 + $1.total }
+        guard bytes > 0 else { return "—" }
+        let gigabytes = Double(bytes) / 1_073_741_824
+        if gigabytes >= 1 { return String(format: "%.1f GB", gigabytes) }
+        return String(format: "%.0f MB", Double(bytes) / 1_048_576)
     }
 
     /// A title long enough to break a bar chart is shortened at a word boundary.
@@ -11870,6 +12081,421 @@ struct StatsSettings: View {
 struct ShareFile: Identifiable {
     let id = UUID()
     let url: URL
+}
+
+// MARK: - Cards
+
+/// A picture handed to the share sheet, kept identifiable so a screen can show
+/// the sheet for the picture it just drew.
+struct ShareImage: Identifiable {
+    let id = UUID()
+    let image: UIImage
+}
+
+/// A title drawn as a card worth sending: its own poster behind the name, the
+/// year and the rating, in a colour pulled from that poster.
+struct CinemaTitleCard: View {
+    let name: String
+    let meta: String
+    let badge: String
+    let poster: UIImage?
+    let tint: Color
+
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            Color.black
+            if let poster {
+                Image(uiImage: poster)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 1080, height: 1350)
+                    .clipped()
+            }
+            LinearGradient(
+                colors: [.black.opacity(0), .black.opacity(0.5), .black.opacity(0.97)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 14) {
+                    Text("CINEMAX")
+                        .font(.system(size: 24, weight: .heavy))
+                        .tracking(6)
+                        .foregroundStyle(.white.opacity(0.85))
+                    Capsule()
+                        .fill(tint)
+                        .frame(width: 52, height: 5)
+                    Spacer()
+                }
+                Spacer()
+                if !badge.isEmpty {
+                    Text(badge)
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.7))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 7)
+                        .background(Color.white.opacity(0.12), in: Capsule())
+                }
+                Text(name)
+                    .font(.system(size: 76, weight: .heavy))
+                    .foregroundStyle(.white)
+                    .lineLimit(3)
+                    .minimumScaleFactor(0.4)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !meta.isEmpty {
+                    Text(meta)
+                        .font(.system(size: 28, weight: .semibold))
+                        .foregroundStyle(tint)
+                }
+            }
+            .padding(76)
+            .frame(width: 1080, height: 1350, alignment: .bottomLeading)
+        }
+        .frame(width: 1080, height: 1350)
+        .clipped()
+    }
+}
+
+/// A list drawn as a card: its first posters laid as a wall under its name.
+struct CinemaListCard: View {
+    let name: String
+    let count: Int
+    let posters: [UIImage]
+    let tint: Color
+
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            Color.black
+            // A plain grid, not a lazy one: a lazy stack draws nothing inside a
+            // picture that is rendered off screen.
+            VStack(spacing: 10) {
+                ForEach(0..<3, id: \.self) { row in
+                    HStack(spacing: 10) {
+                        ForEach(0..<3, id: \.self) { column in
+                            let index = row * 3 + column
+                            ZStack {
+                                Rectangle().fill(Color.white.opacity(0.06))
+                                if posters.indices.contains(index) {
+                                    Image(uiImage: posters[index])
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                }
+                            }
+                            .frame(width: 353, height: 250)
+                            .clipped()
+                        }
+                    }
+                }
+            }
+            .frame(width: 1080)
+            .opacity(0.55)
+            .blur(radius: 5)
+            LinearGradient(
+                colors: [.black.opacity(0.2), .black.opacity(0.9), .black],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            VStack(alignment: .leading, spacing: 14) {
+                Text("CINEMAX")
+                    .font(.system(size: 24, weight: .heavy))
+                    .tracking(6)
+                    .foregroundStyle(.white.opacity(0.85))
+                Spacer()
+                Text(name)
+                    .font(.system(size: 72, weight: .heavy))
+                    .foregroundStyle(.white)
+                    .lineLimit(3)
+                    .minimumScaleFactor(0.4)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("\(count) عنوانًا · قائمة من CINEMAX")
+                    .font(.system(size: 26, weight: .semibold))
+                    .foregroundStyle(tint)
+            }
+            .padding(76)
+            .frame(width: 1080, height: 1350, alignment: .bottomLeading)
+        }
+        .frame(width: 1080, height: 1350)
+        .clipped()
+    }
+}
+
+/// The viewer's own numbers drawn as a card, so what the app recorded can be sent
+/// to someone as a picture instead of described in a message.
+struct CinemaStatsCard: View {
+    let hours: String
+    let finished: Int
+    let saved: Int
+    let lists: Int
+    let downloaded: String
+    let tint: Color
+
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            Color.black
+            RadialGradient(
+                colors: [tint.opacity(0.5), .black],
+                center: .topTrailing,
+                startRadius: 30,
+                endRadius: 950
+            )
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 14) {
+                    Text("CINEMAX")
+                        .font(.system(size: 24, weight: .heavy))
+                        .tracking(6)
+                        .foregroundStyle(.white.opacity(0.85))
+                    Capsule()
+                        .fill(tint)
+                        .frame(width: 52, height: 5)
+                    Spacer()
+                }
+                Spacer()
+                Text("ساعات المشاهدة")
+                    .font(.system(size: 28, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.6))
+                Text(hours)
+                    .font(.system(size: 136, weight: .heavy))
+                    .foregroundStyle(.white)
+                    .minimumScaleFactor(0.5)
+                    .lineLimit(1)
+                HStack(alignment: .top, spacing: 46) {
+                    stat("\(finished)", "مكتمل")
+                    stat("\(saved)", "محفوظ")
+                    stat("\(lists)", "قوائم")
+                    stat(downloaded, "على الجهاز")
+                }
+                .padding(.top, 10)
+            }
+            .padding(76)
+            .frame(width: 1080, height: 1350, alignment: .bottomLeading)
+        }
+        .frame(width: 1080, height: 1350)
+        .clipped()
+    }
+
+    private func stat(_ value: String, _ label: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(value)
+                .font(.system(size: 44, weight: .bold))
+                .foregroundStyle(tint)
+            Text(label)
+                .font(.system(size: 22, weight: .medium))
+                .foregroundStyle(.white.opacity(0.55))
+        }
+    }
+}
+
+/// The system player's own panel: the sleep timer, the speed and the card that
+/// libmpv's panel carries, where Apple's controls only cover play and captions.
+struct SystemOptionsSheet: View {
+    let title: String
+    let speed: Double
+    let sleepMinutes: Int?
+    let sleepRemaining: Int
+    let canShareCard: Bool
+
+    let onSpeed: (Double) -> Void
+    let onSleep: (Int?) -> Void
+    let onCard: () -> Void
+    let onClose: () -> Void
+
+    private let speeds: [Double] = [0.75, 1, 1.25, 1.5]
+    private let timers: [Int] = [15, 30, 45, 60]
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            Color.black.opacity(0.45)
+                .ignoresSafeArea()
+                .onTapGesture(perform: onClose)
+            VStack(alignment: .leading, spacing: 16) {
+                HStack {
+                    Text("خيارات مشغل النظام")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(.white)
+                    Spacer()
+                    CircleButton(system: "xmark") { onClose() }
+                }
+                Text(title)
+                    .font(.system(size: 12))
+                    .foregroundStyle(CinemaTheme.muted)
+                    .lineLimit(1)
+
+                label("سرعة التشغيل")
+                HStack(spacing: 8) {
+                    ForEach(speeds, id: \.self) { value in
+                        Button {
+                            onSpeed(value)
+                        } label: {
+                            Text(value == 1 ? "عادي" : String(format: "%g×", value))
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(abs(speed - value) < 0.01 ? .black : .white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                                .background {
+                                    Capsule().fill(
+                                        abs(speed - value) < 0.01
+                                            ? CinemaTheme.accent
+                                            : Color.white.opacity(0.1)
+                                    )
+                                }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                HStack(spacing: 6) {
+                    label("مؤقت النوم")
+                    Spacer()
+                    if sleepMinutes != nil {
+                        Text("يتبقى \(sleepRemaining / 60):\(String(format: "%02d", sleepRemaining % 60))")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.accent)
+                            .monospacedDigit()
+                    }
+                }
+                HStack(spacing: 8) {
+                    timerChip(nil, "بلا")
+                    ForEach(timers, id: \.self) { minutes in
+                        timerChip(minutes, "\(minutes) د")
+                    }
+                }
+
+                if canShareCard {
+                    Button(action: onCard) {
+                        Label("بطاقة العنوان", systemImage: "photo.on.rectangle")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.accent)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(CinemaTheme.accent.opacity(0.12), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Text("الصورة داخل الصورة وAirPlay من أدوات النظام: زر في المشغّل، أو من مركز التحكم.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(CinemaTheme.muted)
+                    .lineSpacing(3)
+            }
+            .padding(18)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .strokeBorder(CinemaTheme.hairline, lineWidth: 1)
+            )
+            .padding(.horizontal, 16)
+            .padding(.bottom, 18)
+        }
+        .preferredColorScheme(.dark)
+    }
+
+    private func label(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(CinemaTheme.muted)
+    }
+
+    private func timerChip(_ minutes: Int?, _ text: String) -> some View {
+        Button {
+            onSleep(minutes)
+        } label: {
+            Text(text)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(sleepMinutes == minutes ? .black : .white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background {
+                    Capsule().fill(
+                        sleepMinutes == minutes ? CinemaTheme.accent : Color.white.opacity(0.1)
+                    )
+                }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// Draws both cards: the poster and its colours are loaded first, so the card
+/// never renders as an empty grey rectangle.
+enum CinemaCards {
+    @MainActor
+    static func title(_ item: CinemaItem, badge: String? = nil) async -> UIImage? {
+        let posterURL = item.posterURL ?? item.backdropURL
+        var poster: UIImage?
+        var tint = CinemaTheme.accent
+        if let posterURL {
+            poster = await CinemaImageStore.shared.image(for: posterURL)
+            let colours = await PaletteSampler.colors(for: posterURL)
+            if let first = colours.first { tint = first }
+        }
+        let meta = [item.releaseInfo, item.rating.map { "★ \($0)" }]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .joined(separator: "   ")
+        let card = CinemaTitleCard(
+            name: item.name,
+            meta: meta,
+            badge: badge ?? (item.type == "series" ? "مسلسل" : "فيلم"),
+            poster: poster,
+            tint: tint
+        )
+        return render(card)
+    }
+
+    @MainActor
+    static func list(_ list: CinemaList) async -> UIImage? {
+        var posters: [UIImage] = []
+        var tint = CinemaTheme.accent
+        var coloured = false
+        for entry in list.items.prefix(9) {
+            guard let url = entry.posterURL ?? entry.backdropURL else { continue }
+            if !coloured {
+                let colours = await PaletteSampler.colors(for: url)
+                if let first = colours.first {
+                    tint = first
+                    coloured = true
+                }
+            }
+            if let image = await CinemaImageStore.shared.image(for: url) {
+                posters.append(image)
+            }
+        }
+        let card = CinemaListCard(
+            name: list.name,
+            count: list.items.count,
+            posters: posters,
+            tint: tint
+        )
+        return render(card)
+    }
+
+    @MainActor
+    static func stats(
+        hours: String,
+        finished: Int,
+        saved: Int,
+        lists: Int,
+        downloaded: String
+    ) -> UIImage? {
+        let card = CinemaStatsCard(
+            hours: hours,
+            finished: finished,
+            saved: saved,
+            lists: lists,
+            downloaded: downloaded,
+            tint: CinemaTheme.accent
+        )
+        return render(card)
+    }
+
+    @MainActor
+    private static func render(_ card: some View) -> UIImage? {
+        let renderer = ImageRenderer(content: card)
+        renderer.scale = 1
+        renderer.proposedSize = ProposedViewSize(width: 1080, height: 1350)
+        return renderer.uiImage
+    }
 }
 
 struct ShareSheet: UIViewControllerRepresentable {
@@ -13458,6 +14084,10 @@ struct ListsView: View {
     @State private var renaming: CinemaList?
     @State private var renameText = ""
     @State private var deleting: CinemaList?
+    /// The list's card, drawn when the viewer asks for it, and whether one is
+    /// being drawn right now so a second tap does not start again.
+    @State private var card: ShareImage?
+    @State private var buildingCard = false
 
     private var visible: [CinemaList] {
         let text = query.trimmingCharacters(in: .whitespaces)
@@ -13519,6 +14149,15 @@ struct ListsView: View {
                             ShareLink(item: store.shareText(list)) {
                                 Label("مشاركة القائمة", systemImage: "square.and.arrow.up")
                             }
+                            Button {
+                                Haptics.tap()
+                                buildCard(list)
+                            } label: {
+                                Label(
+                                    buildingCard ? "يُجهّز البطاقة…" : "بطاقة القائمة",
+                                    systemImage: "photo.on.rectangle"
+                                )
+                            }
                             Button(role: .destructive) {
                                 deleting = list
                             } label: {
@@ -13533,6 +14172,9 @@ struct ListsView: View {
             Spacer(minLength: 40)
         }
         .padding(.top, 6)
+        .sheet(item: $card) { entry in
+            ShareSheet(items: [entry.image])
+        }
         .alert("قائمة جديدة", isPresented: $creating) {
             TextField("اسم القائمة", text: $newName)
             Button("إنشاء") {
@@ -13565,6 +14207,20 @@ struct ListsView: View {
             Button("إلغاء", role: .cancel) { deleting = nil }
         } message: {
             Text(deleting?.name ?? "")
+        }
+    }
+
+    /// Draws the list's posters as one card, then hands the picture to the share
+    /// sheet so the list travels as a picture rather than as a page of text.
+    private func buildCard(_ list: CinemaList) {
+        guard !buildingCard, !list.items.isEmpty else { return }
+        buildingCard = true
+        Task { @MainActor in
+            let image = await CinemaCards.list(list)
+            buildingCard = false
+            guard let image else { return }
+            card = ShareImage(image: image)
+            EventLog.shared.add("card", "بطاقة قائمة \(list.name)")
         }
     }
 
@@ -14321,7 +14977,18 @@ final class DownloadManager: ObservableObject {
             state: "running",
             filePath: nil
         )
-        jobs.removeAll { $0.id == urlString && $0.state != "done" }
+        // A fresh download of the same link replaces the old entry instead of
+        // leaving a second row for one file, and the file it wrote is removed so
+        // two copies never sit on the device.
+        for existing in jobs where existing.id == urlString {
+            BackgroundTransfers.shared.cancel(jobKey: CinemaHash.stable(existing.id))
+            runners[existing.id]?.cancel()
+            runners[existing.id] = nil
+            if let path = existing.filePath {
+                try? FileManager.default.removeItem(atPath: path)
+            }
+        }
+        jobs.removeAll { $0.id == urlString }
         jobs.insert(job, at: 0)
         save()
         // A transfer waits its turn when the limit is already busy, instead of
