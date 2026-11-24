@@ -2814,7 +2814,8 @@ struct PlayerScreen: View {
                             videoLabel: currentVideoLabel,
                             item: item,
                             episodes: episodes,
-                            type: type
+                            type: type,
+                            sources: pool
                         )
                     },
                     onAddonSubtitle: { choice in
@@ -2906,7 +2907,8 @@ struct PlayerScreen: View {
                 videoId: takeover.videoId,
                 videoLabel: takeover.videoLabel,
                 episodes: takeover.episodes,
-                type: takeover.type
+                type: takeover.type,
+                sources: takeover.sources
             )
         }
         .task {
@@ -3274,6 +3276,9 @@ struct SystemTakeover: Identifiable {
     let item: CinemaItem?
     let episodes: [CinemaItem]
     let type: String
+    /// The whole source list, so the system player replaces a dead link instead
+    /// of giving up on the film when the first host fails.
+    let sources: [StreamChoice]
 }
 
 /// The system player: AVPlayer with Apple's own controls, AirPlay and Picture in
@@ -3289,6 +3294,9 @@ struct SystemPlayerScreen: View {
     /// instead of stopping and leaving the viewer to find it.
     var episodes: [CinemaItem] = []
     var type: String = "series"
+    /// Every link the detail page found, so a dead host is replaced here instead
+    /// of the film stopping on the first failure.
+    var sources: [StreamChoice] = []
 
     @Environment(\.dismiss) private var dismiss
     @State private var player = AVPlayer()
@@ -3307,6 +3315,13 @@ struct SystemPlayerScreen: View {
     @State private var stageVideoLabel: String?
     @State private var switching = false
     @State private var nextNote: String?
+    /// The links already tried, so a failure never sends the player back to the
+    /// host that just died.
+    @State private var attempts: Set<String> = []
+    /// The links of the episode on screen, replaced on every roll-over so a
+    /// failure never falls back to a source of another episode.
+    @State private var pool: [StreamChoice] = []
+    @State private var showEpisodes = false
 
     var body: some View {
         ZStack {
@@ -3326,11 +3341,19 @@ struct SystemPlayerScreen: View {
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(.white)
                             .lineLimit(1)
-                        Text("مشغل النظام · PiP وAirPlay")
+                        Text(attempts.isEmpty
+                             ? "مشغل النظام · PiP وAirPlay"
+                             : "مشغل النظام · المحاولة \(attempts.count)")
                             .font(.system(size: 10))
                             .foregroundStyle(CinemaTheme.muted)
                     }
                     Spacer()
+                    if !episodes.isEmpty {
+                        CircleButton(system: "list.bullet") {
+                            Haptics.tap()
+                            showEpisodes = true
+                        }
+                    }
                     if let next = upNext {
                         Button {
                             Haptics.tap()
@@ -3375,6 +3398,30 @@ struct SystemPlayerScreen: View {
                         Text("بدّل إلى مشغل libmpv من الإعدادات ← التشغيل.")
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(CinemaTheme.accent)
+                        HStack(spacing: 10) {
+                            Button("أعد المحاولة") {
+                                Haptics.tap()
+                                attempts.removeAll()
+                                start(
+                                    title: stageTitle,
+                                    url: stageURL,
+                                    headers: stageHeaders,
+                                    videoId: stageVideoId,
+                                    videoLabel: stageVideoLabel,
+                                    startAt: 0
+                                )
+                            }
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 9)
+                            .background(CinemaTheme.accent, in: Capsule())
+                            .buttonStyle(.plain)
+                            Button("إغلاق") { dismiss() }
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(CinemaTheme.muted)
+                                .buttonStyle(.plain)
+                        }
                     }
                     .padding(20)
                     .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
@@ -3391,6 +3438,7 @@ struct SystemPlayerScreen: View {
             if let item, CinemaxPrefs.autoResume {
                 beginAt = await CinemaAPI.shared.resume(itemId: item.id, videoId: videoId)
             }
+            pool = sources
             start(
                 title: title,
                 url: url,
@@ -3409,6 +3457,19 @@ struct SystemPlayerScreen: View {
                 options: .notifyOthersOnDeactivation
             )
             saveProgress()
+        }
+        .sheet(isPresented: $showEpisodes) {
+            PlayerEpisodeSheet(
+                episodes: episodes,
+                currentVideoId: stageVideoId,
+                watchedLabels: watchedLabels,
+                onPick: { entry in
+                    showEpisodes = false
+                    roll(to: entry)
+                },
+                onClose: { showEpisodes = false }
+            )
+            .presentationDetents([.medium, .large])
         }
     }
 
@@ -3449,6 +3510,47 @@ struct SystemPlayerScreen: View {
         (UserDefaults.standard.object(forKey: "cinemax.autoplayNext") as? Bool) ?? true
     }
 
+    /// The next link this engine can read, skipping the ones already tried so a
+    /// failure never sends the player back to the host that just died.
+    private var nextSource: StreamChoice? {
+        let candidates = pool.filter {
+            $0.externalUrl == nil && !attempts.contains($0.url) && $0.url != stageURL
+        }
+        return candidates.first { CinemaxPrefs.systemReadable($0.url) }
+    }
+
+    /// Replaces a dead link with the next source, and only shows the error when
+    /// nothing is left to try.
+    private func tryFailover() {
+        guard !switching else { return }
+        attempts.insert(stageURL)
+        guard let next = nextSource else {
+            errorText = player.currentItem?.error?.localizedDescription ?? "فشل تحميل المصدر"
+            EventLog.shared.add("player", "لا مصدر آخر يعمل لهذا العنوان")
+            return
+        }
+        attempts.insert(next.url)
+        EventLog.shared.add("player", "فشل المصدر · تجربة \(next.addon)")
+        start(
+            title: stageTitle,
+            url: next.url,
+            headers: next.headers ?? [:],
+            videoId: stageVideoId,
+            videoLabel: stageVideoLabel,
+            startAt: 0
+        )
+    }
+
+    /// Episodes already watched to the end, for the list's ticks.
+    private var watchedLabels: Set<String> {
+        guard let item else { return [] }
+        return Set(
+            LibraryModel.shared.progress
+                .filter { $0.item.id == item.id && $0.fraction >= 0.9 }
+                .compactMap(\.episodeLabel)
+        )
+    }
+
     /// Rolls into the next episode: asks the addons for a link, picks the one this
     /// engine can read, and swaps the player without closing the screen.
     private func roll(to next: CinemaItem) {
@@ -3472,6 +3574,10 @@ struct SystemPlayerScreen: View {
                     return
                 }
                 EventLog.shared.add("next", "\(next.name) · \(chosen.addon)")
+                // The new episode's own links replace the old list, so a failure
+                // here never falls back to a source of the episode before it.
+                pool = playable
+                attempts = [chosen.url]
                 start(
                     title: next.name,
                     url: chosen.url,
@@ -3520,8 +3626,10 @@ struct SystemPlayerScreen: View {
                 if total.isFinite, total > 0 { duration = total }
                 let now = player.currentTime().seconds
                 if now.isFinite { position = now }
-                if current.status == .failed {
-                    errorText = current.error?.localizedDescription ?? "فشل تحميل المصدر"
+                if current.status == .failed, errorText == nil {
+                    // A host that died is not the end of the film: the next link
+                    // that this engine can read takes its place.
+                    tryFailover()
                 }
                 if duration > 1, position >= duration - 1.5, !finished {
                     finished = true
@@ -4594,7 +4702,8 @@ struct DetailView: View {
                         videoId: episode?.id,
                         videoLabel: episode?.name,
                         episodes: model.detail?.episodes ?? [],
-                        type: item.type
+                        type: item.type,
+                        sources: playableStreams
                     )
                 case "external":
                     ExternalPlayerScreen(title: item.name, url: choice.url)
