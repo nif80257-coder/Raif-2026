@@ -4244,6 +4244,9 @@ struct DetailView: View {
     @State private var season: Int?
     @State private var episode: CinemaItem?
     @State private var playing: StreamChoice?
+    /// The engine the chosen link opens with, decided the moment it is picked so
+    /// an adaptive link goes to the system player and a file stays with libmpv.
+    @State private var playbackEngine = "mpv"
     @State private var qualityFilter: String?
     @State private var addonFilter: String?
     @AppStorage("cinemax.sourcesCollapsed") private var sourcesCollapsed = false
@@ -4381,7 +4384,7 @@ struct DetailView: View {
         }
         .fullScreenCover(item: $playing, onDismiss: { playing = nil }) { choice in
             Group {
-                switch CinemaxPrefs.playerEngine {
+                switch playbackEngine {
                 case "system":
                     SystemPlayerScreen(
                         title: item.name,
@@ -5075,6 +5078,7 @@ struct DetailView: View {
 
     private func launchPlayback(_ stream: StreamChoice) {
         guard HLSParser.shared.isHLS(stream.url) else {
+            playbackEngine = CinemaxPrefs.engine(for: stream.url)
             withAnimation(.easeInOut(duration: 0.15)) { playing = stream }
             return
         }
@@ -5090,6 +5094,7 @@ struct DetailView: View {
                     chosen.url = resolved.url
                     EventLog.shared.add("hls", "\(resolved.label) ← \(stream.addon)")
                 }
+                playbackEngine = CinemaxPrefs.engine(for: chosen.url)
                 withAnimation(.easeInOut(duration: 0.15)) { playing = chosen }
             }
         }
@@ -5655,7 +5660,7 @@ final class SearchIndex: ObservableObject {
         var fresh: [String: Entry] = [:]
         func add(_ item: CinemaItem) {
             guard !item.name.isEmpty else { return }
-            let normalized = normalize(item.name)
+            let normalized = Self.normalize(item.name)
             guard !normalized.isEmpty else { return }
             fresh[item.id] = Entry(
                 item: item,
@@ -5674,8 +5679,9 @@ final class SearchIndex: ObservableObject {
     }
 
     /// Folds the letters Arabic is typed with and without: hamza, taa marbuta,
-    /// alef maqsura, diacritics and tatweel all end up as one letter.
-    private func normalize(_ text: String) -> String {
+    /// alef maqsura, diacritics and tatweel all end up as one letter. It is
+    /// shared with the self test, which proves the folding before a search runs.
+    static func normalize(_ text: String) -> String {
         var value = text.folding(
             options: [.diacriticInsensitive, .caseInsensitive, .widthInsensitive],
             locale: nil
@@ -5695,7 +5701,7 @@ final class SearchIndex: ObservableObject {
     }
 
     func search(_ query: String, limit: Int = 24) -> [CinemaItem] {
-        let needle = normalize(query.trimmingCharacters(in: .whitespacesAndNewlines))
+        let needle = Self.normalize(query.trimmingCharacters(in: .whitespacesAndNewlines))
         guard needle.count >= 2 else { return [] }
         var scored: [(item: CinemaItem, score: Double)] = []
         for entry in entries.values {
@@ -7574,7 +7580,8 @@ struct SettingsView: View {
             Destination(id: "library", title: "المكتبة والبحث", detail: "ترتيب افتراضي ونوع البحث", icon: "books.vertical.fill", keywords: "مكتبة بحث ترتيب library search"),
             Destination(id: "stats", title: "الإحصاءات", detail: "ما في مكتبتك وحجم التنزيلات", icon: "chart.bar.fill", keywords: "احصائيات stats"),
             Destination(id: "data", title: "البيانات", detail: "مسح، نسخة احتياطية، قفل التطبيق", icon: "externaldrive.fill", keywords: "بيانات نسخ احتياطي مسح قفل data backup lock"),
-            Destination(id: "about", title: "عن التطبيق", detail: "الإصدار، التشخيص، شاشة البداية", icon: "info.circle.fill", keywords: "حول اصدار about version")
+            Destination(id: "about", title: "عن التطبيق", detail: "الإصدار، التشخيص، شاشة البداية", icon: "info.circle.fill", keywords: "حول اصدار about version"),
+            Destination(id: "selftest", title: "الفحص الذاتي", detail: "قراءة HLS، سباق المرايا، تطبيع البحث، الملفات", icon: "checkmark.shield.fill", keywords: "فحص اختبار تشخيص selftest test diagnose hls race")
         ]
     }
 
@@ -7606,6 +7613,7 @@ struct SettingsView: View {
         case "stats": StatsSettings()
         case "data": DataSettings()
         case "about": AboutSettings()
+        case "selftest": SelfTestView()
         default: EmptyView()
         }
     }
@@ -7869,6 +7877,17 @@ struct SettingsView: View {
                     .padding(.horizontal, 20)
 
                     SettingsSection(title: "النظام") {
+                        NavigationLink {
+                            SelfTestView()
+                        } label: {
+                            SettingsRow(
+                                icon: "checkmark.shield.fill",
+                                title: "الفحص الذاتي",
+                                detail: "يجرّب قراءة HLS وسباق المرايا وتطبيع البحث داخل التطبيق"
+                            )
+                        }
+                        .buttonStyle(.plain)
+
                         NavigationLink {
                             DataSettings()
                         } label: {
@@ -8492,6 +8511,278 @@ struct SubtitleSettings: View {
     }
 }
 
+// MARK: - Self test
+
+/// Runs the parts that decide whether a source plays — the HLS reader, the
+/// racing probe, the expiry reader, the search folding and the file writer —
+/// and shows every answer with the time it took, so a slow or wrong result is
+/// visible on the screen instead of guessed at.
+struct SelfTestView: View {
+    private struct Outcome: Identifiable {
+        let id: String
+        let title: String
+        var running = false
+        var passed: Bool?
+        var note = ""
+        var milliseconds = 0
+    }
+
+    @State private var outcomes: [Outcome] = []
+    @State private var running = false
+
+    /// Apple's own test stream: a master playlist that always answers and needs
+    /// no key, so the reader is checked against real bytes.
+    private let sample = "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_ts/master.m3u8"
+
+    private var summary: String {
+        let done = outcomes.filter { $0.passed != nil }
+        guard !done.isEmpty else { return "الفحص الذاتي" }
+        let passed = done.filter { $0.passed == true }.count
+        return "\(passed) من \(done.count) ناجح"
+    }
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(summary)
+                        .font(.system(size: 24, weight: .heavy))
+                        .foregroundStyle(.white)
+                    Text("يفحص داخل التطبيق ما يقرّر إن كان المصدر سيعمل: تطبيع البحث، انتهاء صلاحية الروابط، قراءة HLS، سباق المرايا، وحفظ الملفات. فحصان منها يحتاجان اتصالًا.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(CinemaTheme.muted)
+                        .lineSpacing(4)
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+
+                Button {
+                    Haptics.tap()
+                    Task { @MainActor in await run() }
+                } label: {
+                    HStack(spacing: 8) {
+                        if running {
+                            ProgressView().tint(.black)
+                        } else {
+                            Image(systemName: "bolt.horizontal.circle.fill")
+                                .font(.system(size: 13, weight: .bold))
+                        }
+                        Text(running ? "يُجري الفحوص…" : "تشغيل الفحوص")
+                            .font(.system(size: 14, weight: .bold))
+                    }
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .background(CinemaTheme.accent, in: Capsule())
+                }
+                .buttonStyle(CinemaPressStyle())
+                .disabled(running)
+
+                VStack(spacing: 0) {
+                    ForEach(outcomes) { outcome in
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: icon(outcome))
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(tint(outcome))
+                                .frame(width: 22)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(outcome.title)
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                if !outcome.note.isEmpty {
+                                    Text(outcome.note)
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(CinemaTheme.muted)
+                                        .lineLimit(3)
+                                        .lineSpacing(2)
+                                }
+                            }
+                            Spacer()
+                            if outcome.milliseconds > 0 {
+                                Text("\(outcome.milliseconds) م.ث")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(CinemaTheme.muted)
+                            }
+                        }
+                        .padding(14)
+                        if outcome.id != outcomes.last?.id {
+                            Divider().overlay(CinemaTheme.hairline)
+                        }
+                    }
+                }
+                .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+
+                Text("النتيجة تُسجَّل في سجل الأحداث، فما يظهر هنا يُقارن بما يحدث أثناء التشغيل.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(CinemaTheme.muted)
+                    .lineSpacing(3)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+        }
+        .background(CinemaTheme.canvas.ignoresSafeArea())
+        .navigationTitle("الفحص الذاتي")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func icon(_ outcome: Outcome) -> String {
+        if outcome.running { return "hourglass" }
+        guard let passed = outcome.passed else { return "circle" }
+        return passed ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
+    }
+
+    private func tint(_ outcome: Outcome) -> Color {
+        if outcome.running { return CinemaTheme.muted }
+        guard let passed = outcome.passed else { return CinemaTheme.muted }
+        return passed ? CinemaTheme.accent : CinemaTheme.favourite
+    }
+
+    @MainActor
+    private func begin(_ id: String) -> Date {
+        if let index = outcomes.firstIndex(where: { $0.id == id }) {
+            outcomes[index].running = true
+        }
+        return Date()
+    }
+
+    @MainActor
+    private func finish(_ id: String, passed: Bool, note: String, since start: Date) {
+        guard let index = outcomes.firstIndex(where: { $0.id == id }) else { return }
+        outcomes[index].running = false
+        outcomes[index].passed = passed
+        outcomes[index].note = note
+        outcomes[index].milliseconds = Int(Date().timeIntervalSince(start) * 1000)
+    }
+
+    @MainActor
+    private func run() async {
+        guard !running else { return }
+        running = true
+        outcomes = [
+            Outcome(id: "fold", title: "تطبيع البحث العربي"),
+            Outcome(id: "expiry", title: "قراءة انتهاء صلاحية الرابط"),
+            Outcome(id: "hls", title: "قراءة قائمة HLS"),
+            Outcome(id: "race", title: "سباق المرايا"),
+            Outcome(id: "files", title: "الكتابة في مجلد التنزيلات"),
+            Outcome(id: "storage", title: "حفظ واسترجاع الإعدادات")
+        ]
+        await checkFold()
+        await checkExpiry()
+        await checkHLS()
+        await checkRace()
+        await checkFiles()
+        await checkStorage()
+        running = false
+        EventLog.shared.add("selftest", summary)
+    }
+
+    @MainActor
+    private func checkFold() async {
+        let start = begin("fold")
+        let arabic = SearchIndex.normalize("أَلْف لَيْلَة")
+        guard arabic == SearchIndex.normalize("الف ليله") else {
+            finish("fold", passed: false, note: "لم يتطابق: \(arabic)", since: start)
+            return
+        }
+        guard SearchIndex.normalize("The Matrix") == "the matrix" else {
+            finish("fold", passed: false, note: "اللاتيني لم يُطوى كما يجب", since: start)
+            return
+        }
+        finish("fold", passed: true, note: "«أَلْف لَيْلَة» ← «\(arabic)»", since: start)
+    }
+
+    @MainActor
+    private func checkExpiry() async {
+        let start = begin("expiry")
+        let near = Int(Date().addingTimeInterval(120).timeIntervalSince1970)
+        let far = Int(Date().addingTimeInterval(600).timeIntervalSince1970 * 1000)
+        guard StreamExpiry.isExpiring("https://x.test/film.m3u8?expires=\(near)") else {
+            finish("expiry", passed: false, note: "الرابط القريب لم يُقرأ منتهيًا", since: start)
+            return
+        }
+        guard !StreamExpiry.isExpiring("https://x.test/film.m3u8?exp=\(far)", within: 300) else {
+            finish("expiry", passed: false, note: "الرابط البعيد اعتُبر منتهيًا", since: start)
+            return
+        }
+        guard StreamExpiry.date(in: "https://x.test/film.m3u8") == nil else {
+            finish("expiry", passed: false, note: "رابط بلا وقت أعطى تاريخًا", since: start)
+            return
+        }
+        finish("expiry", passed: true, note: "ثوانٍ وميلي ثانية، وبلا وقت لا شيء", since: start)
+    }
+
+    @MainActor
+    private func checkHLS() async {
+        let start = begin("hls")
+        let resolved = await HLSParser.shared.bestStream(
+            for: sample,
+            headers: [:],
+            preferredQuality: nil
+        )
+        guard let resolved else {
+            finish("hls", passed: false, note: "لم تُقرأ القائمة — قد يكون الاتصال مقطوعًا", since: start)
+            return
+        }
+        finish("hls", passed: true, note: "اختير \(resolved.label) من القائمة الرئيسية", since: start)
+    }
+
+    @MainActor
+    private func checkRace() async {
+        let start = begin("race")
+        let dead = StreamChoice(
+            url: "https://cinemax-selftest.invalid/none.mp4",
+            addon: "فحص",
+            title: "رابط ميت",
+            quality: nil
+        )
+        let alive = StreamChoice(url: sample, addon: "فحص", title: "رابط حيّ", quality: nil)
+        guard let winner = await StreamRacer.shared.firstPlayable([dead, alive]) else {
+            finish("race", passed: false, note: "لم يجب أي رابط — قد يكون الاتصال مقطوعًا", since: start)
+            return
+        }
+        guard winner.url == alive.url else {
+            finish("race", passed: false, note: "فاز الرابط الميت على الحيّ", since: start)
+            return
+        }
+        finish("race", passed: true, note: "فاز الحيّ وتم إلغاء الباقي", since: start)
+    }
+
+    @MainActor
+    private func checkFiles() async {
+        let start = begin("files")
+        let folder = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let probe = folder.appendingPathComponent("cinemax-selftest.txt")
+        do {
+            try "ok".write(to: probe, atomically: true, encoding: .utf8)
+            let back = try String(contentsOf: probe, encoding: .utf8)
+            try FileManager.default.removeItem(at: probe)
+            guard back == "ok" else {
+                finish("files", passed: false, note: "القراءة رجعت فارغة", since: start)
+                return
+            }
+            finish("files", passed: true, note: "كتب وقرأ وحذف في مجلد المستندات", since: start)
+        } catch {
+            finish("files", passed: false, note: error.localizedDescription, since: start)
+        }
+    }
+
+    @MainActor
+    private func checkStorage() async {
+        let start = begin("storage")
+        let key = "cinemax.selftest"
+        let value = UUID().uuidString
+        UserDefaults.standard.set(value, forKey: key)
+        let back = UserDefaults.standard.string(forKey: key)
+        UserDefaults.standard.removeObject(forKey: key)
+        guard back == value else {
+            finish("storage", passed: false, note: "القيمة لم ترجع كما كُتبت", since: start)
+            return
+        }
+        finish("storage", passed: true, note: "كتب وقرأ ثم مسح المفتاح", since: start)
+    }
+}
+
 struct PlaybackSettings: View {
     @AppStorage("cinemax.autoplayNext") private var autoplayNext = true
     @AppStorage("cinemax.skipIntro") private var skipIntro = true
@@ -8505,7 +8796,7 @@ struct PlaybackSettings: View {
     @AppStorage("cinemax.defaultSpeed") private var defaultSpeed = 1.0
 
     private let engines: [(id: String, title: String)] = [
-        ("mpv", "libmpv"), ("system", "مشغل النظام"), ("external", "تطبيق خارجي")
+        ("auto", "تلقائي"), ("mpv", "libmpv"), ("system", "مشغل النظام"), ("external", "تطبيق خارجي")
     ]
 
     private let speeds: [Double] = [0.75, 1, 1.25, 1.5]
@@ -8733,6 +9024,8 @@ struct PlaybackSettings: View {
     /// What the chosen engine brings, so the trade-off is not a mystery.
     private var engineDetail: String {
         switch playerEngine {
+        case "auto":
+            return "تلقائي: يفتح روابط HLS وMP4 في مشغل النظام لتعمل الصورة داخل الصورة وAirPlay، ويُبقي libmpv للملفات الثقيلة (MKV وHEVC وAV1) بكل خيارات اللوحة."
         case "system":
             return "AVPlayer من النظام: يشغّل HLS وMP4 بسلاسة، ويدعم الصورة داخل الصورة وAirPlay. الصيغ الغريبة (MKV/AV1) قد ترفضها."
         case "external":
@@ -12337,10 +12630,34 @@ enum CinemaxPrefs {
         UserDefaults.standard.string(forKey: "cinemax.prefQuality") ?? "auto"
     }
 
-    /// Which engine opens a link: libmpv (all formats), the system player
-    /// (Picture in Picture and AirPlay) or another app through the share sheet.
+    /// The engine a link opens with. The default is libmpv, which opens every
+    /// format with the whole panel; "auto" is the viewer's own choice, and it
+    /// hands HLS and MP4 to the system player for Picture in Picture.
     static var playerEngine: String {
         UserDefaults.standard.string(forKey: "cinemax.playerEngine") ?? "mpv"
+    }
+
+    /// The engine one link should open with. An adaptive or progressive stream is
+    /// what the system player reads natively, and that is what brings Picture in
+    /// Picture and AirPlay; a container only libmpv understands stays with it.
+    static func engine(for urlString: String) -> String {
+        let chosen = playerEngine
+        guard chosen == "auto" else { return chosen }
+        let lowered = urlString.lowercased()
+        if lowered.contains(".m3u8") || lowered.contains("format=m3u8") { return "system" }
+        let path = lowered.split(separator: "?").first.map(String.init) ?? lowered
+        for suffix in [".mp4", ".m4v", ".mov"] where path.hasSuffix(suffix) { return "system" }
+        return "mpv"
+    }
+
+    /// How many transfers may run at once; the rest wait their turn.
+    static var downloadLimit: Int {
+        let stored = UserDefaults.standard.integer(forKey: "cinemax.downloadLimit")
+        return stored == 0 ? 2 : max(1, min(4, stored))
+    }
+
+    static func setDownloadLimit(_ value: Int) {
+        UserDefaults.standard.set(max(1, min(4, value)), forKey: "cinemax.downloadLimit")
     }
 
     /// Lets the player turn the window to landscape while it is open.
@@ -13585,6 +13902,24 @@ final class DownloadManager: ObservableObject {
         jobs.contains { $0.id == url && $0.state == "running" }
     }
 
+    private var activeCount: Int {
+        jobs.filter { $0.state == "running" || $0.state == "retrying" }.count
+    }
+
+    /// Starts whatever waited its turn, up to the limit the viewer picked, so a
+    /// queue of episodes finishes two by two instead of fighting for the link.
+    func pump() {
+        var active = activeCount
+        for job in jobs where job.state == "queued" {
+            guard active < CinemaxPrefs.downloadLimit else { break }
+            update(job.id) { entry in entry.state = "running" }
+            guard let fresh = jobs.first(where: { $0.id == job.id }) else { continue }
+            launch(fresh)
+            active += 1
+        }
+        save()
+    }
+
     func start(title: String, urlString: String, headers: [String: String] = [:]) {
         guard URL(string: urlString) != nil else { return }
         if jobs.contains(where: { $0.id == urlString && $0.state == "running" }) { return }
@@ -13602,7 +13937,20 @@ final class DownloadManager: ObservableObject {
         jobs.removeAll { $0.id == urlString && $0.state != "done" }
         jobs.insert(job, at: 0)
         save()
+        // A transfer waits its turn when the limit is already busy, instead of
+        // splitting the connection the running ones need. The new job is not
+        // counted against itself.
+        let others = jobs.filter {
+            $0.id != job.id && ($0.state == "running" || $0.state == "retrying")
+        }.count
+        if others >= CinemaxPrefs.downloadLimit {
+            update(job.id) { entry in entry.state = "queued" }
+            save()
+            EventLog.shared.add("download", "في الانتظار \(title)")
+            return
+        }
         launch(job)
+        save()
     }
 
     /// Stops the transfer but keeps the parts that already landed, so it can go on.
@@ -13617,16 +13965,18 @@ final class DownloadManager: ObservableObject {
             if entry.state == "running" || entry.state == "retrying" { entry.state = "paused" }
         }
         save()
+        pump()
     }
 
-    /// Picks a paused or failed transfer up from the parts already on disk.
+    /// Picks a paused or failed transfer up from the parts already on disk, and
+    /// queues it behind the ones already moving.
     func resume(_ job: DownloadJob) {
         guard jobs.contains(where: { $0.id == job.id }), runners[job.id] == nil else { return }
         update(job.id) { entry in
-            entry.state = "running"
+            entry.state = "queued"
         }
         save()
-        launch(job)
+        pump()
     }
 
     func isPaused(_ url: String) -> Bool {
@@ -13652,6 +14002,7 @@ final class DownloadManager: ObservableObject {
             entry.state = "cancelled"
         }
         save()
+        pump()
     }
 
     func remove(_ job: DownloadJob) {
@@ -13665,6 +14016,7 @@ final class DownloadManager: ObservableObject {
         try? FileManager.default.removeItem(at: partsDirectory(for: job.id))
         jobs.removeAll { $0.id == job.id }
         save()
+        pump()
     }
 
     /// A folder per transfer, named from a stable hash so a paused download finds
@@ -13791,6 +14143,7 @@ final class DownloadManager: ObservableObject {
             notify(title: title)
         }
         sampler.cancel()
+        pump()
     }
 
     /// Marks the transfer as paused rather than failed, keeping its parts on disk.
@@ -14005,12 +14358,14 @@ struct DownloadsView: View {
     @State private var playing: CinemaItem?
     @State private var filter = "all"
     @State private var sort = "newest"
+    @State private var limit = CinemaxPrefs.downloadLimit
 
     private var jobs: [DownloadJob] {
         let filtered: [DownloadJob]
         switch filter {
         case "running":
             filtered = manager.jobs.filter { $0.state == "running" || $0.state == "retrying" }
+        case "queued": filtered = manager.jobs.filter { $0.state == "queued" }
         case "paused": filtered = manager.jobs.filter { $0.state == "paused" || $0.state == "cancelled" }
         case "done": filtered = manager.jobs.filter { $0.state == "done" }
         default: filtered = manager.jobs
@@ -14040,7 +14395,7 @@ struct DownloadsView: View {
             } else {
                 HStack(spacing: 8) {
                     ForEach(
-                        [("all", "الكل"), ("running", "الجارية"), ("paused", "المتوقفة"), ("done", "المكتملة")],
+                        [("all", "الكل"), ("running", "الجارية"), ("queued", "في الانتظار"), ("paused", "المتوقفة"), ("done", "المكتملة")],
                         id: \.0
                     ) { entry in
                         Button {
@@ -14071,6 +14426,26 @@ struct DownloadsView: View {
                     Text(totalLabel)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(CinemaTheme.muted)
+                    Menu {
+                        ForEach([1, 2, 3, 4], id: \.self) { value in
+                            Button {
+                                Haptics.select()
+                                limit = value
+                                CinemaxPrefs.setDownloadLimit(value)
+                                manager.pump()
+                            } label: {
+                                Text(value == 1 ? "تنزيل واحد معًا" : "\(value) تنزيلات معًا")
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: "gauge.with.dots.needle.33percent")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text("\(limit)")
+                                .font(.system(size: 11, weight: .semibold))
+                        }
+                        .foregroundStyle(CinemaTheme.muted)
+                    }
                     Menu {
                         Button("الأحدث") { sort = "newest" }
                         Button("الأكبر حجمًا") { sort = "size" }
@@ -14216,7 +14591,10 @@ struct DownloadsView: View {
         let jobs = manager.jobs
         let total = jobs.reduce(Int64(0)) { $0 + $1.total }
         let running = jobs.filter { $0.state == "running" }.count
+        let waiting = jobs.filter { $0.state == "queued" }.count
         let size = String(format: "%.0f MB", Double(total) / 1_048_576)
+        if running > 0 && waiting > 0 { return "\(size) · \(running) جارٍ · \(waiting) منتظر" }
+        if waiting > 0 { return "\(size) · \(waiting) منتظر" }
         return running > 0 ? "\(size) · \(running) جارٍ" : size
     }
 
@@ -14226,6 +14604,7 @@ struct DownloadsView: View {
         case "failed": return "فشل"
         case "paused": return "متوقف"
         case "retrying": return "إعادة المحاولة…"
+        case "queued": return "في الانتظار"
         case "cancelled": return "ملغى"
         default: return "\(Int(job.progress * 100))٪"
         }
