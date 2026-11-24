@@ -2161,6 +2161,10 @@ struct PlayerScreen: View {
     @State private var currentVideoId: String?
     @State private var currentVideoLabel: String?
     @State private var switching = false
+    /// The link handed to the system player, and whether this one was playing so
+    /// it is taken back up when the viewer comes back.
+    @State private var systemTakeover: SystemTakeover?
+    @State private var pausedForSystem = false
 
     private var upNext: CinemaItem? {
         guard let currentVideoId,
@@ -2789,6 +2793,30 @@ struct PlayerScreen: View {
                         applySubtitleLink(value)
                     },
                     onNextSource: { playNextSource() },
+                    canSwitchToSystem: CinemaxPrefs.systemReadable(currentURL),
+                    onSystemPlayer: {
+                        Haptics.select()
+                        showOptions = false
+                        pausedForSystem = playing
+                        if playing {
+                            playing = false
+                            player?.pausePlayback()
+                        }
+                        // The system player takes the link from here, and this one
+                        // waits underneath at the same second.
+                        player?.refreshState()
+                        systemTakeover = SystemTakeover(
+                            id: currentURL,
+                            title: currentTitle,
+                            url: currentURL,
+                            headers: currentHeaders,
+                            videoId: currentVideoId,
+                            videoLabel: currentVideoLabel,
+                            item: item,
+                            episodes: episodes,
+                            type: type
+                        )
+                    },
                     onAddonSubtitle: { choice in
                         applySubtitleLink(choice.url)
                     },
@@ -2857,6 +2885,29 @@ struct PlayerScreen: View {
             Button("إغلاق", role: .cancel) { diagnosticsText = nil }
         } message: {
             Text(diagnosticsText ?? "")
+        }
+        .fullScreenCover(item: $systemTakeover, onDismiss: {
+            systemTakeover = nil
+            // Only a film that was still running goes on; a finished one or a
+            // deliberate pause stays where it is.
+            if pausedForSystem {
+                pausedForSystem = false
+                if duration > 0, position < duration - 2 {
+                    playing = true
+                    player?.playPlayback()
+                }
+            }
+        }) { takeover in
+            SystemPlayerScreen(
+                title: takeover.title,
+                url: takeover.url,
+                headers: takeover.headers,
+                item: takeover.item,
+                videoId: takeover.videoId,
+                videoLabel: takeover.videoLabel,
+                episodes: takeover.episodes,
+                type: takeover.type
+            )
         }
         .task {
             UIApplication.shared.isIdleTimerDisabled = true
@@ -3211,6 +3262,20 @@ struct PlayerScreen: View {
     }
 }
 
+/// A link handed from the libmpv player to the system player, so Picture in
+/// Picture and AirPlay work without leaving the film behind.
+struct SystemTakeover: Identifiable {
+    let id: String
+    let title: String
+    let url: String
+    let headers: [String: String]
+    let videoId: String?
+    let videoLabel: String?
+    let item: CinemaItem?
+    let episodes: [CinemaItem]
+    let type: String
+}
+
 /// The system player: AVPlayer with Apple's own controls, AirPlay and Picture in
 /// Picture. It plays HLS and MP4 natively and leaves odd containers to libmpv.
 struct SystemPlayerScreen: View {
@@ -3220,6 +3285,10 @@ struct SystemPlayerScreen: View {
     var item: CinemaItem? = nil
     var videoId: String? = nil
     var videoLabel: String? = nil
+    /// The whole episode list, so the player rolls into the next one by itself
+    /// instead of stopping and leaving the viewer to find it.
+    var episodes: [CinemaItem] = []
+    var type: String = "series"
 
     @Environment(\.dismiss) private var dismiss
     @State private var player = AVPlayer()
@@ -3230,6 +3299,14 @@ struct SystemPlayerScreen: View {
     @State private var errorText: String?
     @State private var ticker: Timer?
     @State private var finished = false
+    /// What is really on screen now: a roll-over replaces it without closing.
+    @State private var stageTitle = ""
+    @State private var stageURL = ""
+    @State private var stageHeaders: [String: String] = [:]
+    @State private var stageVideoId: String?
+    @State private var stageVideoLabel: String?
+    @State private var switching = false
+    @State private var nextNote: String?
 
     var body: some View {
         ZStack {
@@ -3245,7 +3322,7 @@ struct SystemPlayerScreen: View {
                 HStack(spacing: 12) {
                     CircleButton(system: "xmark") { dismiss() }
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(title)
+                        Text(stageTitle.isEmpty ? title : stageTitle)
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(.white)
                             .lineLimit(1)
@@ -3254,10 +3331,37 @@ struct SystemPlayerScreen: View {
                             .foregroundStyle(CinemaTheme.muted)
                     }
                     Spacer()
+                    if let next = upNext {
+                        Button {
+                            Haptics.tap()
+                            roll(to: next)
+                        } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: "forward.end.fill")
+                                    .font(.system(size: 10, weight: .bold))
+                                Text("التالي")
+                                    .font(.system(size: 11, weight: .bold))
+                            }
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(CinemaTheme.accent, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 8)
                 Spacer()
+                if let nextNote {
+                    Text(nextNote)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .padding(.bottom, 76)
+                }
                 if let errorText {
                     VStack(spacing: 10) {
                         Text("تعذّر تشغيل هذا المصدر في مشغل النظام")
@@ -3283,11 +3387,18 @@ struct SystemPlayerScreen: View {
             UIApplication.shared.isIdleTimerDisabled = true
             try? AVAudioSession.sharedInstance().setActive(true)
             OrientationManager.shared.setPlayerRotation(CinemaxPrefs.allowRotation)
+            var beginAt: Int64 = 0
             if let item, CinemaxPrefs.autoResume {
-                startMs = await CinemaAPI.shared.resume(itemId: item.id, videoId: videoId)
+                beginAt = await CinemaAPI.shared.resume(itemId: item.id, videoId: videoId)
             }
-            prepare()
-            startTicker()
+            start(
+                title: title,
+                url: url,
+                headers: headers,
+                videoId: videoId,
+                videoLabel: videoLabel,
+                startAt: beginAt
+            )
         }
         .onDisappear {
             ticker?.invalidate()
@@ -3301,19 +3412,92 @@ struct SystemPlayerScreen: View {
         }
     }
 
+    /// Points the screen at one episode and plays it from the start, whether it is
+    /// the first one or the one that follows it.
+    private func start(
+        title: String,
+        url: String,
+        headers: [String: String],
+        videoId: String?,
+        videoLabel: String?,
+        startAt: Int64
+    ) {
+        stageTitle = title
+        stageURL = url
+        stageHeaders = headers
+        stageVideoId = videoId
+        stageVideoLabel = videoLabel
+        startMs = max(0, startAt)
+        finished = false
+        errorText = nil
+        duration = 0
+        position = 0
+        ready = false
+        prepare()
+        startTicker()
+    }
+
+    /// The episode after the one on screen, when this title has one.
+    private var upNext: CinemaItem? {
+        guard let stageVideoId,
+              let index = episodes.firstIndex(where: { $0.id == stageVideoId }),
+              index + 1 < episodes.count else { return nil }
+        return episodes[index + 1]
+    }
+
+    private var autoplayNext: Bool {
+        (UserDefaults.standard.object(forKey: "cinemax.autoplayNext") as? Bool) ?? true
+    }
+
+    /// Rolls into the next episode: asks the addons for a link, picks the one this
+    /// engine can read, and swaps the player without closing the screen.
+    private func roll(to next: CinemaItem) {
+        guard !switching else { return }
+        switching = true
+        nextNote = "جارٍ جلب مصدر \(next.name)…"
+        let list = episodes
+        Task {
+            let streams = await CinemaAPI.shared.freshStreams(for: next.id, type: type)
+            let playable = streams.filter { $0.externalUrl == nil }
+            // The next file opens best in the engine that reads its container, and
+            // the system player only takes what it plays natively.
+            let chosen = playable.first { CinemaxPrefs.engine(for: $0.url) == "system" }
+                ?? playable.first
+            await MainActor.run {
+                switching = false
+                nextNote = nil
+                guard let chosen else {
+                    // Nothing played this one: the list stays open for a new tap.
+                    dismiss()
+                    return
+                }
+                EventLog.shared.add("next", "\(next.name) · \(chosen.addon)")
+                start(
+                    title: next.name,
+                    url: chosen.url,
+                    headers: chosen.headers ?? [:],
+                    videoId: next.id,
+                    videoLabel: next.name,
+                    startAt: 0
+                )
+                if list.count > 1 { Haptics.select() }
+            }
+        }
+    }
+
     private func prepare() {
         let link: URL
-        if url.hasPrefix("/") {
-            link = URL(fileURLWithPath: url)
-        } else if let remote = URL(string: url) {
+        if stageURL.hasPrefix("/") {
+            link = URL(fileURLWithPath: stageURL)
+        } else if let remote = URL(string: stageURL) {
             link = remote
         } else {
             errorText = "الرابط غير صالح"
             return
         }
-        let asset = headers.isEmpty
+        let asset = stageHeaders.isEmpty
             ? AVURLAsset(url: link)
-            : AVURLAsset(url: link, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
+            : AVURLAsset(url: link, options: ["AVURLAssetHTTPHeaderFieldsKey": stageHeaders])
         let fresh = AVPlayer(playerItem: AVPlayerItem(asset: asset))
         fresh.allowsExternalPlayback = true
         if #available(iOS 15.0, *) {
@@ -3342,7 +3526,13 @@ struct SystemPlayerScreen: View {
                 if duration > 1, position >= duration - 1.5, !finished {
                     finished = true
                     saveProgress()
-                    dismiss()
+                    // A series rolls into the next episode by itself; a film, and a
+                    // series the viewer turned off, closes the screen.
+                    if autoplayNext, let next = upNext {
+                        roll(to: next)
+                    } else {
+                        dismiss()
+                    }
                 }
             }
         }
@@ -3354,8 +3544,8 @@ struct SystemPlayerScreen: View {
             item: item,
             positionMs: Int64(position * 1000),
             durationMs: Int64(duration * 1000),
-            videoId: videoId,
-            videoLabel: videoLabel
+            videoId: stageVideoId,
+            videoLabel: stageVideoLabel
         )
     }
 }
@@ -3472,6 +3662,10 @@ struct PlayerOptionsPanel: View {
     let onSleep: (Int?) -> Void
     let onSubtitleLink: (String) -> Void
     let onNextSource: () -> Void
+    /// Only offered when the link is one the system player can read, where it
+    /// brings Picture in Picture and AirPlay.
+    let canSwitchToSystem: Bool
+    let onSystemPlayer: () -> Void
     let onAddonSubtitle: (SubtitleChoice) -> Void
     let onDownload: () -> Void
     let onCopyLink: () -> Void
@@ -3812,6 +4006,12 @@ struct PlayerOptionsPanel: View {
                                 .font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(CinemaTheme.muted)
                                 .buttonStyle(.plain)
+                            if canSwitchToSystem {
+                                Button("PiP") { onSystemPlayer() }
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(CinemaTheme.accent)
+                                    .buttonStyle(.plain)
+                            }
                             Button("نسخ") { onCopyLink() }
                                 .font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(CinemaTheme.muted)
@@ -4392,7 +4592,9 @@ struct DetailView: View {
                         headers: choice.headers ?? [:],
                         item: item,
                         videoId: episode?.id,
-                        videoLabel: episode?.name
+                        videoLabel: episode?.name,
+                        episodes: model.detail?.episodes ?? [],
+                        type: item.type
                     )
                 case "external":
                     ExternalPlayerScreen(title: item.name, url: choice.url)
@@ -4833,6 +5035,18 @@ struct DetailView: View {
                             } label: {
                                 Label("نسخ اسم الحلقة", systemImage: "doc.on.doc")
                             }
+                            Button {
+                                Haptics.tap()
+                                downloadEpisode(entry)
+                            } label: {
+                                Label("تنزيل هذه الحلقة", systemImage: "arrow.down.circle")
+                            }
+                            Button {
+                                Haptics.tap()
+                                downloadUpcoming(after: entry)
+                            } label: {
+                                Label("تنزيل ٣ حلقات بعدها", systemImage: "square.stack.3d.down.right")
+                            }
                         }
                     }
                 }
@@ -4844,6 +5058,63 @@ struct DetailView: View {
     private func watched(_ episode: CinemaItem) -> Bool {
         LibraryModel.shared.progress.contains { entry in
             entry.item.id == item.id && entry.fraction >= 0.9 && entry.episodeLabel == episode.name
+        }
+    }
+
+    /// Downloads one episode: asks its addons for a link the same way pressing
+    /// play does, then hands it to the queue on the device.
+    private func downloadEpisode(_ entry: CinemaItem) {
+        copied = "جارٍ جلب مصدر \(entry.name)…"
+        Task {
+            let streams = await CinemaAPI.shared.freshStreams(for: entry.id, type: item.type)
+            guard let best = streams.first(where: { $0.externalUrl == nil }) else {
+                await MainActor.run { copied = "لا رابط قابل للتنزيل لهذه الحلقة" }
+                return
+            }
+            await MainActor.run {
+                DownloadManager.shared.start(
+                    title: "\(item.name) · \(entry.name)",
+                    urlString: best.url,
+                    headers: best.headers ?? [:]
+                )
+                copied = "أُضيفت \(entry.name) إلى التنزيل"
+                Haptics.select()
+            }
+        }
+    }
+
+    /// Queues the three episodes that follow the one tapped, so a weak link or a
+    /// trip is watched from the device rather than from the network.
+    private func downloadUpcoming(after entry: CinemaItem) {
+        guard let detail = model.detail,
+              let index = detail.episodes.firstIndex(where: { $0.id == entry.id }) else { return }
+        let upcoming = Array(detail.episodes.dropFirst(index + 1).prefix(3))
+        guard !upcoming.isEmpty else {
+            copied = "لا حلقات بعد \(entry.name)"
+            return
+        }
+        copied = "جارٍ جلب مصادر \(upcoming.count) حلقات…"
+        Task {
+            var picks: [(title: String, url: String, headers: [String: String])] = []
+            for next in upcoming {
+                let streams = await CinemaAPI.shared.freshStreams(for: next.id, type: item.type)
+                guard let best = streams.first(where: { $0.externalUrl == nil }) else { continue }
+                picks.append(("\(item.name) · \(next.name)", best.url, best.headers ?? [:]))
+            }
+            await MainActor.run {
+                for pick in picks {
+                    DownloadManager.shared.start(
+                        title: pick.title,
+                        urlString: pick.url,
+                        headers: pick.headers
+                    )
+                }
+                copied = picks.isEmpty
+                    ? "لم يُعثر على رابط لحلقة قادمة"
+                    : "أُضيفت \(picks.count) حلقات إلى التنزيل"
+                EventLog.shared.add("download", "حلقات بعد \(entry.name): \(picks.count)")
+                if !picks.isEmpty { Haptics.select() }
+            }
         }
     }
 
@@ -12643,11 +12914,18 @@ enum CinemaxPrefs {
     static func engine(for urlString: String) -> String {
         let chosen = playerEngine
         guard chosen == "auto" else { return chosen }
+        return systemReadable(urlString) ? "system" : "mpv"
+    }
+
+    /// True when the system player reads this link natively: an adaptive HLS
+    /// playlist, or an MP4/MOV file. It is the same test the automatic engine
+    /// uses, shown on its own so the player can offer Picture in Picture.
+    static func systemReadable(_ urlString: String) -> Bool {
         let lowered = urlString.lowercased()
-        if lowered.contains(".m3u8") || lowered.contains("format=m3u8") { return "system" }
+        if lowered.contains(".m3u8") || lowered.contains("format=m3u8") { return true }
         let path = lowered.split(separator: "?").first.map(String.init) ?? lowered
-        for suffix in [".mp4", ".m4v", ".mov"] where path.hasSuffix(suffix) { return "system" }
-        return "mpv"
+        for suffix in [".mp4", ".m4v", ".mov"] where path.hasSuffix(suffix) { return true }
+        return false
     }
 
     /// How many transfers may run at once; the rest wait their turn.
