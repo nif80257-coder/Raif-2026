@@ -314,7 +314,11 @@ If any item does not reproduce when opened at the cited lines, it should be demo
 
 ---
 
+<!-- status: P0 and P1 done in d245c23 (dead class, compiler flag, logging, Swift deprecations, README, deep-link confirm, Keychain, warmer confinement, display-pref hoisting, search, meta link). P2/P3 pending. -->
+
 ## 13. خطة الإصلاح (مرتبة، بأربع دفعات)
+
+> **الحالة — دفعة P0 وP1 منفّذة في `d245c23`**، وتحقّقت بالكومبايل وبناء `iosApp`: الكلاس الميت، `-Xexpect-actual-classes`، تسجيل المضيف بدل الرابط، `UIScreen`/`UIDevice` المهجوران، جملة README، ورقة تأكيد تثبيت المصدر من رابط، Keychain لمفاتيح TMDB/MDBList/IntroDB، حصر حالة التجهيز في خيط واحد، قراءة مفاتيح العرض قبل الـ coroutine، البحث فوق كل الروابط، والرابط الوصفي لن ينتظر الشبكة. **تبقّى P2 وP3** بنودها أدناه.
 
 ### دفعة P0 — اليوم (لا تغيير في السلوك، مخاطر منخفضة)
 1. حذف `PlayerInstalledStreamAddonTarget` من `PlayerStreamsRepository.kt:718-728` — §9.2.
