@@ -44,13 +44,53 @@ final class MPVViewController: UIViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        updateSurfaceSize()
+        startPendingLoadIfReady()
+    }
+
+    /// Turns with the phone. mpv draws into this layer, so its drawable has to
+    /// follow the window the moment the window changes shape: left alone it keeps
+    /// the old size and the picture comes out stretched or half black.
+    override func viewWillTransition(
+        to size: CGSize,
+        with coordinator: UIViewControllerTransitionCoordinator
+    ) {
+        super.viewWillTransition(to: size, with: coordinator)
+        coordinator.animate(alongsideTransition: { _ in
+            self.updateSurfaceSize()
+        }, completion: { _ in
+            self.updateSurfaceSize()
+            self.rebuildVideoOutput()
+        })
+    }
+
+    /// Keeps the drawable the same shape as the window, at the screen's own
+    /// scale, which is what makes the picture fill the screen after a rotation.
+    private func updateSurfaceSize() {
+        let bounds = view.bounds
+        guard bounds.width > 1, bounds.height > 1 else { return }
+        let scale = view.window?.screen.nativeScale ?? UIScreen.main.nativeScale
+        let drawable = CGSize(
+            width: (bounds.width * scale).rounded(),
+            height: (bounds.height * scale).rounded()
+        )
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        metalLayer.frame = view.bounds
-        // The layer derives its drawable size from the bounds and this scale.
-        metalLayer.contentsScale = view.window?.screen.nativeScale ?? UIScreen.main.nativeScale
+        metalLayer.frame = bounds
+        metalLayer.contentsScale = scale
+        if metalLayer.drawableSize != drawable {
+            metalLayer.drawableSize = drawable
+        }
         CATransaction.commit()
-        startPendingLoadIfReady()
+    }
+
+    /// Rebuilds the video output after a rotation, which is the only way a paused
+    /// picture is drawn again at the new shape: while the film plays, mpv picks the
+    /// new drawable up by itself on the next frame.
+    private func rebuildVideoOutput() {
+        guard let mpv, isLoaded, getFlag(mpv, "pause") else { return }
+        setString(mpv, "vid", "no")
+        setString(mpv, "vid", "auto")
     }
 
     /// A player that came back from the background is the classic black screen:

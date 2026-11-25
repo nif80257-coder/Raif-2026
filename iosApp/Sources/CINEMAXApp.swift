@@ -13,21 +13,59 @@ final class OrientationManager {
 
     var isPlayerActive: Bool { mask != .portrait }
 
-    /// Lets the player rotate (or locks the interface back to portrait) and asks
-    /// the window to follow immediately, so the picture turns with the phone.
+    /// Lets the player rotate (or locks the interface back to portrait). The mask
+    /// is changed first and the root is told to re-read it, because iOS refuses a
+    /// geometry request whose orientation the window does not already allow.
     func setPlayerRotation(_ allowed: Bool) {
-        mask = allowed ? .allButUpsideDown : .portrait
-        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
-        scene.keyWindow?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
-        scene.requestGeometryUpdate(.iOS(interfaceOrientations: mask)) { _ in }
+        let wanted: UIInterfaceOrientationMask = allowed ? .allButUpsideDown : .portrait
+        guard wanted != mask else { return }
+        mask = wanted
+        refresh()
+        request(allowed ? .landscapeRight : .portrait)
     }
 
     /// Turns the screen right now, for the player's own rotate button.
     func rotate(toLandscape: Bool) {
-        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
-        let target: UIInterfaceOrientationMask = toLandscape ? .landscapeRight : .portrait
-        scene.requestGeometryUpdate(.iOS(interfaceOrientations: target)) { _ in }
+        mask = toLandscape ? .allButUpsideDown : .portrait
+        refresh()
+        request(toLandscape ? .landscapeRight : .portrait)
     }
+
+    /// The scene the viewer is looking at, not one left over in the background.
+    private func scene() -> UIWindowScene? {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState != .background }
+    }
+
+    /// Asks the top of the stack to re-read the mask, which is what actually
+    /// changes what the window allows. The player is presented over the root, so
+    /// the root alone would keep the old answer.
+    private func refresh() {
+        guard let scene = scene() else { return }
+        var top = scene.keyWindow?.rootViewController
+        while let presented = top?.presentedViewController {
+            top = presented
+        }
+        top?.setNeedsUpdateOfSupportedInterfaceOrientations()
+        scene.keyWindow?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+    }
+
+    private func request(_ orientations: UIInterfaceOrientationMask) {
+        guard let scene = scene() else { return }
+        scene.requestGeometryUpdate(.iOS(interfaceOrientations: orientations)) { _ in }
+    }
+}
+
+/// The window's root. It answers the window with the app's own mask, because a
+/// scene-based app no longer asks the app delegate, and a hosting controller on
+/// its own answers "everything the plist allows" — which let every screen turn.
+final class RootHostController<Content: View>: UIHostingController<Content> {
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        OrientationManager.shared.mask
+    }
+
+    override var shouldAutorotate: Bool { true }
 }
 
 /// UIKit entry point adopting the scene lifecycle. The window is created by the
@@ -144,7 +182,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     private func applyInterface(animated: Bool) {
         guard let window = self.window else { return }
         window.overrideUserInterfaceStyle = .dark
-        window.rootViewController = UIHostingController(rootView: CinemaRootView())
+        window.rootViewController = RootHostController(rootView: CinemaRootView())
         if animated {
             UIView.transition(with: window, duration: 0.28, options: .transitionCrossDissolve, animations: nil)
         }

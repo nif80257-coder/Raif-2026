@@ -2775,6 +2775,9 @@ struct PlayerScreen: View {
                     },
                     onRotate: { landscape in
                         Haptics.select()
+                        // The picture is what the viewer asked for, so the panel
+                        // steps aside instead of covering the turned film.
+                        showOptions = false
                         OrientationManager.shared.rotate(toLandscape: landscape)
                     },
                     onSleep: { minutes in
@@ -9193,6 +9196,7 @@ struct SelfTestView: View {
             Outcome(id: "hls", title: "قراءة قائمة HLS"),
             Outcome(id: "race", title: "سباق المرايا"),
             Outcome(id: "files", title: "الكتابة في مجلد التنزيلات"),
+            Outcome(id: "display", title: "الدوران ومقاس الشاشة"),
             Outcome(id: "storage", title: "حفظ واسترجاع الإعدادات")
         ]
         await checkFold()
@@ -9200,6 +9204,7 @@ struct SelfTestView: View {
         await checkHLS()
         await checkRace()
         await checkFiles()
+        await checkDisplay()
         await checkStorage()
         running = false
         EventLog.shared.add("selftest", summary)
@@ -9293,6 +9298,40 @@ struct SelfTestView: View {
         } catch {
             finish("files", passed: false, note: error.localizedDescription, since: start)
         }
+    }
+
+    @MainActor
+    private func checkDisplay() async {
+        let start = begin("display")
+        let declared = Bundle.main.object(
+            forInfoDictionaryKey: "UISupportedInterfaceOrientations"
+        ) as? [String] ?? []
+        guard declared.contains("UIInterfaceOrientationLandscapeRight") else {
+            finish("display", passed: false, note: "الملف لا يعلن الوضع الأفقي", since: start)
+            return
+        }
+        let scene = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState != .background }
+        let root = scene?.keyWindow?.rootViewController?.supportedInterfaceOrientations
+        let mask = OrientationManager.shared.mask
+        guard root == mask else {
+            finish(
+                "display",
+                passed: false,
+                note: "الجذر لا يتبع إعداد الدوران (\(root?.rawValue ?? 0) ≠ \(mask.rawValue))",
+                since: start
+            )
+            return
+        }
+        let size = UIScreen.main.bounds.size
+        let scale = UIScreen.main.scale
+        finish(
+            "display",
+            passed: true,
+            note: "\(Int(size.width))×\(Int(size.height)) · \(Int(scale))x · الوضع الأفقي متاح",
+            since: start
+        )
     }
 
     @MainActor
