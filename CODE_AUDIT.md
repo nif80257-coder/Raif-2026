@@ -314,15 +314,15 @@ If any item does not reproduce when opened at the cited lines, it should be demo
 
 ---
 
-<!-- status: P0 + P1 done in d245c23. P2 partly done in a7f1a48 (14 of 20 runBlocking sites moved to LocalizedUiText; compiler warnings triaged). Remaining: 6 runBlocking sites, engine, settings model, SQL, locales. -->
+<!-- status: P0+P1 in d245c23; P2 partly in a7f1a48 and d85f115 (17 of 20 runBlocking sites, warning triage, cheap deprecations). Remaining: 3 helper runBlocking, 9 bottom sheets, 5 BasicTextField, 3 LocalClipboardManager, Slider, launch(NonCancellable), engine, settings model, SQL, locales. -->
 
 ## 13. خطة الإصلاح (مرتبة، بأربع دفعات)
 
-> **الحالة — `d245c23` ثم `a7f1a48`**، وكلاهما تحقّق بالكومبايل وبناء `iosApp`.
+> **الحالة — `d245c23` ثم `a7f1a48` ثم `d85f115`**، وكلها تحقّقت بالكومبايل وبناء `iosApp`.
 >
-> **تم**: الكلاس الميت، `-Xexpect-actual-classes` (أظهر 6 تعبيرات ميتة و~12 استدعاءً مهجورًا كان التحذير يخفيها)، تسجيل المضيف بدل الرابط، `UIScreen`/`UIDevice`، جملة README، ورقة تأكيد تثبيت المصدر من رابط، Keychain لمفاتيح TMDB/MDBList/IntroDB، حصر التجهيز في خيط واحد، مفاتيح العرض تُقرأ قبل الـ coroutine، البحث فوق كل الروابط، الرابط الوصفي لا ينتظر الشبكة، و**14 من 20** موضع `runBlocking` انتقلت إلى `LocalizedUiText`. ومعها: الأيقونات المرآتية، مؤشر التقدم بصيغة lambda، `PrimaryScrollableTabRow`، `kotlinx.io.IOException`، وحذف الأسطر الميتة.
+> **تم**: الكلاس الميت، `-Xexpect-actual-classes` (كشف ~30 تحذيرًا حقيقيًا)، تسجيل المضيف بدل الرابط، `UIScreen`/`UIDevice`، جملة README، ورقة تأكيد تثبيت المصدر من رابط، Keychain لمفاتيح TMDB/MDBList/IntroDB، حصر التجهيز في خيط واحد، مفاتيح العرض تُقرأ قبل الـ coroutine، البحث فوق كل الروابط، الرابط الوصفي لا ينتظر الشبكة، **17 من 20** موضع `runBlocking` انتقلت إلى `LocalizedUiText`، والأيقونات المرآتية، `quadraticTo`، `PrimaryScrollableTabRow`، مؤشر التقدم بصيغة lambda، `kotlinx.io.IOException`، `kotlin.time.Instant`، ومسار Infuse عبر `encodedPath`.
 >
-> **تبقّى**: 6 مواضع `runBlocking` (المسارات المنسّقة `FolderDetailRepository:168,234` و`CollectionRepository:172,324` ومُساعدا Trakt)، ترحيل 7 مواضع `rememberModalBottomSheetState`، `BasicTextField` بنسخته الجديدة، محرّك قائمة واحد، نموذج الإعدادات كبيانات، وسياسات Realtime في SQL (قرار منتج).
+> **تبقّى**: 3 دوال مساعدة ما زالت `runBlocking` (`CollectionRepository.localizedMessage`, `TraktLibraryRepository.localizedString`, `TraktAuthRepository.localizedString` — كلها تحتاج جدول نص إنجليزي)، 9 مواضع `rememberModalBottomSheetState` (تحتاج تثبيت توقيع `rememberBottomSheetState`، ومصادر المكتبة ليست على جهاز البناء)، 5 مواضع `BasicTextField` بنسخته الجديدة، 3 `LocalClipboardManager`، `Slider` بصيغته الجديدة، `launch(NonCancellable)`، ثم الثلاثة الكبرى: محرّك قائمة واحد، نموذج الإعدادات كبيانات، وسياسات Realtime.
 
 ### دفعة P0 — اليوم (لا تغيير في السلوك، مخاطر منخفضة)
 1. حذف `PlayerInstalledStreamAddonTarget` من `PlayerStreamsRepository.kt:718-728` — §9.2.
