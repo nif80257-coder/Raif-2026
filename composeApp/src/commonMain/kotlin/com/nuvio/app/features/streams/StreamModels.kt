@@ -383,16 +383,18 @@ data class StreamsUiState(
         get() = if (selectedFilter == null) groups
                 else groups.filter { it.addonId == selectedFilter }
 
-    val linksPerSourceCap: Int
-        get() = if (StreamDisplayPreferences.singleLinkPerSource(ProfileRepository.activeProfileId)) 1 else 0
-
     /**
-     * The groups as the list draws them: the user's own filter, then only the links each source
-     * ranks best. Autoplay and the warm-up read [groups] instead — they need every candidate,
-     * not the number of rows the sheet shows.
+     * The groups as the list draws them: the user's own filter, then one link for every quality a
+     * source offers. Every quality stays, because which of them plays depends on the connection and
+     * the screen; only a source answering twice at the same quality is cut to its better row.
+     * Autoplay and the warm-up read [groups] instead — they need every candidate.
      */
     val visibleGroups: List<AddonStreamGroup>
-        get() = filteredGroups.showingTopLinksPerSource(linksPerSourceCap)
+        get() = if (StreamDisplayPreferences.oneLinkPerQualityPerSource(ProfileRepository.activeProfileId)) {
+            filteredGroups.showingOneLinkPerQualityPerSource()
+        } else {
+            filteredGroups
+        }
 
     val allStreams: List<StreamItem>
         get() = filteredGroups.flatMap { it.streams }

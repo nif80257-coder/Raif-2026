@@ -2909,8 +2909,8 @@
     <string name="addons_reset_confirm_action">Reset</string>
     <string name="settings_stream_hide_junk_title">Hide low-quality releases</string>
     <string name="settings_stream_hide_junk_description">Leaves out camera and screener recordings and size-only re-encodes such as YIFY, and ranks a remux above a web re-encode at the same resolution.</string>
-    <string name="settings_stream_top_link_only_title">One link per source</string>
-    <string name="settings_stream_top_link_only_description">Lists only the link each source ranks best. A source's second and third links are the ones that usually do not play, so they are left out instead of filling the list with links that fail.</string>
+    <string name="settings_stream_top_link_only_title">One link per quality</string>
+    <string name="settings_stream_top_link_only_description">Every quality a source offers stays listed, so you pick the resolution you want, and a source that answers twice with the same quality is listed once for it. When off, every link each source returns is listed.</string>
     <string name="home_paused_source_title">%1$s is paused</string>
     <string name="home_paused_source_count">%1$d shelves hidden until it answers again</string>
     <string name="home_paused_source_resume">Resume</string>

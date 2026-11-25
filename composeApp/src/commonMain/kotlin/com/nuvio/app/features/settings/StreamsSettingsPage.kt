@@ -221,17 +221,17 @@ internal fun LazyListScope.streamsSettingsContent(isTablet: Boolean) {
                         StreamDisplayPreferences.setHideJunkReleases(profileId, value)
                     },
                 )
-                var singleLinkPerSource by remember(profileId) {
-                    mutableStateOf(StreamDisplayPreferences.singleLinkPerSource(profileId))
+                var oneLinkPerQuality by remember(profileId) {
+                    mutableStateOf(StreamDisplayPreferences.oneLinkPerQualityPerSource(profileId))
                 }
                 SettingsSwitchRow(
                     title = stringResource(Res.string.settings_stream_top_link_only_title),
                     description = stringResource(Res.string.settings_stream_top_link_only_description),
-                    checked = singleLinkPerSource,
+                    checked = oneLinkPerQuality,
                     isTablet = isTablet,
                     onCheckedChange = { value ->
-                        singleLinkPerSource = value
-                        StreamDisplayPreferences.setSingleLinkPerSource(profileId, value)
+                        oneLinkPerQuality = value
+                        StreamDisplayPreferences.setOneLinkPerQualityPerSource(profileId, value)
                     },
                 )
             }
