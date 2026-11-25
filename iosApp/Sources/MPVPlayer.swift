@@ -83,15 +83,6 @@ final class MPVViewController: UIViewController {
         CATransaction.commit()
     }
 
-    /// Rebuilds the video output after a rotation, which is the only way a paused
-    /// picture is drawn again at the new shape: while the film plays, mpv picks the
-    /// new drawable up by itself on the next frame.
-    private func rebuildVideoOutput() {
-        guard let mpv, isLoaded, getFlag(mpv, "pause") else { return }
-        setString(mpv, "vid", "no")
-        setString(mpv, "vid", "auto")
-    }
-
     /// A player that came back from the background is the classic black screen:
     /// the video output is dropped on the way out and asked for again on the way in.
     private func installLifecycleObservers() {
