@@ -954,13 +954,6 @@ enum CuratedSources {
             isRepository: false
         ),
         Source(
-            id: "peerflix",
-            name: "Peerflix",
-            url: "https://peerflix.mov/manifest.json",
-            note: "P2P مجاني",
-            isRepository: false
-        ),
-        Source(
             id: "anime-kitsu",
             name: "Anime Kitsu",
             url: "https://anime-kitsu.strem.fun/manifest.json",
