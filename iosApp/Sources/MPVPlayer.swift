@@ -345,10 +345,18 @@ final class MPVViewController: UIViewController {
         setString(mpv, "sub-delay", String(format: "%.2f", seconds))
     }
 
-    /// Forces an aspect ratio ("16:9", "4:3", "2.35:1") or clears it with "".
+    /// Forces an aspect ratio ("16:9", "4:3", "2.35:1"), fits the picture with
+    /// bars ("ملاءمة" / empty), or crops it to fill the screen ("fill").
     func setVideoAspect(_ aspect: String) {
         guard let mpv else { return }
-        setString(mpv, "video-aspect-override", aspect)
+        let value = aspect.trimmingCharacters(in: .whitespaces)
+        let fits = value.isEmpty || value == "auto" || value == "fit"
+        let fills = value == "fill"
+        setString(mpv, "panscan", fills ? "1.0" : "0.0")
+        // mpv's own word for "no override" is `no`, not an empty value: an empty
+        // one leaves the last ratio in place, which is the stretched picture
+        // the viewer saw after turning the phone.
+        setString(mpv, "video-aspect-override", fits || fills ? "no" : value)
     }
 
     /// Subtitle text size, as libmpv's font-size property (default is 55).

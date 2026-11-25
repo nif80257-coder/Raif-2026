@@ -430,7 +430,7 @@ class CinemaxAppleBridge {
                                     withTimeoutOrNull(9_000) {
                                         fetchTmdbList(
                                             key,
-                                            "search/$kind?include_adult=false&query=$query"
+                                            "search/$kind?include_adult=false&language=ar-SA&query=$query"
                                         )
                                     } ?: emptyList()
                                 } catch (error: CancellationException) {
@@ -450,9 +450,10 @@ class CinemaxAppleBridge {
                         async {
                             addon.catalogs
                                 .filter { it.supportsExtra("search") }
+                                .take(2)
                                 .map { catalog ->
                                     try {
-                                        withTimeoutOrNull(9_000) {
+                                        withTimeoutOrNull(6_000) {
                                             repository.searchCatalog(
                                                 addon.manifestUrl,
                                                 catalog.type,
@@ -529,7 +530,7 @@ class CinemaxAppleBridge {
                                     withTimeoutOrNull(9_000) {
                                         fetchTmdbList(
                                             key,
-                                            "search/$kind?include_adult=false&query=$encoded"
+                                            "search/$kind?include_adult=false&language=ar-SA&query=$encoded"
                                         )
                                     } ?: emptyList()
                                 } catch (error: CancellationException) {
@@ -550,9 +551,10 @@ class CinemaxAppleBridge {
                     async {
                         addon.catalogs
                             .filter { it.supportsExtra("search") }
+                            .take(2)
                             .map { catalog ->
                                 try {
-                                    withTimeoutOrNull(9_000) {
+                                    withTimeoutOrNull(6_000) {
                                         repository.searchCatalog(
                                             addon.manifestUrl,
                                             catalog.type,

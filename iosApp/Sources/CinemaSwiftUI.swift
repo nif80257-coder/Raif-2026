@@ -2909,8 +2909,13 @@ struct PlayerScreen: View {
                         .strokeBorder(CinemaTheme.hairline, lineWidth: 1)
                 )
             }
-            if showOptions {
-                PlayerOptionsPanel(
+            Color.clear
+                .frame(width: 0, height: 0)
+                // A sheet of its own, not an overlay: the player's own gestures
+                // would otherwise swallow the panel's scroll, and in landscape
+                // the bottom of the list sat under the home bar.
+                .sheet(isPresented: $showOptions) {
+                    PlayerOptionsPanel(
                     subtitleTracks: subtitleTracks,                    audioTracks: audioTracks,
                     speed: speed,
                     subtitlesOff: subtitlesOff,
@@ -3024,7 +3029,7 @@ struct PlayerScreen: View {
                         // The system player takes the link from here, and this one
                         // waits underneath at the same second.
                         player?.refreshState()
-                        systemTakeover = SystemTakeover(
+                        let takeover = SystemTakeover(
                             id: currentURL,
                             title: currentTitle,
                             url: currentURL,
@@ -3036,6 +3041,11 @@ struct PlayerScreen: View {
                             type: type,
                             sources: pool
                         )
+                        // This panel is a sheet on its way out: the player waits for
+                        // it rather than losing the presentation to it.
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                            systemTakeover = takeover
+                        }
                     },
                     onAddonSubtitle: { choice in
                         applySubtitleLink(choice.url)
@@ -3070,7 +3080,8 @@ struct PlayerScreen: View {
                         showOptions = false
                     }
                 )
-            }
+                .presentationDetents([.medium, .large])
+                }
         }
         .preferredColorScheme(.dark)
         .sheet(isPresented: $showEpisodes) {
@@ -4121,7 +4132,7 @@ struct PlayerOptionsPanel: View {
         ("small", "صغير"), ("medium", "متوسط"), ("large", "كبير")
     ]
     private let aspects: [(String, String)] = [
-        ("", "تلقائي"), ("16:9", "16:9"), ("4:3", "4:3"), ("2.35:1", "2.35:1")
+        ("", "ملاءمة"), ("fill", "قص الحواف"), ("16:9", "16:9"), ("4:3", "4:3"), ("2.35:1", "2.35:1")
     ]
 
     var body: some View {
@@ -6603,9 +6614,10 @@ struct SearchView: View {
     }
 
     private func score(_ item: CinemaItem) -> Double {
-        let text = query.trimmingCharacters(in: .whitespaces).lowercased()
+        // The same folding the local index uses, so «أَلْف» and «الف» rank alike.
+        let text = SearchIndex.normalize(query)
         guard !text.isEmpty else { return 0 }
-        let name = item.name.lowercased()
+        let name = SearchIndex.normalize(item.name)
         var value = 0.0
         if name.hasPrefix(text) { value += 6 }
         if name.contains(text) { value += 4 }
