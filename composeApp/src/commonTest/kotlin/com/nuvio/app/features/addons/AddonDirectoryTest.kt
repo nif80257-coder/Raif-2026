@@ -96,6 +96,75 @@ class AddonDirectoryTest {
     }
 
     @Test
+    fun dropsASourceServedFromThisDevice() {
+        val payload = """
+            {
+              "metas": [
+                {
+                  "manifestUrl": "http://127.0.0.1:11470/local-addon/manifest.json",
+                  "name": "Local Files"
+                },
+                {
+                  "manifestUrl": "http://localhost:7000/manifest.json",
+                  "name": "On this phone"
+                },
+                {
+                  "manifestUrl": "https://source.example/f",
+                  "name": "F"
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val entries = AddonDirectoryParser.parse(payload, emptySet())
+
+        assertEquals(listOf("https://source.example/f/manifest.json"), entries.map { it.manifestUrl })
+    }
+
+    @Test
+    fun dropsASourceThatCarriesNoStreams() {
+        val payload = """
+            {
+              "metas": [
+                {
+                  "manifestUrl": "https://source.example/catalogs-only",
+                  "name": "Catalogs only",
+                  "manifest": {
+                    "name": "Catalogs only",
+                    "resources": [
+                      {"name": "catalog", "types": ["movie"]},
+                      {"name": "meta", "types": ["movie"]}
+                    ]
+                  }
+                },
+                {
+                  "manifestUrl": "https://source.example/streams",
+                  "name": "Streams",
+                  "manifest": {
+                    "name": "Streams",
+                    "resources": [
+                      {"name": "catalog", "types": ["movie"]},
+                      {"name": "stream", "types": ["movie"], "idPrefixes": ["tt"]}
+                    ]
+                  }
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val entries = AddonDirectoryParser.parse(payload, emptySet())
+
+        assertEquals(listOf("https://source.example/streams/manifest.json"), entries.map { it.manifestUrl })
+    }
+
+    @Test
+    fun aLocalLinkIsNotOffered() {
+        assertTrue("http://127.0.0.1:11470/local-addon/manifest.json".isLocalDeviceUrl())
+        assertTrue("http://192.168.1.4:7000/manifest.json".isLocalDeviceUrl())
+        assertFalse("https://source.example/manifest.json".isLocalDeviceUrl())
+    }
+
+    @Test
     fun configuredManifestUrlCarriesTheFieldsAsQuery() {
         val url = buildConfiguredManifestUrl(
             manifestUrl = "https://source.example/abc?profile=42",

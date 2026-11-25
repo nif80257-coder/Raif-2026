@@ -59,7 +59,6 @@ object AddonDirectoryRepository {
                 if (failure is CancellationException) throw failure
                 log.w(failure) { "open() — the add-on directory did not load" }
             }
-            val failureMessage = result.exceptionOrNull()?.message?.takeIf(String::isNotBlank)
             _uiState.update { current ->
                 if (current.manifestUrl != manifestUrl) {
                     current
@@ -67,9 +66,11 @@ object AddonDirectoryRepository {
                     current.copy(
                         isLoading = false,
                         entries = result.getOrDefault(emptyList()),
-                        // A blank message is a failed load with nothing to say; the screen then
-                        // shows its own localized line instead of an internal identifier.
-                        errorMessage = if (result.isFailure) failureMessage.orEmpty() else null,
+                        // A failed load is marked with a blank line and the screen draws its own
+                        // localized sentence. An exception's message is a developer's diagnostic —
+                        // for a request that never left the device it is a whole NSError dump with
+                        // the failing 127.0.0.1 URL inside — and it used to be drawn as the answer.
+                        errorMessage = if (result.isFailure) "" else null,
                     )
                 }
             }

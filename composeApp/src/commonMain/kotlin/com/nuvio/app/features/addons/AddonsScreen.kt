@@ -1091,6 +1091,8 @@ private fun InstalledAddonCard(
     val extraValues by AddonCatalogExtraValues
         .values(ProfileRepository.activeProfileId)
         .collectAsStateWithLifecycle()
+    // What the source carries stays folded away by default: see the note below where it is drawn.
+    var manifestDetailsExpanded by rememberSaveable(addon.manifestUrl) { mutableStateOf(false) }
 
     extraEditing?.let { target ->
         AddonExtraValueDialog(
@@ -1365,62 +1367,79 @@ private fun InstalledAddonCard(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                manifest.resources.forEach { resource ->
-                    val supportedTypes = resource.types.joinToString(" / ")
-                    val idRules = resource.idPrefixes.joinToString(prefix = " · ")
+                // What the source carries — every resource it declares, every catalog and every
+                // catalog filter — is the manifest's own wiring. Drawn on every card it buried the
+                // one line that matters, whether the source is on and answering, and it read as raw
+                // keys such as `skip` and `year: 2026`. It opens only when it is asked for.
+                TextButton(onClick = { manifestDetailsExpanded = !manifestDetailsExpanded }) {
                     Text(
-                        text = "${resource.name} · $supportedTypes$idRules",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        text = stringResource(
+                            if (manifestDetailsExpanded) {
+                                Res.string.addons_details_hide
+                            } else {
+                                Res.string.addons_details_show
+                            },
+                        ),
                     )
                 }
-                // A saved value's key is manifest#catalog#type#extra, so one pass over the keys
-                // yields every catalog that has values, instead of one pass per catalog.
-                val savedCatalogScopes = remember(extraValues, addon.manifestUrl) {
-                    extraValues.keys.mapTo(mutableSetOf()) { key -> key.substringBeforeLast('#') }
-                }
-                manifest.catalogs.forEach { catalog ->
-                    val hasSavedExtraValues =
-                        "${addon.manifestUrl.trim()}#${catalog.id.trim()}#${catalog.type.trim()}" in savedCatalogScopes
-                    Text(
-                        text = "${catalog.name} (${catalog.type})",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    if (hasSavedExtraValues) {
-                        TextButton(
-                            onClick = {
-                                AddonCatalogExtraValues.clearCatalogValues(
-                                    profileId = ProfileRepository.activeProfileId,
-                                    manifestUrl = addon.manifestUrl,
-                                    catalogId = catalog.id,
-                                    type = catalog.type,
-                                )
-                            },
-                        ) {
-                            Text(text = stringResource(Res.string.addons_extra_reset_catalog))
-                        }
-                    }
-                    catalog.extra.forEach { option ->
-                        AddonCatalogExtraRow(
-                            option = option,
-                            savedValue = extraValues[
-                                AddonCatalogExtraValues.storageKey(
-                                    manifestUrl = addon.manifestUrl,
-                                    catalogId = catalog.id,
-                                    type = catalog.type,
-                                    extraName = option.name,
-                                )
-                            ],
-                            onClick = {
-                                extraEditing = ExtraEditingTarget(
-                                    manifestUrl = addon.manifestUrl,
-                                    catalogId = catalog.id,
-                                    type = catalog.type,
-                                    option = option,
-                                )
-                            },
+                if (manifestDetailsExpanded) {
+                    manifest.resources.forEach { resource ->
+                        val supportedTypes = resource.types.joinToString(" / ")
+                        val idRules = resource.idPrefixes.joinToString(prefix = " · ")
+                        Text(
+                            text = "${resource.name} · $supportedTypes$idRules",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                    }
+                    // A saved value's key is manifest#catalog#type#extra, so one pass over the keys
+                    // yields every catalog that has values, instead of one pass per catalog.
+                    val savedCatalogScopes = remember(extraValues, addon.manifestUrl) {
+                        extraValues.keys.mapTo(mutableSetOf()) { key -> key.substringBeforeLast('#') }
+                    }
+                    manifest.catalogs.forEach { catalog ->
+                        val hasSavedExtraValues =
+                            "${addon.manifestUrl.trim()}#${catalog.id.trim()}#${catalog.type.trim()}" in savedCatalogScopes
+                        Text(
+                            text = "${catalog.name} (${catalog.type})",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        if (hasSavedExtraValues) {
+                            TextButton(
+                                onClick = {
+                                    AddonCatalogExtraValues.clearCatalogValues(
+                                        profileId = ProfileRepository.activeProfileId,
+                                        manifestUrl = addon.manifestUrl,
+                                        catalogId = catalog.id,
+                                        type = catalog.type,
+                                    )
+                                },
+                            ) {
+                                Text(text = stringResource(Res.string.addons_extra_reset_catalog))
+                            }
+                        }
+                        catalog.extra.forEach { option ->
+                            AddonCatalogExtraRow(
+                                option = option,
+                                savedValue = extraValues[
+                                    AddonCatalogExtraValues.storageKey(
+                                        manifestUrl = addon.manifestUrl,
+                                        catalogId = catalog.id,
+                                        type = catalog.type,
+                                        extraName = option.name,
+                                    )
+                                ],
+                                onClick = {
+                                    extraEditing = ExtraEditingTarget(
+                                        manifestUrl = addon.manifestUrl,
+                                        catalogId = catalog.id,
+                                        type = catalog.type,
+                                        option = option,
+                                    )
+                                },
+                            )
+                        }
                     }
                 }
 

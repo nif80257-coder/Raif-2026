@@ -318,7 +318,9 @@ If any item does not reproduce when opened at the cited lines, it should be demo
 
 ## 13. خطة الإصلاح (مرتبة، بأربع دفعات)
 
-> **الحالة — `d245c23` ثم `a7f1a48` ثم `d85f115`**، وكلها تحقّقت بالكومبايل وبناء `iosApp`.
+> **الحالة — `d245c23` ثم `a7f1a48` ثم `d85f115`، ثم دفعة شاشة الإضافات**، وكلها تحقّقت بالكومبايل وبناء `iosApp`.
+>
+> **شاشة الإضافات (هذه الدفعة)**: لم تعد رسالة استثناء تُعرض كنص — كان `NSError` كاملًا بعنوان `http://127.0.0.1:11470/local-addon/manifest.json` يُرسم كإجابة، والآن يذهب إلى السجل ويظهر سطر مترجم (`addon_source_unreachable`)؛ الدليل لا يعرض مصدرًا يعمل على هذا الجهاز ولا مصدرًا لا يعلن `stream`؛ و«ما يقدّمه المصدر» (كل `resource` و`catalog` و`skip`/`year: 2026`) مطويّ خلف زر بدل أن يُقرأ في كل بطاقة؛ وmpv يرسل `User-Agent` لمتصفح حين لا يرسل المصدر واحدًا، وهو أول ما يُسأل عنه رابط `.mkv` مباشر يفشل بـ`Failed to open`.
 >
 > **تم**: الكلاس الميت، `-Xexpect-actual-classes` (كشف ~30 تحذيرًا حقيقيًا)، تسجيل المضيف بدل الرابط، `UIScreen`/`UIDevice`، جملة README، ورقة تأكيد تثبيت المصدر من رابط، Keychain لمفاتيح TMDB/MDBList/IntroDB، حصر التجهيز في خيط واحد، مفاتيح العرض تُقرأ قبل الـ coroutine، البحث فوق كل الروابط، الرابط الوصفي لا ينتظر الشبكة، **17 من 20** موضع `runBlocking` انتقلت إلى `LocalizedUiText`، والأيقونات المرآتية، `quadraticTo`، `PrimaryScrollableTabRow`، مؤشر التقدم بصيغة lambda، `kotlinx.io.IOException`، `kotlin.time.Instant`، ومسار Infuse عبر `encodedPath`.
 >

@@ -62,6 +62,13 @@ internal object AddonDirectoryParser {
             ?.let { url -> if (url.startsWith("//")) "https:$url" else url }
             ?.let(::ensureAddonManifestUrl)
             ?: return null
+        // A directory is a way to find sources that answer with links. One served from this
+        // device — the app's own 127.0.0.1 add-on server — only answers while the app runs that
+        // server, and installing it from here is the request that failed and left the raw error on
+        // screen, so it is not offered at all. One that describes no `stream` resource carries
+        // catalogs, metadata or subtitles and has nothing to play, so it is not offered either.
+        if (manifestUrl.isLocalDeviceUrl()) return null
+        if (embedded?.carriesStreams() == false) return null
         val hints = (this["behaviorHints"] as? JsonObject)
             ?: (embedded?.get("behaviorHints") as? JsonObject)
         val types = strings("types").ifEmpty { embedded?.strings("types").orEmpty() }
@@ -92,6 +99,54 @@ internal object AddonDirectoryParser {
 
     private fun JsonObject.flag(key: String): Boolean =
         (this[key] as? JsonPrimitive)?.booleanOrNull == true
+
+    /** The `resources` a manifest declares, by name: `stream`, `catalog`, `meta`, … */
+    private fun JsonObject.resourceNames(): List<String> =
+        (this["resources"] as? JsonArray)
+            ?.mapNotNull { element -> (element as? JsonObject)?.text("name") }
+            .orEmpty()
+
+    /**
+     * True when the manifest is known to serve `stream`. A manifest that declares no resources at
+     * all is not one this can judge, so it is kept rather than hidden on a guess.
+     */
+    private fun JsonObject.carriesStreams(): Boolean {
+        val resources = resourceNames()
+        return resources.isEmpty() || resources.any { name -> name.equals("stream", ignoreCase = true) }
+    }
+}
+
+/**
+ * The host a link points at, by itself: no scheme, port or path. An IPv6 host keeps its brackets,
+ * so `[::1]:11470` reads as `[::1]`.
+ */
+private fun manifestHost(url: String): String {
+    val authority = url.substringAfter("://").substringBefore('/').substringBefore('?')
+    val host = if (authority.startsWith("[")) {
+        authority.substringBefore(']') + "]"
+    } else {
+        authority.substringBefore(':')
+    }
+    return host.trim().lowercase()
+}
+
+/**
+ * True when a link only resolves on this device or inside the local network: the add-on server the
+ * app bundles answers on 127.0.0.1 and nowhere else, so a source pointing there is not a source a
+ * person can install and watch with. A link that is not plain HTTP is not one mpv can play either.
+ */
+internal fun String.isLocalDeviceUrl(): Boolean {
+    if (!startsWith("http://") && !startsWith("https://")) return true
+    val host = manifestHost(this)
+    return host.isEmpty() ||
+        host == "localhost" ||
+        host == "127.0.0.1" ||
+        host == "0.0.0.0" ||
+        host == "[::1]" ||
+        host.endsWith(".local") ||
+        host.startsWith("192.168.") ||
+        host.startsWith("10.") ||
+        host.startsWith("172.16.")
 }
 
 /** The manifest link of a directory entry, whether it was given as a base URL or a full one. */

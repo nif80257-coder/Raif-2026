@@ -1840,6 +1840,7 @@
     <string name="addon_already_installed">هذه الإضافة مثبتة بالفعل.</string>
     <string name="addon_invalid_url">أدخل رابط إضافة صالحًا</string>
     <string name="addon_load_manifest_failed">تعذر تحميل Manifest</string>
+    <string name="addon_source_unreachable">لم يستجب هذا المصدر. تحقّق من رابطه واتصالك ثم أعد المحاولة.</string>
     <string name="app_brand_name">Řaif</string>
     <string name="auth_account_deletion_failed">فشل حذف الحساب</string>
     <string name="auth_sign_in_failed">فشل تسجيل الدخول</string>
@@ -2829,6 +2830,8 @@
     <string name="addons_directory_subtitle">المصدر المثبّت قد يعرض قائمة الإضافات التي يعرفها. افتح دليلًا لتثبيت إضافة بلمسة بدل لصق رابطها.</string>
     <string name="addons_directory_loading">جارٍ تحميل الدليل…</string>
     <string name="addons_directory_error">تعذّر تحميل الدليل. تحقّق من المصدر وحاول مرة أخرى.</string>
+    <string name="addons_details_show">ما يقدّمه هذا المصدر</string>
+    <string name="addons_details_hide">إخفاء ما يقدّمه المصدر</string>
     <string name="addons_directory_empty">هذا الدليل لا يعرض أي إضافة.</string>
     <string name="addons_directory_search_placeholder">ابحث في الإضافات المعروضة</string>
     <string name="addons_directory_install">تثبيت</string>

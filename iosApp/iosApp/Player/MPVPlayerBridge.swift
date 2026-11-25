@@ -1460,8 +1460,20 @@ final class MPVPlayerViewController: UIViewController {
         return sanitized
     }
 
+    /// What the player calls itself when a source hands over no headers of its own. mpv introduces
+    /// itself as `mpv <version>`, and a host that filters on the agent string answers that with an
+    /// error that reads as "Failed to open" for a direct link to a file a browser plays. Sending
+    /// what a browser sends is what gets that same file played here.
+    private static let fallbackUserAgent =
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
+
     private func applyRequestHeaders(_ headers: [String: String]) {
         guard mpv != nil else { return }
+        var headers = headers
+        // A source that sends its own agent keeps it; only the request that has none is given this.
+        if !headers.keys.contains(where: { key in key.caseInsensitiveCompare("User-Agent") == .orderedSame }) {
+            headers["User-Agent"] = Self.fallbackUserAgent
+        }
         if headers.isEmpty {
             checkError(mpv_set_property_string(mpv, "http-header-fields", ""))
             return

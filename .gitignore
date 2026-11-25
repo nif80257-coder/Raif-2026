@@ -39,3 +39,6 @@ iosApp/Configuration/DeviceSigning.local.json
 
 # Local MPVKit iOS build environment (sparse APFS image, see MPVKit docs)
 .mpvkit-build.sparseimage
+
+# Local agent skills: kept on this device, never part of the app or its repository
+.claude/

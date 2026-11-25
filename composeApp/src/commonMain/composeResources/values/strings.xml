@@ -1849,6 +1849,7 @@
     <string name="addon_already_installed">That addon is already installed.</string>
     <string name="addon_invalid_url">Enter a valid addon URL</string>
     <string name="addon_load_manifest_failed">Unable to load manifest</string>
+    <string name="addon_source_unreachable">This source did not answer. Check its link and your connection, then try again.</string>
     <string name="app_brand_name">Řaif</string>
     <string name="auth_account_deletion_failed">Account deletion failed</string>
     <string name="auth_sign_in_failed">Sign-in failed</string>
@@ -2858,6 +2859,8 @@
     <string name="addons_directory_subtitle">A source you already have can list the add-ons it knows. Open a directory to install one without pasting its link.</string>
     <string name="addons_directory_loading">Loading the directory…</string>
     <string name="addons_directory_error">The directory could not be loaded. Check the source and try again.</string>
+    <string name="addons_details_show">What this source carries</string>
+    <string name="addons_details_hide">Hide what this source carries</string>
     <string name="addons_directory_empty">This directory lists no add-ons.</string>
     <string name="addons_directory_search_placeholder">Search the listed add-ons</string>
     <string name="addons_directory_install">Install</string>

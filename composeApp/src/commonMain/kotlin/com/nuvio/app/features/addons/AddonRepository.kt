@@ -318,7 +318,12 @@ object AddonRepository {
                 parsed
             }
         } catch (error: Throwable) {
-            return AddAddonResult.Error(error.message ?: getString(Res.string.addon_load_manifest_failed))
+            if (error is CancellationException) throw error
+            // The exception's own text is a transport diagnostic — an NSURLErrorDomain dump with the
+            // failing URL inside when there is no connection at all — and it was being read as the
+            // answer on screen. It goes to the log; the card says what a person can act on.
+            log.w(error) { "addAddon() — the manifest did not load" }
+            return AddAddonResult.Error(getString(Res.string.addon_source_unreachable))
         }
 
         _uiState.update { current ->
@@ -534,9 +539,12 @@ object AddonRepository {
                                         )
                                     },
                                     onFailure = { error ->
+                                        log.w(error) { "refreshAddon() — the manifest did not load" }
                                         addon.copy(
                                             isRefreshing = false,
-                                            errorMessage = error.message ?: getString(Res.string.addon_load_manifest_failed),
+                                            // Never the exception's own text: that is how a raw
+                                            // NSError dump ended up as the line under a source.
+                                            errorMessage = getString(Res.string.addon_source_unreachable),
                                         )
                                     },
                                 )
