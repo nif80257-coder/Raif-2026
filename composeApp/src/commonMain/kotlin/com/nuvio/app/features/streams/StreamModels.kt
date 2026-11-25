@@ -1,6 +1,7 @@
 package com.nuvio.app.features.streams
 
 import com.nuvio.app.core.build.AppFeaturePolicy
+import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.servers.ServerPlaybackTarget
 import kotlinx.serialization.Serializable
 
@@ -381,6 +382,17 @@ data class StreamsUiState(
     val filteredGroups: List<AddonStreamGroup>
         get() = if (selectedFilter == null) groups
                 else groups.filter { it.addonId == selectedFilter }
+
+    val linksPerSourceCap: Int
+        get() = if (StreamDisplayPreferences.singleLinkPerSource(ProfileRepository.activeProfileId)) 1 else 0
+
+    /**
+     * The groups as the list draws them: the user's own filter, then only the links each source
+     * ranks best. Autoplay and the warm-up read [groups] instead — they need every candidate,
+     * not the number of rows the sheet shows.
+     */
+    val visibleGroups: List<AddonStreamGroup>
+        get() = filteredGroups.showingTopLinksPerSource(linksPerSourceCap)
 
     val allStreams: List<StreamItem>
         get() = filteredGroups.flatMap { it.streams }

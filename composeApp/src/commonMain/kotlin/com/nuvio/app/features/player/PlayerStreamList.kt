@@ -61,11 +61,11 @@ internal fun PlayerStreamList(
         StreamBadgeSettingsRepository.uiState
     }.collectAsStateWithLifecycle()
     var searchQuery by remember { mutableStateOf("") }
-    val allStreams = streamsUiState.allStreams
+    val visibleGroups = streamsUiState.visibleGroups
+    val allStreams = visibleGroups.flatMap { group -> group.streams }
     val streams = remember(allStreams, searchQuery) {
         filterPlayerStreams(allStreams, searchQuery)
     }
-    val visibleGroups = streamsUiState.filteredGroups
 
     when {
         allStreams.isEmpty() && streamsUiState.isAnyLoading -> {

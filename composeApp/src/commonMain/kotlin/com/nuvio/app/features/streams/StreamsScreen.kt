@@ -718,7 +718,7 @@ internal fun StreamList(
     resumeProgressFraction: Float?,
     modifier: Modifier = Modifier,
 ) {
-    val filteredGroups = uiState.filteredGroups
+    val filteredGroups = uiState.visibleGroups
     val hasGroups = filteredGroups.isNotEmpty()
     val hasAnyStreams = filteredGroups.any { it.streams.isNotEmpty() }
     val anyLoading = filteredGroups.any { it.isLoading }
