@@ -6,14 +6,20 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class StreamTopLinkPerSourceTest {
-    private fun stream(url: String, label: String, sourceName: String? = null, addonName: String = "Source"): StreamItem =
-        StreamItem(
-            name = label,
-            url = url,
-            sourceName = sourceName,
-            addonName = addonName,
-            addonId = "addon:$addonName",
-        )
+    private fun stream(
+        url: String,
+        label: String,
+        description: String? = null,
+        sourceName: String? = null,
+        addonName: String = "Source",
+    ): StreamItem = StreamItem(
+        name = label,
+        description = description,
+        url = url,
+        sourceName = sourceName,
+        addonName = addonName,
+        addonId = "addon:$addonName",
+    )
 
     @Test
     fun `every quality of a source stays and only the same quality twice is cut`() {
@@ -33,6 +39,30 @@ class StreamTopLinkPerSourceTest {
                 "https://a.example/1.mkv",
                 "https://a.example/2.mkv",
                 "https://a.example/4.mkv",
+            ),
+            listOf(group).showingOneLinkPerQualityPerSource().single().streams.map { it.url },
+        )
+    }
+
+    @Test
+    fun `a dubbed copy at the same quality stays even in the shortened list`() {
+        val group = AddonStreamGroup(
+            addonName = "Nuvio Providers",
+            addonId = "plugin-repo:providers",
+            streams = listOf(
+                stream("https://a.example/eng.mkv", label = "1080p", description = "English", sourceName = "Alpha"),
+                stream("https://a.example/spa.mkv", label = "1080p", description = "Spanish", sourceName = "Alpha"),
+                stream("https://a.example/ara.mkv", label = "1080p", description = "Arabic dubbed", sourceName = "Alpha"),
+                stream("https://a.example/dual.mkv", label = "1080p", description = "Dual audio", sourceName = "Alpha"),
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                "https://a.example/eng.mkv",
+                "https://a.example/spa.mkv",
+                "https://a.example/ara.mkv",
+                "https://a.example/dual.mkv",
             ),
             listOf(group).showingOneLinkPerQualityPerSource().single().streams.map { it.url },
         )
@@ -89,10 +119,10 @@ class StreamTopLinkPerSourceTest {
     }
 
     @Test
-    fun `the switch is on until it is stored off`() {
-        assertTrue(storedSwitchIsOff(null))
-        assertTrue(storedSwitchIsOff(""))
-        assertTrue(storedSwitchIsOff("1"))
-        assertFalse(storedSwitchIsOff("0"))
+    fun `the shortened list is off until it is stored on`() {
+        assertFalse(storedSwitchIsOn(null))
+        assertFalse(storedSwitchIsOn(""))
+        assertFalse(storedSwitchIsOn("0"))
+        assertTrue(storedSwitchIsOn("1"))
     }
 }

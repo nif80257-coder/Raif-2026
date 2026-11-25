@@ -2880,8 +2880,8 @@
     <string name="addons_reset_confirm_action">إعادة الضبط</string>
     <string name="settings_stream_hide_junk_title">إخفاء النسخ الرديئة</string>
     <string name="settings_stream_hide_junk_description">يخفي نسخ الكام والتسجيل ونسخ إعادة الترميز المخصّصة للحجم مثل YIFY، ويرتّب نسخة الريماكس فوق إعادة ترميز الويب عند نفس الدقة.</string>
-    <string name="settings_stream_top_link_only_title">رابط واحد لكل جودة</string>
-    <string name="settings_stream_top_link_only_description">تبقى كل جودة يعرضها المصدر في القائمة لتختار الدقة التي تريدها، والمصدر الذي يعرض الجودة نفسها مرتين يُدرج مرة واحدة لها. عند الإيقاف تُدرج كل الروابط التي يرجعها كل مصدر.</string>
+    <string name="settings_stream_top_link_only_title">رابط واحد لكل جودة وصوت</string>
+    <string name="settings_stream_top_link_only_description">مغلق افتراضيًا، فتعرض القائمة كل رابط يرجعها كل مصدر وتختار الجودة والصوت اللذين تريدهما. عند التشغيل يُدرج المصدر مرة واحدة عن كل جودة وصوت يعرضهما.</string>
     <string name="compose_player_audio_delay">تأخير الصوت</string>
     <string name="compose_player_audio_amplification">مضاعفة الصوت</string>
     <string name="compose_player_audio_amplification_keep">الاحتفاظ للمقاطع التالية</string>

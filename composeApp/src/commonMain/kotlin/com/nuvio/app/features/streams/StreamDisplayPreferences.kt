@@ -10,12 +10,11 @@ import com.nuvio.app.features.addons.AddonStorage
  *   keep a single copy of it and drop it from every other source — which made each source look
  *   like it returned fewer links than it did. Showing every link is the default, and merging
  *   the duplicates back into one list is a switch for whoever prefers it.
- * - **One link per quality.** A source that answers with a 4K file and a 1080p one is offering a
- *   choice, and the viewer picks the resolution their connection and screen can carry — so every
- *   quality stays. What a source returns twice for the same quality is the redundancy the viewer
- *   cannot use: the two rows differ by a URL and nothing else, and only one of them plays. Keeping
- *   one link for each quality and leaving that repeat out is the default, and listing the repeats
- *   too is a switch for whoever wants them.
+ * - **One link per quality and audio.** The list shows every link a source returns: two copies at
+ *   the same quality are not the same file to the viewer, and neither are two copies of the same
+ *   quality in different audio — an English original, a Spanish dub, an Arabic one. The viewer picks
+ *   the row, not the app. Shortening the list to one row per quality and audio is a switch, and it
+ *   is off.
  */
 internal object StreamDisplayPreferences {
     private const val OneLinkPerQualityKey = "stream-one-link-per-quality"
@@ -26,13 +25,10 @@ internal object StreamDisplayPreferences {
     private val cache = mutableMapOf<Int, Boolean>()
     private val hideJunkCache = mutableMapOf<Int, Boolean>()
 
-    /**
-     * On by default: every quality a source offers stays listed, and the same quality twice does not.
-     * Absent from storage means on; only an explicit "0" is off.
-     */
+    /** Off by default: the sheet lists every link a source answers with. */
     fun oneLinkPerQualityPerSource(profileId: Int): Boolean =
         oneLinkPerQualityCache.getOrPut(profileId) {
-            storedSwitchIsOff(AddonStorage.loadStartupCache(profileId, OneLinkPerQualityKey))
+            storedSwitchIsOn(AddonStorage.loadStartupCache(profileId, OneLinkPerQualityKey))
         }
 
     fun setOneLinkPerQualityPerSource(profileId: Int, value: Boolean) {
@@ -73,16 +69,14 @@ internal object StreamDisplayPreferences {
 }
 
 /**
- * Keeps one link for every quality a source offers, out of the order the list already has.
+ * Keeps one link for every quality and audio a source offers, out of the order the list already has.
  *
- * The rows arrive ordered per source — strongest first — so the link that survives for a quality is
- * the one that source ranks best for it, and what the viewer never sees is a second row of the same
- * quality that plays no differently. Two links at different qualities are two choices, and both stay:
- * a 4K file and a 1080p one are not duplicates of each other.
+ * The switch that turns this on asks for a shorter sheet, and even then it only collapses rows the
+ * viewer could not tell apart: the same quality *and* the same audio tracks. Two rows that differ by
+ * their dub — an English original and a Spanish one — are two choices, and both stay.
  *
  * A source is its own name, not its group: a provider repository carries several scrapers in one
- * group, and each of them keeps its own links. The quality is read by [qualityRank], which already
- * separates a remux from a web re-encode at the same resolution.
+ * group, and each of them keeps its own links.
  */
 internal fun List<AddonStreamGroup>.showingOneLinkPerQualityPerSource(): List<AddonStreamGroup> =
     map { group ->
@@ -90,7 +84,7 @@ internal fun List<AddonStreamGroup>.showingOneLinkPerQualityPerSource(): List<Ad
         val seen = mutableSetOf<String>()
         val kept = group.streams.filter { stream ->
             val sourceKey = stream.sourceName?.takeIf { it.isNotBlank() } ?: stream.addonName
-            seen.add("$sourceKey|${stream.qualityRank()}")
+            seen.add("$sourceKey|${stream.qualityRank()}|${stream.audioTrackKey()}")
         }
         if (kept.size == group.streams.size) group else group.copy(streams = kept)
     }
@@ -100,6 +94,3 @@ internal fun mergeDuplicatesFromStoredValue(stored: String?): Boolean = stored =
 
 /** The same reading for every other display switch. */
 internal fun storedSwitchIsOn(stored: String?): Boolean = stored == "1"
-
-/** The reading for a switch that is on until it is turned off: only a stored "0" is off. */
-internal fun storedSwitchIsOff(stored: String?): Boolean = stored != "0"

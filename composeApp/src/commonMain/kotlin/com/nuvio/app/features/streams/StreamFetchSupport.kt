@@ -336,6 +336,84 @@ internal fun StreamItem.qualityRank(): Int {
     return resolution * 100 + hdr * 10 + (tier?.rank ?: 0) * 2
 }
 
+/**
+ * The audio tracks a stream's own text names, so a dubbed copy is never read as a repeat.
+ *
+ * A source often answers several times at the same quality because the copies differ in audio: one
+ * carries the original English, another a Spanish or Arabic dub, another both. [qualityRank] cannot
+ * see that difference — the resolution and the cut are the same — so without this a shorter list
+ * keeps one of them and hides the dub the viewer was looking for.
+ *
+ * Read as whole words, not as substrings, so "spa" is a language only when it stands alone.
+ */
+internal fun StreamItem.audioTrackKey(): String {
+    val text = buildList {
+        add(streamLabel)
+        streamSubtitle?.let { subtitle -> add(subtitle) }
+        val parsed = clientResolve?.stream?.raw?.parsed
+        addAll(parsed?.audio.orEmpty())
+        addAll(parsed?.languages.orEmpty())
+    }.joinToString(separator = " ").lowercase()
+    val words = buildString(text.length) {
+        text.forEach { character ->
+            append(if (character.isLetterOrDigit()) character else ' ')
+        }
+    }.split(' ').filter { it.isNotBlank() }.toSet()
+    return audioTrackMarkers
+        .filter { marker -> marker in words }
+        .sorted()
+        .joinToString(separator = "+")
+}
+
+private val audioTrackMarkers = setOf(
+    "dual",
+    "multi",
+    "dub",
+    "dubbed",
+    "dublado",
+    "dublada",
+    "vos",
+    "english",
+    "eng",
+    "ingles",
+    "inglés",
+    "spanish",
+    "spa",
+    "español",
+    "espanol",
+    "latino",
+    "castellano",
+    "arabic",
+    "ara",
+    "عربي",
+    "مدبلج",
+    "مدبلجة",
+    "دبلج",
+    "french",
+    "fre",
+    "français",
+    "truefrench",
+    "german",
+    "ger",
+    "deutsch",
+    "italian",
+    "ita",
+    "italiano",
+    "portuguese",
+    "português",
+    "turkey",
+    "turkish",
+    "türkçe",
+    "russian",
+    "русский",
+    "hindi",
+    "tamil",
+    "telugu",
+    "korean",
+    "japanese",
+    "jpn",
+)
+
 /** A source that plays right away outranks one that still needs a debrid or torrent resolve. */
 private fun StreamItem.playbackReadinessRank(): Int = when {
     isCachedDebridTorrentStream -> 3
