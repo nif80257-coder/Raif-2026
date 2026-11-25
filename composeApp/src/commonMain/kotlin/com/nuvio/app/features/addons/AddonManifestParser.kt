@@ -11,6 +11,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.addons_manifest_missing_field
+import com.nuvio.app.core.i18n.localizedUiText
 import org.jetbrains.compose.resources.getString
 
 internal object AddonManifestParser {
@@ -164,7 +165,9 @@ internal object AddonManifestParser {
     private fun JsonObject.requiredString(name: String): String =
         optionalString(name)?.takeIf { it.isNotBlank() }
             ?: throw IllegalArgumentException(
-                runBlocking { getString(Res.string.addons_manifest_missing_field, name) },
+                localizedUiText("Manifest missing \"$name\"") {
+                    getString(Res.string.addons_manifest_missing_field, name)
+                },
             )
 
     private fun JsonObject.optionalString(name: String): String? =

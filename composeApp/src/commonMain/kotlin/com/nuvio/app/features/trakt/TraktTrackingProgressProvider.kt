@@ -16,7 +16,7 @@ object TraktTrackingProgressProvider : TrackingProgressProvider {
     private val log = Logger.withTag("TraktProgressPort")
 
     override val providerId: TrackingProviderId = TrackingProviderId.TRAKT
-    override val changes: Flow<Unit> = TraktProgressRepository.uiState.map { Unit }
+    override val changes: Flow<Unit> = TraktProgressRepository.uiState.map { }
     override val providesCompleteMetadata: Boolean = true
     override val ownsCompletedHistoryProjection: Boolean = true
     override fun showIdSiblings() = TraktProgressRepository.getShowIdSiblings()

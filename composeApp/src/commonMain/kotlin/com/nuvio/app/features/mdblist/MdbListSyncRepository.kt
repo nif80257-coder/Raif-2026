@@ -98,7 +98,6 @@ class MdbListSyncRepository(
                 }
             }
         }
-        Unit
     }
 
     internal suspend fun <T> mutate(

@@ -225,6 +225,19 @@ internal fun clearResolvedUiTexts() {
     synchronized(resolvingLock) { resolvingStrings.clear() }
 }
 
+/**
+ * The same non-blocking read, for a payload a repository publishes rather than a view draws.
+ *
+ * These call sites build an error or a subtitle *while publishing state*, and `runBlocking` there
+ * froze whichever thread published it — the main thread for a folder or a settings row. The English
+ * text is returned at once and the translation lands through the snapshot map above, exactly as it
+ * does for a label.
+ */
+internal fun localizedUiText(
+    fallback: String,
+    provider: suspend () -> String,
+): String = resourceString(fallback, provider)
+
 private fun resourceString(
     fallback: String,
     provider: suspend () -> String,

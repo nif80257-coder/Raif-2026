@@ -20,6 +20,7 @@ import nuvio.composeapp.generated.resources.debrid_missing_api_key
 import nuvio.composeapp.generated.resources.debrid_not_cached
 import nuvio.composeapp.generated.resources.debrid_resolve_failed
 import nuvio.composeapp.generated.resources.debrid_stream_stale
+import com.nuvio.app.core.i18n.localizedUiText
 import org.jetbrains.compose.resources.getString
 
 object DirectDebridPlaybackResolver {
@@ -192,10 +193,21 @@ sealed class DirectDebridResolveResult {
 fun DirectDebridPlayableResult.toastMessage(): String? =
     when (this) {
         is DirectDebridPlayableResult.Success -> null
-        DirectDebridPlayableResult.MissingApiKey -> runBlocking { getString(Res.string.debrid_missing_api_key) }
-        DirectDebridPlayableResult.NotCached -> runBlocking { getString(Res.string.debrid_not_cached) }
-        DirectDebridPlayableResult.Stale -> runBlocking { getString(Res.string.debrid_stream_stale) }
-        DirectDebridPlayableResult.Error -> runBlocking { getString(Res.string.debrid_resolve_failed) }
+        DirectDebridPlayableResult.MissingApiKey -> localizedUiText("Connect an account in Settings.") {
+            getString(Res.string.debrid_missing_api_key)
+        }
+
+        DirectDebridPlayableResult.NotCached -> localizedUiText("Not cached on Torbox.") {
+            getString(Res.string.debrid_not_cached)
+        }
+
+        DirectDebridPlayableResult.Stale -> localizedUiText("This link expired. Refreshing results.") {
+            getString(Res.string.debrid_stream_stale)
+        }
+
+        DirectDebridPlayableResult.Error -> localizedUiText("Could not open this link.") {
+            getString(Res.string.debrid_resolve_failed)
+        }
     }
 
 private class LocalDebridAddonStreamResolver(

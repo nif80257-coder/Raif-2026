@@ -17,6 +17,7 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import nuvio.composeapp.generated.resources.*
+import com.nuvio.app.core.i18n.localizedUiText
 import org.jetbrains.compose.resources.getString
 
 data class HomeCatalogSettingsItem(
@@ -666,7 +667,9 @@ internal fun buildCollectionDefinitions(collections: List<Collection>): List<Col
             key = "collection_${collection.id}",
             collectionId = collection.id,
             title = collection.title,
-            subtitle = runBlocking { getString(Res.string.collections_folder_count, collection.folders.size) },
+            subtitle = localizedUiText("${collection.folders.size} folder(s)") {
+                getString(Res.string.collections_folder_count, collection.folders.size)
+            },
             isPinnedToTop = collection.pinToTop,
         )
     }

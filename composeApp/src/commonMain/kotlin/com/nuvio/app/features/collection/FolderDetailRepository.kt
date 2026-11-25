@@ -33,6 +33,7 @@ import nuvio.composeapp.generated.resources.collections_folder_addon_not_found
 import nuvio.composeapp.generated.resources.collections_folder_trakt_movie_list
 import nuvio.composeapp.generated.resources.collections_folder_trakt_series_list
 import nuvio.composeapp.generated.resources.collections_tab_all
+import com.nuvio.app.core.i18n.localizedUiText
 import org.jetbrains.compose.resources.getString
 
 data class FolderTab(
@@ -136,7 +137,7 @@ object FolderDetailRepository {
             if (showAll) {
                 add(
                     FolderTab(
-                        label = runBlocking { getString(Res.string.collections_tab_all) },
+                        label = localizedUiText("All") { getString(Res.string.collections_tab_all) },
                         isAllTab = true,
                         isLoading = true,
                     ),

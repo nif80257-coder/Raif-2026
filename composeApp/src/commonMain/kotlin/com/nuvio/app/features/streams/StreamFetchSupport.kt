@@ -13,6 +13,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.streams_plugin_repository_fallback
+import com.nuvio.app.core.i18n.localizedUiText
 import org.jetbrains.compose.resources.getString
 
 /**
@@ -428,7 +429,7 @@ private fun String.fallbackRepositoryLabel(): String {
     val host = withoutManifest.substringAfter("://", withoutManifest).substringBefore('/')
     return host.ifBlank {
         withoutManifest.substringAfterLast('/').ifBlank {
-            runBlocking { getString(Res.string.streams_plugin_repository_fallback) }
+            localizedUiText("Plugin repository") { getString(Res.string.streams_plugin_repository_fallback) }
         }
     }
 }

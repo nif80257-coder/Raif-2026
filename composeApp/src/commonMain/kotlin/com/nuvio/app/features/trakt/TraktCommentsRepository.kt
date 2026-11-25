@@ -9,6 +9,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import nuvio.composeapp.generated.resources.*
+import com.nuvio.app.core.i18n.localizedUiText
 import org.jetbrains.compose.resources.getString
 
 private const val COMMENTS_SORT = "likes"
@@ -228,7 +229,7 @@ private fun toReviewModel(dto: TraktCommentDto): TraktCommentReview {
     val authorDisplayName = dto.user?.name
         ?.takeIf { it.isNotBlank() }
         ?: dto.user?.username?.takeIf { it.isNotBlank() }
-        ?: runBlocking { getString(Res.string.trakt_user_fallback) }
+        ?: localizedUiText("Trakt user") { getString(Res.string.trakt_user_fallback) }
 
     return TraktCommentReview(
         id = dto.id,

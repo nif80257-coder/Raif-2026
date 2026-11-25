@@ -72,7 +72,6 @@ internal object DownloadSubtitles {
         runCatching {
             storage.write("manifest.json", json.encodeToString(SubtitleManifest(complete = true, tracks = saved)))
         }
-        Unit
     }
 
     fun localSubtitles(localVideoUri: String): List<StreamSubtitle> {

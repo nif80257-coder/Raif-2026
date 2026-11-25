@@ -35,6 +35,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import nuvio.composeapp.generated.resources.*
+import com.nuvio.app.core.i18n.localizedUiText
 import org.jetbrains.compose.resources.getString
 
 private typealias AddonRow = UserAddonSyncRecord
@@ -906,7 +907,7 @@ private fun ensureManifestSuffix(url: String): String {
 
 private fun normalizeManifestUrl(rawUrl: String): String {
     val trimmed = rawUrl.trim()
-    require(trimmed.isNotEmpty()) { runBlocking { getString(Res.string.addons_error_enter_url) } }
+    require(trimmed.isNotEmpty()) { localizedUiText("Enter an addon URL.") { getString(Res.string.addons_error_enter_url) } }
 
     val normalizedScheme = when {
         trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed

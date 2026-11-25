@@ -377,6 +377,12 @@ tasks.withType<KotlinCompilationTask<*>>().configureEach {
     // The storage singletons are `expect object`, which the compiler reports as Beta
     // (KT-61573) once per file and hides real warnings behind that notice.
     compilerOptions.freeCompilerArgs.add("-Xexpect-actual-classes")
+    // The two libraries ask for an explicit opt-in at every use; naming them once here keeps
+    // the warning list to the calls that are actually being deprecated.
+    compilerOptions.optIn.addAll(
+        "coil3.annotation.ExperimentalCoilApi",
+        "dev.chrisbanes.haze.ExperimentalHazeApi",
+    )
 }
 
 kotlin {
