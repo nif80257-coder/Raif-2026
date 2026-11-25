@@ -6593,6 +6593,8 @@ final class SearchModel: ObservableObject {
 /// addons index their catalogues by their English titles, so without a key an
 /// Arabic search comes back empty for a reason the screen should say.
 struct ArabicSearchHint: View {
+    var onSettings: () -> Void = {}
+
     var body: some View {
         VStack(spacing: 10) {
             Image(systemName: "character.book.closed")
@@ -6606,6 +6608,15 @@ struct ArabicSearchHint: View {
                 .foregroundStyle(CinemaTheme.muted)
                 .multilineTextAlignment(.center)
                 .lineSpacing(4)
+            Button(action: onSettings) {
+                Label("افتح الإعدادات", systemImage: "arrow.up.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 9)
+                    .background(CinemaTheme.accent, in: Capsule())
+            }
+            .buttonStyle(CinemaPressStyle())
         }
         .frame(maxWidth: .infinity)
         .padding(20)
@@ -6625,6 +6636,10 @@ struct SearchView: View {
     @State private var query = ""
     @ObservedObject private var model = SearchModel.shared
     @State private var detailItem: CinemaItem?
+    @Environment(\.dismiss) private var dismiss
+    /// The search opens with the keyboard up: it is a sheet for searching, and
+    /// making the viewer tap the field first is a step for nothing.
+    @FocusState private var typing: Bool
     @State private var listItem: CinemaItem?
     @State private var searchTask: Task<Void, Never>?
     @State private var history: [String] = CinemaxPrefs.searchHistory
@@ -6704,6 +6719,7 @@ struct SearchView: View {
                             .submitLabel(.search)
                             .autocorrectionDisabled()
                             .textInputAutocapitalization(.never)
+                            .focused($typing)
                             .onSubmit {
                                 Haptics.tap()
                                 searchTask?.cancel()
@@ -6775,7 +6791,13 @@ struct SearchView: View {
                     } else if ranked.isEmpty {
                         if !model.loading {
                             if arabicTyped, CinemaAPI.shared.tmdbKey.isEmpty {
-                                ArabicSearchHint()
+                                ArabicSearchHint {
+                                    typing = false
+                                    dismiss()
+                                    // The sheet closes first, then the settings
+                                    // screen opens where the key lives.
+                                    CinemaNavigator.shared.tab = 5
+                                }
                             } else {
                                 emptyState
                             }
@@ -6827,7 +6849,22 @@ struct SearchView: View {
             .background(CinemaTheme.canvas.ignoresSafeArea())
             .scrollDismissesKeyboard(.immediately)
             .navigationTitle("البحث")
-            .task { index.refresh() }
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        typing = false
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.muted)
+                    }
+                }
+            }
+            .task {
+                index.refresh()
+                typing = true
+            }
             .onChange(of: query) { value in
                 index.refresh()
                 instant = index.search(value)
@@ -7882,6 +7919,15 @@ struct CinemaAppShortcuts: AppShortcutsProvider {
     }
 }
 
+/// A tab asked for from a screen that cannot change the tab itself, such as the
+/// Arabic search hint, which has to open the settings screen for a TMDB key.
+@MainActor
+final class CinemaNavigator: ObservableObject {
+    static let shared = CinemaNavigator()
+
+    @Published var tab: Int?
+}
+
 struct CinemaRootView: View {
     @AppStorage("cinemax.tab") private var selection = 0
     @AppStorage("cinemax.appLock") private var appLock = false
@@ -7892,6 +7938,7 @@ struct CinemaRootView: View {
     @AppStorage("cinemax.oled") private var oled = false
     @AppStorage("cinemax.onboarded") private var onboarded = false
     @ObservedObject private var network = ConnectivityMonitor.shared
+    @ObservedObject private var navigator = CinemaNavigator.shared
     @State private var showOnboarding = false
     @State private var voiceItem: CinemaItem?
 
@@ -7979,6 +8026,13 @@ struct CinemaRootView: View {
                 if appLock { authenticate() }
                 handlePendingCommand()
             }
+        }
+        .onChange(of: navigator.tab) { value in
+            // A screen that cannot change the tab asks for one here, and the ask
+            // is cleared so the same tab can be asked for again later.
+            guard let value else { return }
+            navigator.tab = nil
+            selection = value
         }
         .overlay {
             if appLock, !unlocked {
