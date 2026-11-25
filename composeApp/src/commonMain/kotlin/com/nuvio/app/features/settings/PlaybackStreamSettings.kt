@@ -84,6 +84,14 @@ internal fun PlaybackStreamSettings(
                         onClick = { showReuseCacheDurationDialog = true },
                     )
                 }
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.settings_playback_warm_top_link),
+                    description = stringResource(Res.string.settings_playback_warm_top_link_description),
+                    checked = settings.streamWarmTopLinkEnabled,
+                    isTablet = isTablet,
+                    onCheckedChange = PlayerSettingsRepository::setStreamWarmTopLinkEnabled,
+                )
             }
         }
 

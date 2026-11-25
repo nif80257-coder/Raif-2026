@@ -26,6 +26,7 @@ import com.nuvio.app.features.streams.StreamBadgePresentation
 import com.nuvio.app.features.streams.StreamBadgeSettingsRepository
 import com.nuvio.app.features.streams.StreamDisplayPreferences
 import com.nuvio.app.features.streams.StreamItem
+import com.nuvio.app.features.streams.StreamLinkWarmer
 import com.nuvio.app.features.streams.StreamLoadCompletion
 import com.nuvio.app.features.streams.StreamParser
 import com.nuvio.app.features.streams.StreamResponseCache
@@ -135,6 +136,7 @@ object PlayerStreamsRepository {
         PluginRepository.setLocalPluginSearchPaused(true)
         cancelSourceJob()
         cancelEpisodeStreamsJob()
+        StreamLinkWarmer.cancel()
     }
 
     private fun cancelSourceJob() {
@@ -193,6 +195,7 @@ object PlayerStreamsRepository {
         sourceJob?.cancel()
         sourceRequestKey = null
         _sourceState.value = StreamsUiState()
+        StreamLinkWarmer.cancel()
         clearEpisodeStreams()
     }
 
@@ -419,6 +422,9 @@ object PlayerStreamsRepository {
                         emptyStateReason = updated.toEmptyStateReason(anyLoading),
                     )
                 }
+                // The list now has a link the viewer can tap, so the sheet's own work is done and
+                // the wait that is left is the host's: start it while they are still reading.
+                StreamLinkWarmer.warmTopLink(stateFlow.value.groups)
             }
 
             fun publishStreamGroupAfterCacheCheck(group: AddonStreamGroup) {

@@ -631,6 +631,11 @@ internal fun settingsSearchEntries(
                 stringResource(Res.string.settings_playback_reuse_last_link_description),
             ),
             PlaybackSearchRow("last-link-cache", stringResource(Res.string.settings_playback_last_link_cache_duration)),
+            PlaybackSearchRow(
+                "warm-top-link",
+                stringResource(Res.string.settings_playback_warm_top_link),
+                stringResource(Res.string.settings_playback_warm_top_link_description),
+            ),
         ),
     )
     addPlaybackRows(

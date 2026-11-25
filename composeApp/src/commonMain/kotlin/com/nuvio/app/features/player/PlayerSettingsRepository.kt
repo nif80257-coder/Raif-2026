@@ -53,6 +53,7 @@ data class PlayerSettingsUiState(
     val subtitleStyle: SubtitleStyleState = SubtitleStyleState.DEFAULT,
     val streamReuseLastLinkEnabled: Boolean = false,
     val streamReuseLastLinkCacheHours: Int = 24,
+    val streamWarmTopLinkEnabled: Boolean = true,
     val androidPlaybackEngine: AndroidPlaybackEngine = AndroidPlaybackEngine.ExoPlayer,
     val autoSwitchPlaybackEngineOnError: Boolean = true,
     val androidLibmpvVideoOutput: AndroidLibmpvVideoOutput = AndroidLibmpvVideoOutput.GpuNext,
@@ -146,6 +147,7 @@ object PlayerSettingsRepository {
     private var subtitleStyle = SubtitleStyleState.DEFAULT
     private var streamReuseLastLinkEnabled = false
     private var streamReuseLastLinkCacheHours = 24
+    private var streamWarmTopLinkEnabled = true
     private var androidPlaybackEngine = AndroidPlaybackEngine.ExoPlayer
     private var autoSwitchPlaybackEngineOnError = true
     private var androidLibmpvVideoOutput = AndroidLibmpvVideoOutput.GpuNext
@@ -244,6 +246,7 @@ object PlayerSettingsRepository {
         subtitleStyle = SubtitleStyleState.DEFAULT
         streamReuseLastLinkEnabled = false
         streamReuseLastLinkCacheHours = 24
+        streamWarmTopLinkEnabled = true
         androidPlaybackEngine = AndroidPlaybackEngine.ExoPlayer
         autoSwitchPlaybackEngineOnError = true
         androidLibmpvVideoOutput = AndroidLibmpvVideoOutput.GpuNext
@@ -369,6 +372,7 @@ object PlayerSettingsRepository {
         )
         streamReuseLastLinkEnabled = PlayerSettingsStorage.loadStreamReuseLastLinkEnabled() ?: false
         streamReuseLastLinkCacheHours = PlayerSettingsStorage.loadStreamReuseLastLinkCacheHours() ?: 24
+        streamWarmTopLinkEnabled = PlayerSettingsStorage.loadStreamWarmTopLinkEnabled() ?: true
         androidPlaybackEngine = PlayerSettingsStorage.loadAndroidPlaybackEngine()
             ?.let { runCatching { AndroidPlaybackEngine.valueOf(it) }.getOrNull() }
             ?: AndroidPlaybackEngine.ExoPlayer
@@ -682,6 +686,14 @@ object PlayerSettingsRepository {
         streamReuseLastLinkCacheHours = hours
         publish()
         PlayerSettingsStorage.saveStreamReuseLastLinkCacheHours(hours)
+    }
+
+    fun setStreamWarmTopLinkEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (streamWarmTopLinkEnabled == enabled) return
+        streamWarmTopLinkEnabled = enabled
+        publish()
+        PlayerSettingsStorage.saveStreamWarmTopLinkEnabled(enabled)
     }
 
     fun setAndroidPlaybackEngine(engine: AndroidPlaybackEngine) {
@@ -1319,6 +1331,7 @@ object PlayerSettingsRepository {
             subtitleStyle = subtitleStyle,
             streamReuseLastLinkEnabled = streamReuseLastLinkEnabled,
             streamReuseLastLinkCacheHours = streamReuseLastLinkCacheHours,
+            streamWarmTopLinkEnabled = streamWarmTopLinkEnabled,
             androidPlaybackEngine = androidPlaybackEngine,
             autoSwitchPlaybackEngineOnError = autoSwitchPlaybackEngineOnError,
             androidLibmpvVideoOutput = androidLibmpvVideoOutput,

@@ -445,6 +445,9 @@ object StreamsRepository {
                     )
                 }
                 updateAutoPlayAfterStreamsChanged()
+                // The list now has a link the viewer can tap: warm it while they are still
+                // reading, so the tap has nothing left to wait for but the film.
+                StreamLinkWarmer.warmTopLink(_uiState.value.groups)
             }
 
             fun publishAddonGroupAfterCacheCheck(group: AddonStreamGroup) {
@@ -858,6 +861,7 @@ object StreamsRepository {
         PluginRepository.setLocalPluginSearchPaused(true)
         activeJob?.cancel()
         activeJob = null
+        StreamLinkWarmer.cancel()
         _uiState.update { current ->
             if (!current.isAnyLoading && current.groups.none { it.isLoading }) {
                 current

@@ -1227,6 +1227,8 @@
     <string name="settings_playback_render_mode_overlay_description">يعرض الترجمات على طبقة سطح منفصلة. يحافظ على إخراج HDR. قد لا يكون توقيت الترجمات دقيقًا تمامًا على بعض الأجهزة.</string>
     <string name="settings_playback_reuse_last_link">إعادة استخدام الرابط الأخير</string>
     <string name="settings_playback_reuse_last_link_description">تشغيل آخر مصدر عمل لهذا الفيلم أو الحلقة تلقائيًا إذا كانت ذاكرة التخزين المؤقت لا تزال صالحة.</string>
+    <string name="settings_playback_warm_top_link">تجهيز الرابط الأول</string>
+    <string name="settings_playback_warm_top_link_description">الوصول إلى أول رابط في القائمة فور ظهورها، ليبدأ التشغيل دون انتظار البحث عن العنوان وفتح الاتصال. لا تُلمَس روابط التورنت ولا الروابط التي ما يزال التطبيق بحاجة إلى فتحها.</string>
     <string name="settings_playback_secondary_audio_language">لغة الصوت الثانوية</string>
     <string name="settings_playback_secondary_subtitle_language">اللغة المفضلة الثانوية</string>
     <string name="settings_playback_section_decoder">فك الترميز</string>
