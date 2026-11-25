@@ -314,11 +314,15 @@ If any item does not reproduce when opened at the cited lines, it should be demo
 
 ---
 
-<!-- status: P0 and P1 done in d245c23 (dead class, compiler flag, logging, Swift deprecations, README, deep-link confirm, Keychain, warmer confinement, display-pref hoisting, search, meta link). P2/P3 pending. -->
+<!-- status: P0 + P1 done in d245c23. P2 partly done in a7f1a48 (14 of 20 runBlocking sites moved to LocalizedUiText; compiler warnings triaged). Remaining: 6 runBlocking sites, engine, settings model, SQL, locales. -->
 
 ## 13. خطة الإصلاح (مرتبة، بأربع دفعات)
 
-> **الحالة — دفعة P0 وP1 منفّذة في `d245c23`**، وتحقّقت بالكومبايل وبناء `iosApp`: الكلاس الميت، `-Xexpect-actual-classes`، تسجيل المضيف بدل الرابط، `UIScreen`/`UIDevice` المهجوران، جملة README، ورقة تأكيد تثبيت المصدر من رابط، Keychain لمفاتيح TMDB/MDBList/IntroDB، حصر حالة التجهيز في خيط واحد، قراءة مفاتيح العرض قبل الـ coroutine، البحث فوق كل الروابط، والرابط الوصفي لن ينتظر الشبكة. **تبقّى P2 وP3** بنودها أدناه.
+> **الحالة — `d245c23` ثم `a7f1a48`**، وكلاهما تحقّق بالكومبايل وبناء `iosApp`.
+>
+> **تم**: الكلاس الميت، `-Xexpect-actual-classes` (أظهر 6 تعبيرات ميتة و~12 استدعاءً مهجورًا كان التحذير يخفيها)، تسجيل المضيف بدل الرابط، `UIScreen`/`UIDevice`، جملة README، ورقة تأكيد تثبيت المصدر من رابط، Keychain لمفاتيح TMDB/MDBList/IntroDB، حصر التجهيز في خيط واحد، مفاتيح العرض تُقرأ قبل الـ coroutine، البحث فوق كل الروابط، الرابط الوصفي لا ينتظر الشبكة، و**14 من 20** موضع `runBlocking` انتقلت إلى `LocalizedUiText`. ومعها: الأيقونات المرآتية، مؤشر التقدم بصيغة lambda، `PrimaryScrollableTabRow`، `kotlinx.io.IOException`، وحذف الأسطر الميتة.
+>
+> **تبقّى**: 6 مواضع `runBlocking` (المسارات المنسّقة `FolderDetailRepository:168,234` و`CollectionRepository:172,324` ومُساعدا Trakt)، ترحيل 7 مواضع `rememberModalBottomSheetState`، `BasicTextField` بنسخته الجديدة، محرّك قائمة واحد، نموذج الإعدادات كبيانات، وسياسات Realtime في SQL (قرار منتج).
 
 ### دفعة P0 — اليوم (لا تغيير في السلوك، مخاطر منخفضة)
 1. حذف `PlayerInstalledStreamAddonTarget` من `PlayerStreamsRepository.kt:718-728` — §9.2.
