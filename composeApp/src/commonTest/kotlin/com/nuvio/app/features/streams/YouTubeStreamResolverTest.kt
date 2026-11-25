@@ -78,8 +78,8 @@ class YouTubeStreamResolverTest {
         assertEquals(0, calls)
         assertEquals(stream.copy(externalUrl = watchUrl), resolved)
         assertTrue(resolved?.shouldOpenExternally == true)
-        assertEquals(watchUrl, resolved?.externalOpenUrl)
-        assertNull(resolved?.youTubeIdToResolve)
+        assertEquals(watchUrl, resolved.externalOpenUrl)
+        assertNull(resolved.youTubeIdToResolve)
     }
 
     @Test

@@ -8,7 +8,12 @@ package com.nuvio.app.features.addons
  * a middleman. That leaves two shapes — a source that answers with a plain `http(s)` link the
  * player opens itself, and a source that answers with an `infoHash` the app's own p2p engine
  * plays. A source that only works once a debrid account has been linked, or that carries someone
- * else's debrid key inside its URL, is not bundled.
+ * else's debrid key, profile or encrypted configuration inside its URL, is not bundled.
+ *
+ * Each stream source is therefore reached at the address its own author publishes. The four
+ * subtitle providers are the exception: they answer nothing without the configuration that link
+ * carries, so their configured link ships as it was set up, and it can be revoked by that person.
+ * No password and no paid account sits in any of them.
  *
  * The bundle is installed once: entries already present are skipped, and the seed marker is only
  * written once at least one add-on actually installed, so an offline first launch retries later.
@@ -37,6 +42,9 @@ internal val RetiredDefaultAddonFragments: List<String> = listOf(
     "orion.baby-beamup.club",
     // Carries a Real-Debrid key inside the manifest URL, same problem.
     "profile=970d9cd3af6706d88733fe7ff57d3dbf",
+    // Its bundled link was an encrypted config and its plain manifest declares no resource at all,
+    // so whatever it answers with comes from the one configuration that link carried.
+    "aiostreamsfortheweebsstable.midnightignite.me",
     // The first Absolute Cinema variant, which mixed torrent mirrors and a Seedr account into the
     // link list. Its http-mode replacement, without live TV, is what ships now.
     "|livetv=1",
@@ -98,7 +106,7 @@ internal fun isRetiredDefaultAddon(manifestUrl: String): Boolean =
     RetiredDefaultAddonFragments.any { fragment -> manifestUrl.contains(fragment, ignoreCase = true) }
 
 /**
- * The two catalogs, the five subtitle providers, and every stream source that answers with a
+ * The three catalogs, the five subtitle providers, and every stream source that answers with a
  * direct link or a p2p info hash.
  */
 private fun isKeptDefaultAddon(manifestUrl: String): Boolean =
@@ -123,12 +131,14 @@ internal val DefaultAddonSources: List<DefaultAddonSource> = listOf(
     DefaultAddonSource("https://subdl.strem.top/c3ViZGxfRnFOOWlxUnRIVGxmVzR4aTdRendkd2FIRW1GdXMzelE3SlZKVDR5YmJrTS9BUi9oaUluY2x1ZGUv/manifest.json"),
     DefaultAddonSource("https://submaker.elfhosted.com/addon/80108f395ff085c4db50b4cab0ec4021/manifest.json"),
     DefaultAddonSource("https://opensubtitles-v3.strem.io/manifest.json"),
-    // Stream sources that answer with a direct https link.
-    DefaultAddonSource("https://aiostreamsfortheweebsstable.midnightignite.me/stremio/c1a28aae-ef02-4e53-bce9-f93fa1461517/eyJpIjoiQ0xiT1MxbnJ2d0oyMHdWMTJpd3R0UT09IiwiZSI6IkR0UFhCN1ZFZm05MHdsUW02ZHdiSTNSOFM5d2ZlQ0c0Rm5aZzhJdkNYbDA9IiwidCI6ImEifQ/manifest.json"),
-    DefaultAddonSource("https://cinema.debrid.in/sort=qualityseeders|limit=200|subtitleLanguages=ar|salanguages=ta,te,ml,kn,hi,gu|asiandrama=0|extraanime=0|minseeders=0|maxsize=0|streamingservices=netflix,prime,disney,hulu,max,apple,peacock,paramount|sacatalogs=0|bollywood=0|marvelcatalog=1|dccatalog=1|animecatalogs=0|anilistcatalogs=0|airingweek=1|advisories=1|horrorCatalogs=0|worldnews=0|abc=0|sports=0|livetv=0|seedrlinks=0|uncachedlimit=0|subf2m=1|yify=1|profile=65fef63344fdc714bd325089e7ea345c|mode=http|httpsources=4khdhub,moviebox,vixsrc,be-vidsrc,be-rgshows,archiveorg,archiveorgdub|top10=1|yearpickers=1|curated=hidden,short,digital,awards,tonight/manifest.json"),
-    DefaultAddonSource("https://hd.plavio.site/u/w6y5YbrH9fnV25qbziG8Vw/manifest.json"),
-    DefaultAddonSource("https://hdhub.thevolecitor.qzz.io/eyJ0b3Jib3giOiJ1bnNldCIsInF1YWxpdGllcyI6IjIxNjBwLDEwODBwLDcyMHAiLCJzb3J0IjoiZGVzYyIsImNhdGFsb2dzIjoiIn0/manifest.json"),
-    DefaultAddonSource("https://pengu.uk/zZc9NT8MwDAbg_5LzJLKOscINARIXRMUGErtUbuqtbtN4irOPDvHfYSA2mh3fx3aU90MJr73BHLwJZNSNYqcGf5is0DQWI93gElreEEo0-MGCd_E-rCx06GOmcgESIm1IpKkiNOSw5u78gZi4wNrvuzpi-_vfSIUtWwjk-KzHwtKxhUfJk-GV_p-HOu3lSdKLl_3p6HRckkBhMS_Jozl2h3Wo8sANuoMYPWq3d0k6H2fVVKePPL9-X5Iev07vny23afEWMj3Ldk8P36eBWtyzO3S7FYKLF-qgrNTnFw/manifest.json"),
+    // Stream sources that answer with a direct https link. Every one of them is reached at the
+    // address its own author publishes: a `profile=`, an `enc_` blob or a `/u/<id>` path was the
+    // configuration of one person, and a source installed from one of those stops answering the day
+    // that person changes or revokes it.
+    DefaultAddonSource("https://cinema.debrid.in/mode=http|livetv=0/manifest.json"),
+    DefaultAddonSource("https://hd.plavio.site/manifest.json"),
+    DefaultAddonSource("https://hdhub.thevolecitor.qzz.io/manifest.json"),
+    DefaultAddonSource("https://pengu.uk/manifest.json"),
     DefaultAddonSource("https://stremio.alirostami.com/streams/manifest.json"),
     DefaultAddonSource("https://disney-arabic-dub.onrender.com/manifest.json"),
     DefaultAddonSource("https://manifest.desitvhub.eu.org/manifest.json"),
@@ -137,12 +147,11 @@ internal val DefaultAddonSources: List<DefaultAddonSource> = listOf(
     DefaultAddonSource("https://stremio-movierulz-taupe.vercel.app/manifest.json"),
     // Stream sources that answer with an info hash, played by the app's own p2p engine.
     DefaultAddonSource("https://torrentio.strem.fun/language=arabic|qualityfilter=480p,cam,other/manifest.json"),
-    DefaultAddonSource("https://meteorfortheweebs.midnightignite.me/eyJjYWNoZWRPbmx5IjpmYWxzZSwic2tpcFJlbGVhc2VGaWx0ZXIiOnRydWUsInJlbW92ZVRyYXNoIjpmYWxzZSwicmVtb3ZlU2FtcGxlcyI6ZmFsc2UsImFsbG93QWR1bHQiOnRydWUsImV4Y2x1ZGUzRCI6ZmFsc2UsImVuYWJsZVNlYURleCI6ZmFsc2UsInNob3dZb3VyTWVkaWEiOmZhbHNlLCJ5b3VyTWVkaWFMZWdhY3lNb2RlIjpmYWxzZSwibWluU2VlZGVycyI6MCwibWF4UmVzdWx0cyI6MCwibWF4UGVyUmVzb2x1dGlvbiI6MCwicmVzb2x1dGlvbnMiOltdLCJwcmVmZXJyZWRMYW5ncyI6WyJhciIsImVuIl0sImxhbmd1YWdlcyI6WyJhciJdLCJleGNsdWRlZExhbmdzIjpbXSwicmVzdWx0Rm9ybWF0IjpbInRpdGxlIiwicXVhbGl0eSIsInNpemUiLCJhdWRpbyIsInN1YmxhbmciLCJzb3VyY2UiLCJhdWRpb2xhbmciXSwibGFuZ3VhZ2VGb3JtYXQiOiJmbGFncyIsInNvcnRPcmRlciI6WyJ5b3VybWVkaWEiLCJjYWNoZWQiLCJzZWVkZXgiLCJyZXNvbHV0aW9uIiwicXVhbGl0eSIsInNjb3JlIiwibGFuZ3VhZ2UiLCJzZWVkZXJzIiwic2l6ZSIsInBhY2siLCJoZHIiLCJjb2RlYyJdLCJhbGxvd1AyUCI6dHJ1ZSwiZXhjbHVkZWRTb3VyY2VzIjpbXX0/manifest.json"),
+    DefaultAddonSource("https://meteorfortheweebs.midnightignite.me/manifest.json"),
     DefaultAddonSource("https://torrentsdb.com/eyJsYW5ndWFnZSI6WyJhcmFiaWMiXX0=/manifest.json"),
     DefaultAddonSource("https://torrentclaw.com/api/stremio/manifest.json"),
-    DefaultAddonSource("https://addon.peerflix.mov/enc_BD0t3qdlF5yb_eu68KcvhS6t2irF3_xCkzy1cy7AtLr2DRsPVaGaTa3FGsLXwC0s0YYQwBnU-AYAt2_gPjAGeJ3o-ExsD2BwoMmdWZXwOjHbC7eSGaBrbPk6LX77YTYcNgpLwXt8tsX09-djaaqjAi4QvNDl8BFgNdAXuMzS/manifest.json"),
-    DefaultAddonSource("https://addon.peerflix.mov/enc_BBgenvsYVV2lGfn3rpeDWFvjJ8mkO0KYlHAYmK5qdLC3ALE3D8PCkBJVkXM_959e1UkY5OBDAK0U2tNyHzRM_LIt2r-1dJqmdEpsbr6QnWj6kv1WgFAO_X1lgyfA8wZnJHaOhutr7eagWess36iuCKUJ-utP3NNpfHzAXHli/manifest.json"),
-    DefaultAddonSource("https://streamx.electron.al/u_3fa8eac141a8b51c32af/manifest.json"),
+    DefaultAddonSource("https://addon.peerflix.mov/manifest.json"),
+    DefaultAddonSource("https://streamx.electron.al/manifest.json"),
 ).filter { source -> isKeptDefaultAddon(source.manifestUrl) }
     // One entry per kept catalog host, so ArabCinemeta's two variants count once.
     .distinctBy { source ->

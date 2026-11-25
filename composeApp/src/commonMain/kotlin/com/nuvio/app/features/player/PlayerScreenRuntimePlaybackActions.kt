@@ -13,7 +13,6 @@ import com.nuvio.app.features.watchprogress.WatchProgressPlaybackSession
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import com.nuvio.app.features.watchprogress.buildPlaybackVideoId
 import com.nuvio.app.features.watching.domain.isShortPlaceholderDuration
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
@@ -281,14 +280,13 @@ private fun PlayerScreenRuntime.emitTrackingScrobbleTerminal(
     val percent = provided ?: currentPlaybackProgressPercent()
     val mediaSnapshot = currentTrackingMedia
     val inputsSnapshot = snapshotTrackingScrobbleItemInputs()
-    scope.launch(NonCancellable) {
+    TrackingScrobbleCoordinator.scrobbleInBackground(
+        profileId = profileId,
+        action = action,
+    ) {
         val media = mediaSnapshot ?: inputsSnapshot.buildMedia()
-        if (!media.hasResolvableIdentity) return@launch
-        TrackingScrobbleCoordinator.scrobble(
-            profileId = profileId,
-            action = action,
-            event = TrackingScrobbleEvent(media = media, progressPercent = percent.toDouble()),
-        )
+        if (!media.hasResolvableIdentity) return@scrobbleInBackground null
+        TrackingScrobbleEvent(media = media, progressPercent = percent.toDouble())
     }
     currentTrackingMedia = null
     hasRequestedScrobbleStartForCurrentItem = false

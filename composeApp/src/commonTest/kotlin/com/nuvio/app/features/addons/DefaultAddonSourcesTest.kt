@@ -8,9 +8,9 @@ import kotlin.test.assertTrue
 
 class DefaultAddonSourcesTest {
     @Test
-    fun `the shipped list is the checked twenty-six`() {
-        assertEquals(26, DefaultAddonSources.size)
-        assertEquals(26, DefaultAddonSources.map { source -> source.manifestUrl }.toSet().size)
+    fun `the shipped list is the checked twenty-four`() {
+        assertEquals(24, DefaultAddonSources.size)
+        assertEquals(24, DefaultAddonSources.map { source -> source.manifestUrl }.toSet().size)
     }
 
     @Test
@@ -48,6 +48,37 @@ class DefaultAddonSourcesTest {
     }
 
     @Test
+    fun `no bundled stream source carries an account configuration`() {
+        // A `profile=`, an `enc_` blob, a `/u/` path or an `/addon/<id>` path is one person's
+        // configuration: the source stops answering the day that person changes or revokes it, and
+        // it was the finding that four stream sources shipped someone else's setup.
+        DefaultAddonSources
+            .map { source -> source.manifestUrl }
+            .filter { url ->
+                KeptCatalogAddonHosts.none { host -> url.contains(host, ignoreCase = true) } &&
+                    KeptSubtitleAddonHosts.none { host -> url.contains(host, ignoreCase = true) }
+            }
+            .forEach { url ->
+                assertFalse(url.contains("|profile="), "profile id in $url")
+                assertFalse(url.contains("/enc_"), "encrypted config in $url")
+                assertFalse(url.contains("/u/"), "user path in $url")
+                assertFalse(url.contains("/u_"), "user path in $url")
+                assertFalse(url.contains("/addon/"), "config id in $url")
+                assertFalse(url.contains("/stremio/"), "config id in $url")
+            }
+    }
+
+    @Test
+    fun `the aiostreams configuration that was shipped is retired`() {
+        assertTrue(
+            isRetiredDefaultAddon(
+                "https://aiostreamsfortheweebsstable.midnightignite.me/stremio/c1a28aae/eyJpIjoiQ0xiT1MifQ/manifest.json",
+            ),
+        )
+        assertFalse(isRetiredDefaultAddon("https://torrentio.strem.fun/language=arabic/manifest.json"))
+    }
+
+    @Test
     fun `every stream source is http direct or p2p and never debrid only`() {
         val urls = DefaultAddonSources.map { source -> source.manifestUrl }
 
@@ -69,13 +100,14 @@ class DefaultAddonSourcesTest {
     }
 
     @Test
-    fun `the absolute cinema entry that ships has no live tv`() {
+    fun `the absolute cinema entry that ships is the public one without live tv`() {
         val url = DefaultAddonSources.map { source -> source.manifestUrl }
             .first { url -> url.contains("cinema.debrid.in") }
 
         assertTrue(url.contains("|livetv=0"))
-        assertTrue(url.contains("|sports=0"))
         assertTrue(url.contains("|mode=http"))
+        // The shipped link used to carry a `profile=` id, which is one person's configuration.
+        assertFalse(url.contains("|profile="))
     }
 
     @Test
@@ -106,7 +138,7 @@ class DefaultAddonSourcesTest {
     @Test
     fun `every bundled source has a stable one-based order`() {
         assertEquals(1, builtInSourceOrder(DefaultAddonSources.first().manifestUrl))
-        assertEquals(26, builtInSourceOrder(DefaultAddonSources.last().manifestUrl))
+        assertEquals(24, builtInSourceOrder(DefaultAddonSources.last().manifestUrl))
         assertNull(builtInSourceOrder("https://example.com/manifest.json"))
         assertTrue(isBuiltInSource(DefaultAddonSources[10].manifestUrl))
         assertFalse(isBuiltInSource("https://example.com/manifest.json"))

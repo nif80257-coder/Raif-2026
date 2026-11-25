@@ -43,7 +43,7 @@ class MediaBrowserMapperTest {
         assertEquals("2007", preview.releaseInfo)
         assertEquals("7.8", preview.imdbRating)
         assertTrue(preview.poster!!.startsWith("https://media.example.com/jellyfin/Items/f1c9a0/Images/Primary?tag=p1"))
-        assertFalse(preview.poster!!.contains("api_key"))
+        assertFalse(preview.poster.contains("api_key"))
     }
 
     @Test

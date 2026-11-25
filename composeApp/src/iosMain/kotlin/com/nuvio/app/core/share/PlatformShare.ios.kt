@@ -1,5 +1,6 @@
 package com.nuvio.app.core.share
 
+import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.useContents
 import platform.CoreGraphics.CGRectMake
@@ -7,6 +8,7 @@ import platform.Foundation.NSString
 import platform.Foundation.NSTemporaryDirectory
 import platform.Foundation.NSUTF8StringEncoding
 import platform.Foundation.NSURL
+import platform.Foundation.create
 import platform.Foundation.writeToFile
 import platform.UIKit.UIActivityViewController
 import platform.UIKit.UIApplication
@@ -14,12 +16,12 @@ import platform.UIKit.UIPopoverPresentationController
 import platform.UIKit.UIViewController
 import platform.UIKit.popoverPresentationController
 
-@OptIn(ExperimentalForeignApi::class)
+@OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
 actual object PlatformShare {
     actual fun shareText(text: String, fileName: String, subject: String) {
         val presenter = topViewController() ?: return
         val path = NSTemporaryDirectory() + fileName
-        (text as NSString).writeToFile(
+        NSString.create(string = text).writeToFile(
             path = path,
             atomically = true,
             encoding = NSUTF8StringEncoding,
@@ -42,7 +44,7 @@ actual object PlatformShare {
     actual fun sharePlainText(text: String) {
         val presenter = topViewController() ?: return
         val controller = UIActivityViewController(
-            activityItems = listOf(text as NSString),
+            activityItems = listOf(NSString.create(string = text)),
             applicationActivities = null,
         )
         val popover: UIPopoverPresentationController? = controller.popoverPresentationController
@@ -74,7 +76,7 @@ actual object PlatformShare {
     private fun topViewController(): UIViewController? {
         var controller = UIApplication.sharedApplication.keyWindow?.rootViewController
         while (controller?.presentedViewController != null) {
-            controller = controller?.presentedViewController
+            controller = controller.presentedViewController
         }
         return controller
     }

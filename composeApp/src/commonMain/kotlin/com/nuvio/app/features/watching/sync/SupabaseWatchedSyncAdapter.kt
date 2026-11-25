@@ -7,7 +7,7 @@ import com.nuvio.app.features.watched.WatchedItem
 import com.nuvio.app.features.watched.isEpisode
 import com.nuvio.app.features.watched.normalizeWatchedMarkedAtEpochMs
 import io.github.jan.supabase.postgrest.postgrest
-import kotlinx.datetime.Instant
+import kotlin.time.Instant
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 

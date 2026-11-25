@@ -5,6 +5,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.uikit.LocalUIViewController
+import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.convert
@@ -18,6 +19,7 @@ import platform.Foundation.NSString
 import platform.Foundation.NSTemporaryDirectory
 import platform.Foundation.NSUTF8StringEncoding
 import platform.Foundation.NSURL
+import platform.Foundation.create
 import platform.Foundation.writeToFile
 import platform.UIKit.UIDocumentPickerDelegateProtocol
 import platform.UIKit.UIDocumentPickerMode
@@ -25,7 +27,7 @@ import platform.UIKit.UIDocumentPickerViewController
 import platform.darwin.NSObject
 import platform.posix.memcpy
 
-@OptIn(ExperimentalForeignApi::class)
+@OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
 internal actual object LocalSubtitleFileStore {
     actual val isSupported: Boolean = true
 
@@ -36,7 +38,7 @@ internal actual object LocalSubtitleFileStore {
             .filter { character -> character.isLetterOrDigit() || character == '.' || character == '-' || character == '_' }
             .ifBlank { "local-subtitles.srt" }
         val path = NSTemporaryDirectory() + "raif-" + safeName
-        val wrote = (content as NSString).writeToFile(
+        val wrote = NSString.create(string = content).writeToFile(
             path = path,
             atomically = true,
             encoding = NSUTF8StringEncoding,

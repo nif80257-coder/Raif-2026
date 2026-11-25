@@ -23,7 +23,7 @@ class LibraryServerContentTest {
         val shelves = loadServerShelves()
 
         assertEquals(listOf("Box · Movies", "Box · Shows"), shelves.map { it.ref.title })
-        assertTrue(shelves.all { it.failure == null && it.section?.items?.size == 5 && it.section?.hasMore == false })
+        assertTrue(shelves.all { it.failure == null && it.section?.items?.size == 5 && it.section.hasMore == false })
     }
 
     @Test

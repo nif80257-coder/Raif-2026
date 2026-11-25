@@ -7,7 +7,7 @@ import com.nuvio.app.features.watchprogress.WatchProgressEntry
 import com.nuvio.app.features.watchprogress.buildWatchProgressKey
 import com.nuvio.app.features.watchprogress.resolvedProgressKey
 import io.github.jan.supabase.postgrest.postgrest
-import kotlinx.datetime.Instant
+import kotlin.time.Instant
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 

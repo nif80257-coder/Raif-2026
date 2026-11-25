@@ -568,7 +568,7 @@ internal fun TrackingProviderCard(
                             }
                             if (hasInfoAction) {
                                 TextButton(
-                                    onClick = { onInfoRequested?.invoke() },
+                                    onClick = { onInfoRequested() },
                                     modifier = if (footerActionCount > 1) Modifier.weight(1.55f) else Modifier,
                                     contentPadding = PaddingValues(horizontal = 2.dp, vertical = 0.dp),
                                     colors = ButtonDefaults.textButtonColors(contentColor = Color.White),

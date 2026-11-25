@@ -6,9 +6,12 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
 class TmdbImagesTest {
+    // One decoder for the class: creating a Json format per test is the cost the compiler flags.
+    private val json = Json { ignoreUnknownKeys = true }
+
     @Test
     fun selectedLanguageBackdropTakesPriorityOverEnglishAndTextlessArtwork() {
-        val images = Json { ignoreUnknownKeys = true }.decodeFromString<TmdbImagesResponse>(
+        val images = json.decodeFromString<TmdbImagesResponse>(
             """{"backdrops":[
                 {"file_path":"/textless.jpg","iso_639_1":null},
                 {"file_path":"/english.jpg","iso_639_1":"en"},

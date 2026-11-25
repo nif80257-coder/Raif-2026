@@ -1,7 +1,7 @@
 package com.nuvio.app.core.ui
 
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.skiaCanvas
 import org.jetbrains.skia.BlendMode
 import org.jetbrains.skia.Paint
 import org.jetbrains.skia.VertexMode
@@ -48,7 +48,7 @@ internal actual class AshSwarmRenderer actual constructor(maxGrains: Int) {
         lastVertexCount = vertexCount
         if (vertexCount == 0) return
 
-        scope.drawContext.canvas.nativeCanvas.drawVertices(
+        scope.drawContext.canvas.skiaCanvas.drawVertices(
             vertexMode = VertexMode.TRIANGLES,
             positions = positions,
             colors = vertexColors,

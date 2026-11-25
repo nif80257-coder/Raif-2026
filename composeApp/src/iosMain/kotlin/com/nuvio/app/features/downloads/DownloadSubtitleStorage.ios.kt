@@ -1,5 +1,6 @@
 package com.nuvio.app.features.downloads
 
+import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ExperimentalForeignApi
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSString
@@ -9,7 +10,7 @@ import platform.Foundation.create
 import platform.Foundation.stringWithContentsOfFile
 import platform.Foundation.writeToFile
 
-@OptIn(ExperimentalForeignApi::class)
+@OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
 internal actual class DownloadSubtitleStorage actual constructor(localVideoUri: String) {
     private val directory = requireNotNull(NSURL(string = localVideoUri).path) + ".subtitles"
 

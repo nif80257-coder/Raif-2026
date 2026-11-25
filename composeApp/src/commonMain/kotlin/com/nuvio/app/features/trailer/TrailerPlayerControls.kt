@@ -109,7 +109,7 @@ internal fun TrailerPlayerControls(
                             contentDescription = stringResource(Res.string.trailer_exit_fullscreen),
                             buttonSize = metrics.headerIconSize + 16.dp,
                             iconSize = metrics.headerIconSize,
-                            onClick = { onExitFullscreen?.invoke() },
+                            onClick = { onExitFullscreen() },
                         )
                     }
                 }

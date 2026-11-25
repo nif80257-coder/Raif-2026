@@ -32,8 +32,8 @@ internal class UrlBridge : HostModule {
                         if (parsed.port != parsed.protocol.defaultPort) parsed.port.toString() else "",
                     ),
                     "pathname" to JsonPrimitive(parsed.encodedPath.ifBlank { "/" }),
-                    "search" to JsonPrimitive(parsed.encodedQuery?.let { "?$it" } ?: ""),
-                    "hash" to JsonPrimitive(parsed.encodedFragment?.let { "#$it" } ?: ""),
+                    "search" to JsonPrimitive(parsed.encodedQuery.takeIf(String::isNotBlank)?.let { "?$it" } ?: ""),
+                    "hash" to JsonPrimitive(parsed.encodedFragment.takeIf(String::isNotBlank)?.let { "#$it" } ?: ""),
                 ),
             ).toString()
         } catch (_: Exception) {

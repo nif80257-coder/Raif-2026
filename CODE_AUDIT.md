@@ -314,13 +314,15 @@ If any item does not reproduce when opened at the cited lines, it should be demo
 
 ---
 
-<!-- status: P0+P1 in d245c23; P2 partly in a7f1a48 and d85f115 (17 of 20 runBlocking sites, warning triage, cheap deprecations). Remaining: 3 helper runBlocking, 9 bottom sheets, 5 BasicTextField, 3 LocalClipboardManager, Slider, launch(NonCancellable), engine, settings model, SQL, locales. -->
+<!-- status: P0+P1 in d245c23; P2 partly in a7f1a48 and d85f115 (17 of 20 runBlocking sites, warning triage, cheap deprecations), in the add-ons screen batch, and in the sources+mpv batch (bundled stream configs made public, AIOStreams retired, NonCancellable moved off the player scope, iOS bridging casts and skiaCanvas and kotlin.time.Instant). Remaining: 3 helper runBlocking, 12 bottom sheets, 5 BasicTextField, 3 LocalClipboardManager, Slider, engine, settings model, SQL, locales. -->
 
 ## 13. خطة الإصلاح (مرتبة، بأربع دفعات)
 
 > **الحالة — `d245c23` ثم `a7f1a48` ثم `d85f115`، ثم دفعة شاشة الإضافات**، وكلها تحقّقت بالكومبايل وبناء `iosApp`.
 >
 > **شاشة الإضافات (هذه الدفعة)**: لم تعد رسالة استثناء تُعرض كنص — كان `NSError` كاملًا بعنوان `http://127.0.0.1:11470/local-addon/manifest.json` يُرسم كإجابة، والآن يذهب إلى السجل ويظهر سطر مترجم (`addon_source_unreachable`)؛ الدليل لا يعرض مصدرًا يعمل على هذا الجهاز ولا مصدرًا لا يعلن `stream`؛ و«ما يقدّمه المصدر» (كل `resource` و`catalog` و`skip`/`year: 2026`) مطويّ خلف زر بدل أن يُقرأ في كل بطاقة؛ وmpv يرسل `User-Agent` لمتصفح حين لا يرسل المصدر واحدًا، وهو أول ما يُسأل عنه رابط `.mkv` مباشر يفشل بـ`Failed to open`.
+>
+> **ثم (دفعة المصادر وmpv)**: كل مصدر بث صار يُقرأ على عنوان ناشره — أُزيل `profile=` من Absolute Cinema (‏`mode=http|livetv=0` العام)، و`/u/` من PlavioHD وStreamX، و`enc_` من Peerflix وMeteor وPenguPlay وHdHub؛ و`AIOStreams` انتقل إلى المتقاعدة لأن manifestه العام بلا أي `resource`؛ فصار العدد **24**: 3 كتالوجات و5 ترجمات و16 بثًّا. الأربع ترجمات المكوَّنة بقيت لأنها لا تجيب بلا إعدادها، وهذا مذكور في `README.md:20` وفي `DefaultAddonSources.kt`؛ و`launch(NonCancellable)` في مشغّل البث انتقل إلى `TrackingScrobbleCoordinator.scrobbleInBackground` بنطاق خلفي لا يُلغى مع الشاشة؛ وiOS: `NSString.create` بدل `as NSString` (‏`BetaInteropApi`)، و`skiaCanvas` بدل `nativeCanvas`، و`kotlin.time.Instant` بدل `kotlinx.datetime.Instant`، و`?.` زائدة أُزيلت من سبعة مواضع.
 >
 > **تم**: الكلاس الميت، `-Xexpect-actual-classes` (كشف ~30 تحذيرًا حقيقيًا)، تسجيل المضيف بدل الرابط، `UIScreen`/`UIDevice`، جملة README، ورقة تأكيد تثبيت المصدر من رابط، Keychain لمفاتيح TMDB/MDBList/IntroDB، حصر التجهيز في خيط واحد، مفاتيح العرض تُقرأ قبل الـ coroutine، البحث فوق كل الروابط، الرابط الوصفي لا ينتظر الشبكة، **17 من 20** موضع `runBlocking` انتقلت إلى `LocalizedUiText`، والأيقونات المرآتية، `quadraticTo`، `PrimaryScrollableTabRow`، مؤشر التقدم بصيغة lambda، `kotlinx.io.IOException`، `kotlin.time.Instant`، ومسار Infuse عبر `encodedPath`.
 >
