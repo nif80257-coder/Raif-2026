@@ -8007,6 +8007,17 @@ struct CinemaRootView: View {
                 UserDefaults.standard.set("hype", forKey: "cinemax.accent")
                 accent = "hype"
             }
+            // The picture opens with the engine that reads the link: the system
+            // player for what it plays natively (HLS, MP4) with the correct shape
+            // in both orientations, libmpv for the containers only it reads. Set
+            // once, so an engine the viewer picks afterwards stays their own.
+            if !UserDefaults.standard.bool(forKey: "cinemax.engine.v1") {
+                UserDefaults.standard.set(true, forKey: "cinemax.engine.v1")
+                let engine = UserDefaults.standard.string(forKey: "cinemax.playerEngine")
+                if engine == nil || engine == "mpv" {
+                    UserDefaults.standard.set("auto", forKey: "cinemax.playerEngine")
+                }
+            }
             if !onboarded { showOnboarding = true }
             if appLock { authenticate() }
             handlePendingCommand()
@@ -10899,7 +10910,7 @@ struct PlaybackSettings: View {
     @AppStorage("cinemax.autoResume") private var autoResume = true
     @AppStorage("cinemax.speedFirst") private var speedFirst = false
     @AppStorage("cinemax.prefQuality") private var prefQuality = "auto"
-    @AppStorage("cinemax.playerEngine") private var playerEngine = "mpv"
+    @AppStorage("cinemax.playerEngine") private var playerEngine = "auto"
     @AppStorage("cinemax.defaultSpeed") private var defaultSpeed = 1.0
 
     private let engines: [(id: String, title: String)] = [
@@ -15332,11 +15343,12 @@ enum CinemaxPrefs {
         UserDefaults.standard.string(forKey: "cinemax.prefQuality") ?? "auto"
     }
 
-    /// The engine a link opens with. The default is libmpv, which opens every
-    /// format with the whole panel; "auto" is the viewer's own choice, and it
-    /// hands HLS and MP4 to the system player for Picture in Picture.
+    /// The engine a link opens with. The default is automatic: the system player
+    /// takes what it reads natively (HLS, MP4), which gives the picture its own
+    /// correct shape in both orientations and brings Picture in Picture, and a
+    /// container only libmpv understands (MKV, HEVC, AV1) stays with libmpv.
     static var playerEngine: String {
-        UserDefaults.standard.string(forKey: "cinemax.playerEngine") ?? "mpv"
+        UserDefaults.standard.string(forKey: "cinemax.playerEngine") ?? "auto"
     }
 
     /// The engine one link should open with. An adaptive or progressive stream is

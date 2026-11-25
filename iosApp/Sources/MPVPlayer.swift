@@ -60,7 +60,6 @@ final class MPVViewController: UIViewController {
             self.updateSurfaceSize()
         }, completion: { _ in
             self.updateSurfaceSize()
-            self.rebuildVideoOutput()
         })
     }
 
