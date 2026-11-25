@@ -8088,6 +8088,84 @@ enum Brand {
     static let second = "max"
 }
 
+/// The day's own film: one title, the same all day and in every launch, and a
+/// different one tomorrow. It is seeded by the day rather than drawn by luck, so
+/// the day has a film to open instead of a slot machine.
+enum DailyFeature {
+    static func pick(from items: [CinemaItem], day: Date = Date()) -> CinemaItem? {
+        var pool = items.filter { !$0.name.isEmpty }
+        guard !pool.isEmpty else { return nil }
+        pool.sort { $0.id < $1.id }
+        let calendar = Calendar(identifier: .gregorian)
+        let number = Int(calendar.startOfDay(for: day).timeIntervalSince1970 / 86_400)
+        return pool[abs(number) % pool.count]
+    }
+
+    /// The Arabic name of the day, so the band reads «فيلم اليوم · الخميس».
+    static func label(_ day: Date = Date()) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ar")
+        formatter.dateFormat = "EEEE"
+        return formatter.string(from: day)
+    }
+}
+
+/// A slim band under the search: the day's film, its poster, and one tap to it.
+struct DailyTitleBand: View {
+    let item: CinemaItem
+    let weekday: String
+    let onOpen: () -> Void
+
+    private var meta: String {
+        var parts: [String] = []
+        if let year = item.releaseInfo, !year.isEmpty { parts.append(year) }
+        if let rating = item.rating, !rating.isEmpty { parts.append("★ \(rating)") }
+        return parts.joined(separator: " · ")
+    }
+
+    var body: some View {
+        Button(action: onOpen) {
+            HStack(spacing: 12) {
+                RemoteImage(url: item.posterURL)
+                    .frame(width: 44, height: 66)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 10, weight: .semibold))
+                        Text("فيلم اليوم · \(weekday)")
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                    .foregroundStyle(CinemaTheme.accent)
+                    Text(item.name)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    if !meta.isEmpty {
+                        Text(meta)
+                            .font(.system(size: 11))
+                            .foregroundStyle(CinemaTheme.tertiary)
+                    }
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "play.circle.fill")
+                    .font(.system(size: 22))
+                    .foregroundStyle(.white.opacity(0.9))
+            }
+            .padding(10)
+            .background(
+                CinemaTheme.elevated,
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(CinemaTheme.hairline, lineWidth: 1)
+            )
+        }
+        .buttonStyle(CinemaPressStyle())
+    }
+}
+
 /// The Hype look: a coral wordmark over a pill search, one full-bleed hero with
 /// its eyebrow, chips and a white play pill, then a raised sheet of rows that
 /// scrolls under a five-tab bar.
@@ -8325,6 +8403,16 @@ struct HypeHomeView: View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
                 header
+                // The day's own film sits under the search, so opening the app
+                // has a beginning instead of a wall of rows to choose from.
+                if let daily = DailyFeature.pick(from: model.visibleShelves.flatMap(\.items)) {
+                    DailyTitleBand(item: daily, weekday: DailyFeature.label()) {
+                        Haptics.tap()
+                        detailItem = daily
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 10)
+                }
                 if showHero, let hero {
                     heroBlock(hero)
                         .id(hero.id)
@@ -8389,6 +8477,11 @@ struct HypeHomeView: View {
                         Label("الأخير", systemImage: "clock")
                     }
                     Button {
+                        surprise()
+                    } label: {
+                        Label("فاجئني بفيلم", systemImage: "dice")
+                    }
+                    Button {
                         selection = 5
                     } label: {
                         Label("الإعدادات", systemImage: "slider.horizontal.3")
@@ -8444,6 +8537,17 @@ struct HypeHomeView: View {
         .padding(.horizontal, 16)
         .padding(.top, 6)
         .padding(.bottom, 14)
+    }
+
+    /// A title the viewer has not started yet, taken from the rows on screen.
+    private func surprise() {
+        Haptics.select()
+        let started = Set(model.continueWatching.map(\.item.id))
+        let all = model.visibleShelves.flatMap(\.items)
+        let fresh = all.filter { !started.contains($0.id) }
+        guard let pick = (fresh.isEmpty ? all : fresh).randomElement() else { return }
+        EventLog.shared.add("discover", "فاجئني: \(pick.name)")
+        detailItem = pick
     }
 
     private func bubble(_ name: String, accent: Bool) -> some View {
