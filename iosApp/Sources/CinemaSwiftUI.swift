@@ -8283,6 +8283,131 @@ struct DailyTitleBand: View {
     }
 }
 
+/// Three titles for one evening: a film, a series and a third, drawn from the
+/// rows already loaded. An evening is a decision, not a scroll: the sheet makes
+/// it, and the line can be sent to whoever is coming.
+struct WatchPartySheet: View {
+    let pool: [CinemaItem]
+    let onOpen: (CinemaItem) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var picks: [CinemaItem] = []
+
+    private var text: String {
+        let names = picks.map { "• \($0.name)" }.joined(separator: "\n")
+        return "سهرة CINEMAX اليوم:\n\(names)\n\nاخترتها من مكتبتي."
+    }
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("سهرة الليلة")
+                            .font(.system(size: 24, weight: .heavy))
+                            .foregroundStyle(.white)
+                        Text("فيلم ومسلسل وثالث — بلا حيرة")
+                            .font(.system(size: 12))
+                            .foregroundStyle(CinemaTheme.muted)
+                    }
+                    Spacer()
+                    CircleButton(system: "xmark") { dismiss() }
+                }
+
+                ForEach(picks) { item in
+                    Button {
+                        Haptics.tap()
+                        dismiss()
+                        onOpen(item)
+                    } label: {
+                        HStack(spacing: 12) {
+                            RemoteImage(url: item.posterURL)
+                                .frame(width: 54, height: 81)
+                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(item.type == "series" ? "مسلسل" : "فيلم")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(CinemaTheme.accent)
+                                Text(item.name)
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.leading)
+                                Text(meta(item))
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(CinemaTheme.tertiary)
+                                    .lineLimit(1)
+                            }
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(CinemaTheme.muted)
+                        }
+                        .padding(10)
+                        .background(
+                            CinemaTheme.surface,
+                            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        )
+                    }
+                    .buttonStyle(CinemaPressStyle())
+                }
+
+                HStack(spacing: 10) {
+                    Button {
+                        Haptics.select()
+                        draw()
+                    } label: {
+                        Label("أعد الاختيار", systemImage: "arrow.triangle.2.circlepath")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 16)
+                            .frame(height: 44)
+                            .background(Color.white.opacity(0.1), in: Capsule())
+                    }
+                    .buttonStyle(CinemaPressStyle())
+                    if !picks.isEmpty {
+                        ShareLink(item: text) {
+                            Label("شارك السهرة", systemImage: "square.and.arrow.up")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundStyle(.black)
+                                .padding(.horizontal, 16)
+                                .frame(height: 44)
+                                .background(CinemaTheme.accent, in: Capsule())
+                        }
+                    }
+                }
+                Spacer(minLength: 20)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+        }
+        .background(CinemaTheme.canvas.ignoresSafeArea())
+        .task {
+            if picks.isEmpty { draw() }
+        }
+    }
+
+    private func meta(_ item: CinemaItem) -> String {
+        var parts: [String] = []
+        if let year = item.releaseInfo, !year.isEmpty { parts.append(year) }
+        if let rating = item.rating, !rating.isEmpty { parts.append("★ \(rating)") }
+        return parts.joined(separator: " · ")
+    }
+
+    /// One film, one series, and one more, all different, so an evening has a
+    /// shape instead of three films in a row.
+    private func draw() {
+        let films = pool.filter { $0.type == "movie" }
+        let series = pool.filter { $0.type == "series" }
+        var chosen: [CinemaItem] = []
+        if let film = films.randomElement() { chosen.append(film) }
+        if let show = series.randomElement() { chosen.append(show) }
+        let rest = pool.filter { item in !chosen.contains { $0.id == item.id } }
+        if let third = rest.randomElement() { chosen.append(third) }
+        picks = chosen
+    }
+}
+
 /// The Hype look: a coral wordmark over a pill search, one full-bleed hero with
 /// its eyebrow, chips and a white play pill, then a raised sheet of rows that
 /// scrolls under a five-tab bar.
@@ -8502,11 +8627,13 @@ struct HypeHomeView: View {
     private enum HypeSheet: Identifiable {
         case shelf(Shelf)
         case search
+        case party
 
         var id: String {
             switch self {
             case .shelf(let shelf): return "shelf:" + shelf.id
             case .search: return "search"
+            case .party: return "party"
             }
         }
     }
@@ -8564,6 +8691,12 @@ struct HypeHomeView: View {
                 })
             case .search:
                 SearchView()
+            case .party:
+                WatchPartySheet(pool: model.visibleShelves.flatMap(\.items)) { item in
+                    panel = nil
+                    detailItem = item
+                }
+                .presentationDetents([.medium, .large])
             }
         }
     }
@@ -8597,6 +8730,12 @@ struct HypeHomeView: View {
                         surprise()
                     } label: {
                         Label("فاجئني بفيلم", systemImage: "dice")
+                    }
+                    Button {
+                        Haptics.tap()
+                        panel = .party
+                    } label: {
+                        Label("سهرة الليلة", systemImage: "popcorn")
                     }
                     Button {
                         selection = 5
