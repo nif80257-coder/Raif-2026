@@ -314,13 +314,17 @@ If any item does not reproduce when opened at the cited lines, it should be demo
 
 ---
 
-<!-- status: P0+P1 in d245c23; P2 partly in a7f1a48 and d85f115 (17 of 20 runBlocking sites, warning triage, cheap deprecations), in the add-ons screen batch, and in the sources+mpv batch (bundled stream configs made public, AIOStreams retired, NonCancellable moved off the player scope, iOS bridging casts and skiaCanvas and kotlin.time.Instant). Remaining: 3 helper runBlocking, 12 bottom sheets, 5 BasicTextField, 3 LocalClipboardManager, Slider, engine, settings model, SQL, locales. -->
+<!-- status: P0+P1 in d245c23; P2 partly in a7f1a48, d85f115, the add-ons screen batch, the sources+mpv batch, and the sheets+tests batch (all 19 bottom sheets migrated, the kotlinx.io.IOException imports in tests, iOS bridging casts and skiaCanvas and kotlin.time.Instant). Remaining: 3 helper runBlocking, 5 BasicTextField, 5 LocalClipboardManager (needs a platform ClipEntry helper), Slider, engine, settings model, SQL, locales. -->
 
 ## 13. خطة الإصلاح (مرتبة، بأربع دفعات)
 
 > **الحالة — `d245c23` ثم `a7f1a48` ثم `d85f115`، ثم دفعة شاشة الإضافات**، وكلها تحقّقت بالكومبايل وبناء `iosApp`.
 >
 > **شاشة الإضافات (هذه الدفعة)**: لم تعد رسالة استثناء تُعرض كنص — كان `NSError` كاملًا بعنوان `http://127.0.0.1:11470/local-addon/manifest.json` يُرسم كإجابة، والآن يذهب إلى السجل ويظهر سطر مترجم (`addon_source_unreachable`)؛ الدليل لا يعرض مصدرًا يعمل على هذا الجهاز ولا مصدرًا لا يعلن `stream`؛ و«ما يقدّمه المصدر» (كل `resource` و`catalog` و`skip`/`year: 2026`) مطويّ خلف زر بدل أن يُقرأ في كل بطاقة؛ وmpv يرسل `User-Agent` لمتصفح حين لا يرسل المصدر واحدًا، وهو أول ما يُسأل عنه رابط `.mkv` مباشر يفشل بـ`Failed to open`.
+>
+> **قرار مؤجّل**: `LocalClipboardManager` (5 مواضع في `DebridSettingsPage`, `CollectionManagementScreen`, `PartyDetails`, `PartyHistoryScreen`, `StreamsScreen`) لم يُحوَّل. البديل `LocalClipboard.setClipEntry` موجود فعلًا (تأكّد بالكومبايلر: `suspend fun setClipEntry(clipEntry: ClipEntry?)`)، لكن إنشاء `ClipEntry` من `AnnotatedString` غير موجود في مكتبة Compose المستخدمة — `toClipEntry` غير محلول — فيحتاج `expect/actual` لكل منصّة (`ClipData` على أندرويد، `NSItemProvider` على iOS). التحويل الأعمى كان سيكسر البناء، فتُرك مع تسجيل السبب. وكذلك `BasicTextField` الجديد (5 مواضع) و`Slider` في `PlayerControls:951` يحتاجان توقيع `rememberTextFieldState`/`SliderState` الذي لم يُتحقَّق بعد.
+>
+> **ثم (دفعة الشرائح والاختبارات)**: كل `rememberModalBottomSheetState` الـ19 في 18 ملفًا صارت `rememberBottomSheetState(initialValue = SheetValue.Hidden)`، و`io.ktor.utils.io.errors.IOException` في تسعة ملفات اختبار صارت `kotlinx.io.IOException`. فبقي من التحذيرات: 5 `BasicTextField`، 3 `LocalClipboardManager`، `Slider` واحد، `UIKitView`/`UIKitViewController`، و`MdbList` patience في `README`/القياسات.
 >
 > **ثم (دفعة المصادر وmpv)**: كل مصدر بث صار يُقرأ على عنوان ناشره — أُزيل `profile=` من Absolute Cinema (‏`mode=http|livetv=0` العام)، و`/u/` من PlavioHD وStreamX، و`enc_` من Peerflix وMeteor وPenguPlay وHdHub؛ و`AIOStreams` انتقل إلى المتقاعدة لأن manifestه العام بلا أي `resource`؛ فصار العدد **24**: 3 كتالوجات و5 ترجمات و16 بثًّا. الأربع ترجمات المكوَّنة بقيت لأنها لا تجيب بلا إعدادها، وهذا مذكور في `README.md:20` وفي `DefaultAddonSources.kt`؛ و`launch(NonCancellable)` في مشغّل البث انتقل إلى `TrackingScrobbleCoordinator.scrobbleInBackground` بنطاق خلفي لا يُلغى مع الشاشة؛ وiOS: `NSString.create` بدل `as NSString` (‏`BetaInteropApi`)، و`skiaCanvas` بدل `nativeCanvas`، و`kotlin.time.Instant` بدل `kotlinx.datetime.Instant`، و`?.` زائدة أُزيلت من سبعة مواضع.
 >

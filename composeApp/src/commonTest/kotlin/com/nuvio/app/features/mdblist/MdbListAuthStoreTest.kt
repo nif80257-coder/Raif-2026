@@ -1,6 +1,6 @@
 package com.nuvio.app.features.mdblist
 
-import io.ktor.utils.io.errors.IOException
+import kotlinx.io.IOException
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull

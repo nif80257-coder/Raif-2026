@@ -1,6 +1,6 @@
 package com.nuvio.app.features.mdblist
 
-import io.ktor.utils.io.errors.IOException
+import kotlinx.io.IOException
 
 internal class MdbListTestPersistence : MdbListAuthPersistence {
     val profiles = mutableMapOf<Int, String>()

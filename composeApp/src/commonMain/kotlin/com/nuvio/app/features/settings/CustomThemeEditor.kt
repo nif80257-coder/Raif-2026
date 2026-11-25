@@ -23,7 +23,8 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -71,7 +72,7 @@ internal fun CustomThemeEditor(
     onDismiss: () -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden)
     val scope = rememberCoroutineScope()
     var encodedColors by rememberSaveable(allowGradient) { mutableStateOf(initialColors.encode()) }
     var gradientEnabled by rememberSaveable(allowGradient) {

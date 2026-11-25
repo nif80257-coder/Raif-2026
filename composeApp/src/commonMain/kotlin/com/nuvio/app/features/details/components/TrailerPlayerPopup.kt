@@ -16,7 +16,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -67,7 +68,7 @@ fun TrailerPlayerPopup(
         }
     }.joinToString(separator = " • ")
 
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden)
     val coroutineScope = rememberCoroutineScope()
     val playbackState = remember(playbackSource) { TrailerPlaybackState() }
     var fullscreen by remember { mutableStateOf(false) }

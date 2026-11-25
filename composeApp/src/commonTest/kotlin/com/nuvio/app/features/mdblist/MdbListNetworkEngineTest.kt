@@ -2,7 +2,7 @@ package com.nuvio.app.features.mdblist
 
 import com.nuvio.app.core.network.readBoundedResponseBody
 import io.ktor.utils.io.ByteReadChannel
-import io.ktor.utils.io.errors.IOException
+import kotlinx.io.IOException
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals

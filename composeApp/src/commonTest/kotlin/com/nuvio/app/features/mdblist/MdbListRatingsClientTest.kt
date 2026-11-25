@@ -1,7 +1,7 @@
 package com.nuvio.app.features.mdblist
 
 import com.nuvio.app.features.details.MetaDetails
-import io.ktor.utils.io.errors.IOException
+import kotlinx.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test

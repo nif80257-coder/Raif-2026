@@ -23,7 +23,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -69,7 +70,7 @@ internal fun EpisodeShuffleSheet(
     onPlayManually: ((MetaVideo) -> Unit)?,
     onStartFromBeginning: (MetaVideo) -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden)
     val scope = rememberCoroutineScope()
     val availability = rememberPlaybackAvailability()
     val progress = remember(meta.id, progressEntries) { shuffleEpisodeProgress(meta.id, progressEntries) }

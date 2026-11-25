@@ -36,7 +36,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -412,7 +413,7 @@ private fun CardDepthFineTuneSheet(
     initialEdgeCoverage: Int,
     onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden)
     var draftEdge by remember { mutableFloatStateOf(initialEdgeStrength.toFloat()) }
     var draftSheen by remember { mutableFloatStateOf(initialSheenStrength.toFloat()) }
     var draftCoverage by remember { mutableFloatStateOf(initialEdgeCoverage.toFloat()) }

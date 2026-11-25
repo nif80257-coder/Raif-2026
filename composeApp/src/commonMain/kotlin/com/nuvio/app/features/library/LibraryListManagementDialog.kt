@@ -29,7 +29,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.rememberBottomSheetState
 import com.nuvio.app.core.ui.NuvioModalBottomSheet
 import com.nuvio.app.core.ui.NuvioPrimaryButton
 import com.nuvio.app.core.ui.dismissNuvioBottomSheet
@@ -63,7 +64,7 @@ fun LibraryListManagementDialog(
     val personal = tabs.filter { it.kind == TrackingLibraryTabKind.PERSONAL }
     val editing = personal.firstOrNull { it.key == state.key }
     val creating = state.mode == LibraryListDialogMode.EDIT && state.key == null
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden)
     NuvioModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         val keyboard = LocalSoftwareKeyboardController.current
         val scope = rememberCoroutineScope()
