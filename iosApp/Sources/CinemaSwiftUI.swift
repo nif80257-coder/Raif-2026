@@ -5902,6 +5902,12 @@ struct DetailView: View {
     /// fast 1080p can pass a crawling 4K but quality is never ignored.
     private func streamScore(_ stream: StreamChoice) -> Double {
         var score = qualityWeight(stream.quality)
+        // With the automatic engine, a link the system player reads leads: it plays
+        // with the correct shape in both orientations, so a container only libmpv
+        // reads should not win the button unless it is genuinely better.
+        if CinemaxPrefs.playerEngine == "auto", CinemaxPrefs.systemReadable(stream.url) {
+            score += 2
+        }
         if let speed = speeds[stream.url] {
             score += min(speed, 20.0) / 5.0
         }
