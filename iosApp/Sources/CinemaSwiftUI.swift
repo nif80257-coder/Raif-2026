@@ -2545,12 +2545,12 @@ struct PlayerScreen: View {
                             .foregroundStyle(.white)
                             .lineLimit(1)
                         if let sourceNote, !sourceNote.isEmpty {
-                            Text(sourceNote)
+                            Text(sourceNote + " · libmpv")
                                 .font(.system(size: 10, weight: .medium))
                                 .foregroundStyle(CinemaTheme.muted)
                                 .lineLimit(1)
                         } else if let label = currentVideoLabel, !label.isEmpty {
-                            Text(label)
+                            Text(label + " · libmpv")
                                 .font(.system(size: 10, weight: .medium))
                                 .foregroundStyle(CinemaTheme.muted)
                                 .lineLimit(1)
