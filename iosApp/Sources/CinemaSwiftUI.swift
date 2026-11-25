@@ -846,6 +846,148 @@ final class CinemaAPI {
     }
 }
 
+// MARK: - The free set
+
+/// What CINEMAX offers on its own: free Stremio addons and Nuvio provider
+/// repositories that answer with a link over plain http or peer-to-peer, with no
+/// debrid and no proxy in the middle. Every URL was checked live before it was
+/// listed, so a dead or deprecated one is not here: WebStreamr, for one, answers
+/// with a "deprecated" page and is left out on purpose.
+enum CuratedSources {
+    struct Source: Identifiable {
+        let id: String
+        let name: String
+        let url: String
+        let note: String
+        let isRepository: Bool
+    }
+
+    static let addons: [Source] = [
+        Source(
+            id: "cinemeta",
+            name: "Cinemeta",
+            url: "https://v3-cinemeta.strem.io/manifest.json",
+            note: "كتالوج وبوسترات وأوصاف وبحث",
+            isRepository: false
+        ),
+        Source(
+            id: "watchhub",
+            name: "WatchHub",
+            url: "https://watchhub.strem.io/manifest.json",
+            note: "أين يُعرض العنوان قانونيًا",
+            isRepository: false
+        ),
+        Source(
+            id: "opensubtitles",
+            name: "OpenSubtitles v3",
+            url: "https://opensubtitles-v3.strem.io/manifest.json",
+            note: "ترجمات مجانية بلا حساب",
+            isRepository: false
+        ),
+        Source(
+            id: "nuvio-streams",
+            name: "Nuvio Streams",
+            url: "https://raw.githubusercontent.com/tapframe/NuvioStreamsAddon/master/manifest.json",
+            note: "روابط HTTP مباشرة بلا وسيط",
+            isRepository: false
+        ),
+        Source(
+            id: "mediafusion",
+            name: "MediaFusion",
+            url: "https://mediafusion.elfhosted.com/manifest.json",
+            note: "HTTP وP2P بلا وسيط",
+            isRepository: false
+        ),
+        Source(
+            id: "torrentio",
+            name: "Torrentio",
+            url: "https://torrentio.strem.fun/manifest.json",
+            note: "P2P بلا وسيط — يحتاج جلسة نظير",
+            isRepository: false
+        ),
+        Source(
+            id: "comet",
+            name: "Comet",
+            url: "https://comet.elfhosted.com/manifest.json",
+            note: "P2P مجاني",
+            isRepository: false
+        ),
+        Source(
+            id: "peerflix",
+            name: "Peerflix",
+            url: "https://peerflix.mov/manifest.json",
+            note: "P2P مجاني",
+            isRepository: false
+        )
+    ]
+
+    static let repositories: [Source] = [
+        Source(
+            id: "yoru",
+            name: "Yoru's Repo",
+            url: "https://raw.githubusercontent.com/tapframe/nuvio-providers/refs/heads/main/manifest.json",
+            note: "مزوّدات سكربتات مجانية",
+            isRepository: true
+        ),
+        Source(
+            id: "allinone",
+            name: "All-in-One-Nuvio",
+            url: "https://raw.githubusercontent.com/NuvioPlugin/All-in-One-Nuvio/main/manifest.json",
+            note: "مزوّدات مجانية متعددة",
+            isRepository: true
+        )
+    ]
+
+    static var all: [Source] { addons + repositories }
+
+    /// True once the set was offered at launch, so an addon the viewer removed
+    /// on purpose is never put back behind their back.
+    private static let seededKey = "cinemax.curated.v2"
+
+    static var seeded: Bool { UserDefaults.standard.bool(forKey: seededKey) }
+
+    /// Offers the set once, on the first launch, and only what is missing.
+    static func offerIfNeeded() async {
+        guard !seeded else { return }
+        UserDefaults.standard.set(true, forKey: seededKey)
+        _ = await installMissing()
+    }
+
+    /// Installs whatever of the set is not installed yet, and answers how many
+    /// landed. One URL that fails never stops the rest.
+    @discardableResult
+    static func installMissing() async -> Int {
+        var added = 0
+        let installedAddons = Set((await CinemaAPI.shared.installedAddons()).map(\.url))
+        for source in addons where !installedAddons.contains(source.url) {
+            if (try? await CinemaAPI.shared.installAddon(source.url)) != nil {
+                added += 1
+            }
+        }
+        let installedRepos = Set((await CinemaAPI.shared.nuvioRepositories()).map(\.url))
+        for source in repositories where !installedRepos.contains(source.url) {
+            if (try? await CinemaAPI.shared.addNuvioRepository(source.url)) != nil {
+                added += 1
+            }
+        }
+        if added > 0 {
+            await EventLog.shared.add("addons", "المجموعة المجانية: \(added) جديدة")
+        }
+        return added
+    }
+
+    /// Which of the set is already installed, for the settings rows.
+    static func installedIDs() async -> Set<String> {
+        let installedAddons = Set((await CinemaAPI.shared.installedAddons()).map(\.url))
+        let installedRepos = Set((await CinemaAPI.shared.nuvioRepositories()).map(\.url))
+        var ids = Set<String>()
+        for source in all where installedAddons.contains(source.url) || installedRepos.contains(source.url) {
+            ids.insert(source.id)
+        }
+        return ids
+    }
+}
+
 // MARK: - Images
 
 /// A small memory cache in front of URLSession: no third-party loader, and the
@@ -7588,6 +7730,10 @@ struct CinemaRootView: View {
             if appLock { authenticate() }
             handlePendingCommand()
             await LibraryModel.shared.load()
+            // First launch: the free set is offered once, and an addon the viewer
+            // removes afterwards is never put back behind their back.
+            await CuratedSources.offerIfNeeded()
+            HomeModel.shared.resetCache()
             SpotlightIndexer.reindex(
                 favorites: LibraryModel.shared.favorites,
                 progress: LibraryModel.shared.progress,
@@ -10076,6 +10222,8 @@ struct AddonsSettings: View {
             VStack(alignment: .leading, spacing: 18) {
                 summary
 
+                freeSet
+
                 HStack(spacing: 8) {
                     Button {
                         Task { await runCheck() }
@@ -10496,6 +10644,94 @@ struct AddonsSettings: View {
     private var updateAllLabel: String {
         let count = checks.values.filter { $0.hasUpdate }.count
         return count > 0 ? "حدّث الكل (\(count))" : "حدّث الكل"
+    }
+
+    /// What of the free set is already installed, and whether the set is being
+    /// installed right now so a second tap does not start it again.
+    @State private var curatedInstalled: Set<String> = []
+    @State private var curatedBusy = false
+
+    /// The free set: the addons and repositories that play over plain http or
+    /// peer-to-peer, with what is already installed marked on each row.
+    private var freeSet: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text("المجموعة المجانية")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                Text("\(curatedInstalled.count)/\(CuratedSources.all.count)")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(CinemaTheme.muted)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(Color.white.opacity(0.08), in: Capsule())
+                Spacer()
+                Button {
+                    Haptics.tap()
+                    Task { await installFreeSet() }
+                } label: {
+                    Text(curatedBusy ? "…" : "ثبّت الناقص")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.accent)
+                }
+                .buttonStyle(.plain)
+                .disabled(curatedBusy)
+            }
+            Text("إضافات ومستودعات مجانية تبثّ عبر HTTP أو P2P بلا ديبرد ولا بروكسي. تحققتُ من كل رابط قبل إدراجه، وحُذف ما صار ميتًا (WebStreamr مثلًا يُعلن نفسه متوقفًا).")
+                .font(.system(size: 11))
+                .foregroundStyle(CinemaTheme.muted)
+                .lineSpacing(3)
+            ForEach(CuratedSources.all) { source in
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: curatedInstalled.contains(source.id)
+                          ? "checkmark.circle.fill"
+                          : "arrow.down.circle")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(curatedInstalled.contains(source.id)
+                                         ? CinemaTheme.accent
+                                         : CinemaTheme.muted)
+                        .frame(width: 20)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(source.name)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.white)
+                        Text(source.note)
+                            .font(.system(size: 10))
+                            .foregroundStyle(CinemaTheme.muted)
+                    }
+                    Spacer()
+                    if source.isRepository {
+                        Text("مستودع")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.muted)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(Color.white.opacity(0.08), in: Capsule())
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .background(
+            CinemaTheme.surface,
+            in: RoundedRectangle(cornerRadius: CinemaTheme.cardRadius, style: .continuous)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: CinemaTheme.cardRadius, style: .continuous)
+                .strokeBorder(CinemaTheme.hairline, lineWidth: 1)
+        )
+        .padding(.horizontal, 20)
+        .task { curatedInstalled = await CuratedSources.installedIDs() }
+    }
+
+    private func installFreeSet() async {
+        guard !curatedBusy else { return }
+        curatedBusy = true
+        let added = await CuratedSources.installMissing()
+        addons = await CinemaAPI.shared.installedAddons()
+        curatedInstalled = await CuratedSources.installedIDs()
+        curatedBusy = false
+        message = added > 0 ? "أُضيف \(added) من المجموعة المجانية" : "كل المجموعة مثبتة بالفعل"
     }
 
     private func runCheck() async {
@@ -12928,6 +13164,25 @@ struct NuvioSettings: View {
 
     private let sample = "https://raw.githubusercontent.com/tapframe/nuvio-providers/refs/heads/main"
 
+    /// Adds the two free provider repositories the app offers, and skips whatever
+    /// is already installed so a second tap changes nothing.
+    private func installFreeRepositories() async {
+        guard !busy else { return }
+        busy = true
+        var added = 0
+        let known = Set(repos.map(\.url))
+        for source in CuratedSources.repositories where !known.contains(source.url) {
+            if (try? await CinemaAPI.shared.addNuvioRepository(source.url)) != nil {
+                added += 1
+            }
+        }
+        repos = await CinemaAPI.shared.nuvioRepositories()
+        busy = false
+        message = added > 0
+            ? "أُضيف \(added) مستودعًا مجانيًا"
+            : "المستودعان مثبتان بالفعل"
+    }
+
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 16) {
@@ -12958,6 +13213,14 @@ struct NuvioSettings: View {
                     Button("استخدم مستودع tapframe الجاهز") {
                         Haptics.select()
                         input = sample
+                    }
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(CinemaTheme.accent)
+                    .buttonStyle(.plain)
+
+                    Button("أضف المستودعين المجانيين") {
+                        Haptics.select()
+                        Task { await installFreeRepositories() }
                     }
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(CinemaTheme.accent)
