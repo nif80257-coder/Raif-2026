@@ -79,7 +79,7 @@ object SubtitleRepository {
                 knownSize = known?.second,
             )
             val reusedHash = reusedExtras?.videoHash
-            val enrichedExtras: SubtitleRequestExtras? = if (!reusedHash.isNullOrBlank() && reusedExtras != null) {
+            val enrichedExtras: SubtitleRequestExtras? = if (!reusedHash.isNullOrBlank()) {
                 if (reusedExtras != extras) onExtrasUpdated(reusedExtras)
                 reusedExtras
             } else {

@@ -11,7 +11,7 @@ import com.nuvio.app.features.library.normalizeSupabaseContentType
 import com.nuvio.app.features.library.toLibraryItem
 import com.nuvio.app.features.library.toSafeSyncMetadataJson
 import io.github.jan.supabase.postgrest.postgrest
-import kotlinx.datetime.Instant
+import kotlin.time.Instant
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json

@@ -143,11 +143,11 @@ internal fun PlayTriangle(
         val radius = minOf(width, height) * 0.14f
         val path = Path().apply {
             moveTo(0f, radius)
-            quadraticBezierTo(0f, 0f, radius, 0f)
+            quadraticTo(0f, 0f, radius, 0f)
             lineTo(width - radius, height * 0.5f - radius * 0.6f)
-            quadraticBezierTo(width, height * 0.5f, width - radius, height * 0.5f + radius * 0.6f)
+            quadraticTo(width, height * 0.5f, width - radius, height * 0.5f + radius * 0.6f)
             lineTo(radius, height)
-            quadraticBezierTo(0f, height, 0f, height - radius)
+            quadraticTo(0f, height, 0f, height - radius)
             close()
         }
         drawPath(path = path, color = color)

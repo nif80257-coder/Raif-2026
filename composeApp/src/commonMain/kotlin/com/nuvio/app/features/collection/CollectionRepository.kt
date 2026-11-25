@@ -170,7 +170,7 @@ object CollectionRepository {
         } catch (e: Exception) {
             ValidationResult(
                 valid = false,
-                error = runBlocking {
+                error = localizedUiText("Invalid JSON: ${e.message.orEmpty()}") {
                     getString(Res.string.collections_import_error_invalid_json, e.message.orEmpty())
                 },
             )

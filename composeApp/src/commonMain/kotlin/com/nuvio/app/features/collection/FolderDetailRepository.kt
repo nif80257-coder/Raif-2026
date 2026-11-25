@@ -166,7 +166,9 @@ object FolderDetailRepository {
                 } else if (source.isTrakt) {
                     val mediaType = TmdbCollectionMediaType.fromString(source.mediaType)
                     val type = if (mediaType == TmdbCollectionMediaType.TV) "series" else "movie"
-                    val typeLabel = runBlocking {
+                    val typeLabel = localizedUiText(
+                        if (mediaType == TmdbCollectionMediaType.TV) "Trakt Series List" else "Trakt Movie List",
+                    ) {
                         getString(
                             if (mediaType == TmdbCollectionMediaType.TV) {
                                 Res.string.collections_folder_trakt_series_list
@@ -232,7 +234,7 @@ object FolderDetailRepository {
                 updateTab(tabIndex) {
                     it.copy(
                         isLoading = false,
-                        error = runBlocking {
+                        error = localizedUiText("Addon not found: ${catalogSource?.addonId.orEmpty()}") {
                             getString(Res.string.collections_folder_addon_not_found, catalogSource?.addonId.orEmpty())
                         },
                     )
