@@ -6413,6 +6413,9 @@ final class SearchIndex: ObservableObject {
         let item: CinemaItem
         let normalized: String
         let words: [String]
+        /// The synopsis, folded: an Arabic description is what makes an Arabic
+        /// query find a title whose name is still in English.
+        let about: String
     }
 
     @Published private(set) var count = 0
@@ -6435,7 +6438,8 @@ final class SearchIndex: ObservableObject {
             fresh[item.id] = Entry(
                 item: item,
                 normalized: normalized,
-                words: normalized.split(whereSeparator: { $0 == " " || $0 == "-" || $0 == ":" }).map(String.init)
+                words: normalized.split(whereSeparator: { $0 == " " || $0 == "-" || $0 == ":" }).map(String.init),
+                about: Self.normalize(item.overview ?? "")
             )
         }
         HomeModel.shared.shelves.forEach { $0.items.forEach(add) }
@@ -6495,6 +6499,9 @@ final class SearchIndex: ObservableObject {
         if entry.words.contains(where: { $0.hasPrefix(needle) }) { return 80 + rating / 100 }
         if entry.normalized.contains(needle) { return 60 + rating / 100 }
         if entry.words.contains(where: { $0.contains(needle) }) { return 45 + rating / 100 }
+        // A title whose name is still English is found by its translated Arabic
+        // synopsis, lower than a name hit but above the loose letter order.
+        if !entry.about.isEmpty, entry.about.contains(needle) { return 30 + rating / 100 }
         // Every typed letter appears in order: this forgives a missed vowel or two.
         if needle.count >= 3, isSubsequence(needle, of: entry.normalized) { return 20 + rating / 100 }
         return nil
@@ -6582,6 +6589,38 @@ final class SearchModel: ObservableObject {
     private var lastQuery: (text: String, results: [CinemaItem], at: Date)?
 }
 
+/// The one thing that makes an Arabic query answer: a free TMDB key. The source
+/// addons index their catalogues by their English titles, so without a key an
+/// Arabic search comes back empty for a reason the screen should say.
+struct ArabicSearchHint: View {
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "character.book.closed")
+                .font(.system(size: 26, weight: .light))
+                .foregroundStyle(CinemaTheme.accent)
+            Text("العربية تحتاج مفتاح TMDB")
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(.white)
+            Text("إضافات المصادر تُبحث بعناوينها الإنجليزية. أضف مفتاح TMDB المجاني من الإعدادات ← TMDB لتعود العناوين العربية بوصفها المترجم. والبحث داخل ما حمّلته يعمل بلا مفتاح.")
+                .font(.system(size: 13))
+                .foregroundStyle(CinemaTheme.muted)
+                .multilineTextAlignment(.center)
+                .lineSpacing(4)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(20)
+        .background(
+            CinemaTheme.surface,
+            in: RoundedRectangle(cornerRadius: 20, style: .continuous)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(CinemaTheme.hairline, lineWidth: 1)
+        )
+        .padding(.horizontal, 20)
+    }
+}
+
 struct SearchView: View {
     @State private var query = ""
     @ObservedObject private var model = SearchModel.shared
@@ -6593,6 +6632,12 @@ struct SearchView: View {
     @State private var instant: [CinemaItem] = []
     @AppStorage("cinemax.searchKind") private var kind = "all"
     @AppStorage("cinemax.searchSort") private var sort = "best"
+
+    /// True when the query is typed in Arabic, which the source addons rarely
+    /// index: their catalogues answer by their English titles.
+    private var arabicTyped: Bool {
+        query.unicodeScalars.contains { (0x0600...0x06FF).contains($0.value) }
+    }
 
     private var columns: [GridItem] {
         [GridItem(.adaptive(minimum: CinemaxPrefs.posterMinWidth), spacing: 12)]
@@ -6636,6 +6681,9 @@ struct SearchView: View {
         for token in text.split(separator: " ") where name.contains(token) {
             value += 1.5
         }
+        // An Arabic synopsis from TMDB finds a title whose name is English.
+        let about = SearchIndex.normalize(item.overview ?? "")
+        if !about.isEmpty, about.contains(text) { value += 1 }
         if let rating = item.rating,
            let number = Double(rating.replacingOccurrences(of: ",", with: ".")) {
             value += number / 10
@@ -6725,7 +6773,13 @@ struct SearchView: View {
                     if let error = model.error, ranked.isEmpty, !model.loading {
                         Text(error).font(.system(size: 13)).foregroundStyle(CinemaTheme.muted).padding(20)
                     } else if ranked.isEmpty {
-                        if !model.loading { emptyState }
+                        if !model.loading {
+                            if arabicTyped, CinemaAPI.shared.tmdbKey.isEmpty {
+                                ArabicSearchHint()
+                            } else {
+                                emptyState
+                            }
+                        }
                     } else {
                         Text("\(ranked.count) نتيجة" + (model.loading ? " حتى الآن" : "") + (model.answered > 0 ? " · \(model.answered) مصدرًا" : ""))
                             .font(.system(size: 11, weight: .medium))
@@ -7897,6 +7951,15 @@ struct CinemaRootView: View {
                     UserDefaults.standard.set("hype", forKey: "cinemax.design")
                 }
             }
+            // The Hype interface is what was asked for, so it is set once more
+            // here for a layout left from an earlier build. A design the viewer
+            // picks after this stays their own.
+            if !UserDefaults.standard.bool(forKey: "cinemax.hype.v2") {
+                UserDefaults.standard.set(true, forKey: "cinemax.hype.v2")
+                UserDefaults.standard.set("hype", forKey: "cinemax.design")
+                UserDefaults.standard.set("hype", forKey: "cinemax.accent")
+                accent = "hype"
+            }
             if !onboarded { showOnboarding = true }
             if appLock { authenticate() }
             handlePendingCommand()
@@ -8937,6 +9000,20 @@ struct HypeTabBar: View {
                 }
                 .buttonStyle(.plain)
             }
+            // Settings stay one tap away in every design: the tab bar is the one
+            // thing on screen in all of them, and a design without it would hide
+            // the settings screen entirely.
+            Button {
+                Haptics.select()
+                selection = 5
+            } label: {
+                Image(systemName: selection == 5 ? "gearshape.fill" : "gearshape")
+                    .font(.system(size: 18, weight: .regular))
+                    .foregroundStyle(selection == 5 ? .white : CinemaTheme.tertiary)
+                    .frame(width: 40, height: 40)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
         .padding(.top, 10)
         .padding(.bottom, 4)
