@@ -8300,7 +8300,6 @@ struct HypeHomeView: View {
     @AppStorage("cinemax.showHero") private var showHero = true
     @State private var heroIndex = 0
     @State private var detailItem: CinemaItem?
-    @State private var gridShelf: Shelf?
     /// One sheet only: SwiftUI keeps one presentation per view, so the episode
     /// list and the search would fight for it and one would never appear.
     @State private var panel: HypeSheet?
@@ -10290,6 +10289,8 @@ struct SelfTestView: View {
             Outcome(id: "race", title: "سباق المرايا"),
             Outcome(id: "files", title: "الكتابة في مجلد التنزيلات"),
             Outcome(id: "display", title: "الدوران ومقاس الشاشة"),
+            Outcome(id: "aspect", title: "نسبة الصورة والتكبير"),
+            Outcome(id: "search", title: "البحث في كل المصادر"),
             Outcome(id: "storage", title: "حفظ واسترجاع الإعدادات")
         ]
         await checkFold()
@@ -10298,6 +10299,8 @@ struct SelfTestView: View {
         await checkRace()
         await checkFiles()
         await checkDisplay()
+        await checkAspect()
+        await checkSearch()
         await checkStorage()
         running = false
         EventLog.shared.add("selftest", summary)
@@ -10423,6 +10426,76 @@ struct SelfTestView: View {
             "display",
             passed: true,
             note: "\(Int(size.width))×\(Int(size.height)) · \(Int(scale))x · الوضع الأفقي متاح",
+            since: start
+        )
+    }
+
+    /// Counts how many sources answered, from inside the check's own closures.
+    private final class Counter {
+        var value = 0
+    }
+
+    /// The picture's own numbers: a ratio left from an older build is what
+    /// stretches the film, so it is found and cleared here rather than guessed
+    /// at on the screen.
+    @MainActor
+    private func checkAspect() async {
+        let start = begin("aspect")
+        let defaults = UserDefaults.standard
+        let allowed = ["", "auto", "fit", "fill", "16:9", "4:3", "2.35:1"]
+        let aspect = defaults.string(forKey: "cinemax.aspect") ?? ""
+        let zoom = (defaults.object(forKey: "cinemax.zoom") as? Double) ?? 0
+        guard allowed.contains(aspect) else {
+            // An unknown ratio is cleared instead of being carried into the next
+            // film, where it would show as a stretched picture.
+            defaults.set("", forKey: "cinemax.aspect")
+            finish(
+                "aspect",
+                passed: false,
+                note: "نسبة غير معروفة «\(aspect)» — أُعيدت إلى ملاءمة",
+                since: start
+            )
+            return
+        }
+        guard zoom >= -0.5, zoom <= 0.5 else {
+            defaults.set(0, forKey: "cinemax.zoom")
+            finish("aspect", passed: false, note: "تكبير خارج الحد \(zoom) — أُعيد إلى 0", since: start)
+            return
+        }
+        finish(
+            "aspect",
+            passed: true,
+            note: aspect.isEmpty ? "ملاءمة بلا قص ولا تكبير" : "النسبة «\(aspect)» والتكبير \(zoom)",
+            since: start
+        )
+    }
+
+    /// The live search, run the way the screen runs it: every source answers
+    /// on its own, and the count says which of them answered at all.
+    @MainActor
+    private func checkSearch() async {
+        let start = begin("search")
+        let counter = Counter()
+        let token = "selftest-\(UUID().uuidString)"
+        let found = await CinemaAPI.shared.searchStreaming("matrix", token: token) { _ in
+            Task { @MainActor in counter.value += 1 }
+        }
+        // The sources behind the check are stopped too, so a slow addon does not
+        // keep working after the answer was already read.
+        CinemaAPI.shared.cancelSearch(token)
+        guard !found.isEmpty else {
+            finish(
+                "search",
+                passed: false,
+                note: "لم تُرجع إضافة نتيجة — الاتصال أو المصادر",
+                since: start
+            )
+            return
+        }
+        finish(
+            "search",
+            passed: true,
+            note: "\(found.count) نتيجة · \(max(counter.value, 1)) مصدرًا أجاب",
             since: start
         )
     }
