@@ -400,6 +400,38 @@ final class CinemaAPI {
         }
     }
 
+    /// The same cross-addon search, live: every source's hits arrive the moment
+    /// it answers, and a newer token cancels the run before it, so an older
+    /// answer never replaces a newer one.
+    func searchStreaming(
+        _ query: String,
+        token: String,
+        onPartial: @escaping ([CinemaItem]) -> Void
+    ) async -> [CinemaItem] {
+        await withCheckedContinuation { (continuation: CheckedContinuation<[CinemaItem], Never>) in
+            bridge.searchStreaming(
+                query: query,
+                token: token,
+                onUpdate: { json in
+                    let shelves = (try? self.decode(ShelvesPayload.self, json).shelves) ?? []
+                    onPartial(shelves.flatMap(\.items))
+                },
+                onDone: { json in
+                    let shelves = (try? self.decode(ShelvesPayload.self, json).shelves) ?? []
+                    continuation.resume(returning: shelves.flatMap(\.items))
+                },
+                onError: { _ in
+                    continuation.resume(returning: [])
+                }
+            )
+        }
+    }
+
+    /// Cancels a live search, so the sources behind the old query stop working.
+    func cancelSearch(_ token: String) {
+        bridge.cancelSearch(token: token)
+    }
+
     func search(_ query: String) async throws -> [Shelf] {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[Shelf], Error>) in
             bridge.search(query: query, onDone: { json in
@@ -927,6 +959,13 @@ enum CuratedSources {
             url: "https://peerflix.mov/manifest.json",
             note: "P2P مجاني",
             isRepository: false
+        ),
+        Source(
+            id: "anime-kitsu",
+            name: "Anime Kitsu",
+            url: "https://anime-kitsu.strem.fun/manifest.json",
+            note: "أنمي مجاني بلا وسيط",
+            isRepository: false
         )
     ]
 
@@ -942,45 +981,71 @@ enum CuratedSources {
             id: "allinone",
             name: "All-in-One-Nuvio",
             url: "https://raw.githubusercontent.com/NuvioPlugin/All-in-One-Nuvio/main/manifest.json",
-            note: "مزوّدات مجانية متعددة",
+            note: "مزوّدات مجانية متعددة — فيها مزوّدات عربية",
+            isRepository: true
+        ),
+        Source(
+            id: "tuktuk",
+            name: "TukTuk Cinema",
+            url: "https://raw.githubusercontent.com/flavasava2022/Nuvio-providers/main/manifest.json",
+            note: "مزوّد عربي وإنجليزي (عربي أولًا)",
             isRepository: true
         )
     ]
 
     static var all: [Source] { addons + repositories }
 
-    /// True once the set was offered at launch, so an addon the viewer removed
-    /// on purpose is never put back behind their back.
-    private static let seededKey = "cinemax.curated.v2"
+    /// Every id ever offered. A source is offered once and never again, so one
+    /// the viewer removed on purpose is not put back, and a source added to the
+    /// set later still reaches an install that already has the old ones.
+    private static let offeredKey = "cinemax.curated.offered"
 
-    static var seeded: Bool { UserDefaults.standard.bool(forKey: seededKey) }
-
-    /// Offers the set once, on the first launch, and only what is missing.
+    /// Offers what is new in the set once, first launch and after an update.
     static func offerIfNeeded() async {
-        guard !seeded else { return }
-        UserDefaults.standard.set(true, forKey: seededKey)
-        _ = await installMissing()
-    }
-
-    /// Installs whatever of the set is not installed yet, and answers how many
-    /// landed. One URL that fails never stops the rest.
-    @discardableResult
-    static func installMissing() async -> Int {
-        var added = 0
-        let installedAddons = Set((await CinemaAPI.shared.installedAddons()).map(\.url))
-        for source in addons where !installedAddons.contains(source.url) {
-            if (try? await CinemaAPI.shared.installAddon(source.url)) != nil {
-                added += 1
-            }
-        }
-        let installedRepos = Set((await CinemaAPI.shared.nuvioRepositories()).map(\.url))
-        for source in repositories where !installedRepos.contains(source.url) {
-            if (try? await CinemaAPI.shared.addNuvioRepository(source.url)) != nil {
-                added += 1
-            }
-        }
+        let offered = Set(UserDefaults.standard.stringArray(forKey: offeredKey) ?? [])
+        let installed = await installedIDs()
+        let fresh = all.filter { !offered.contains($0.id) && !installed.contains($0.id) }
+        // Marked as offered before anything is fetched: a failed source is not
+        // asked again on every launch.
+        UserDefaults.standard.set(all.map(\.id), forKey: offeredKey)
+        guard !fresh.isEmpty else { return }
+        let added = await install(fresh)
         if added > 0 {
             await EventLog.shared.add("addons", "المجموعة المجانية: \(added) جديدة")
+        }
+    }
+
+    /// Installs whatever of the set is not installed yet, for the settings
+    /// button: an explicit tap may put a removed source back.
+    @discardableResult
+    static func installMissing() async -> Int {
+        let installedAddons = Set((await CinemaAPI.shared.installedAddons()).map(\.url))
+        let installedRepos = Set((await CinemaAPI.shared.nuvioRepositories()).map(\.url))
+        let missing = all.filter { source in
+            source.isRepository
+                ? !installedRepos.contains(source.url)
+                : !installedAddons.contains(source.url)
+        }
+        let added = await install(missing)
+        if added > 0 {
+            await EventLog.shared.add("addons", "المجموعة المجانية: \(added) جديدة")
+        }
+        return added
+    }
+
+    /// Installs the given sources and answers how many landed. One URL that
+    /// fails never stops the rest.
+    @discardableResult
+    static func install(_ sources: [Source]) async -> Int {
+        var added = 0
+        for source in sources {
+            if source.isRepository {
+                if (try? await CinemaAPI.shared.addNuvioRepository(source.url)) != nil {
+                    added += 1
+                }
+            } else if (try? await CinemaAPI.shared.installAddon(source.url)) != nil {
+                added += 1
+            }
         }
         return added
     }
@@ -6431,10 +6496,20 @@ final class SearchModel: ObservableObject {
     @Published var results: [CinemaItem] = []
     @Published var loading = false
     @Published var error: String?
+    /// How many sources have answered the live search so far.
+    @Published var answered = 0
 
+    private var task: Task<Void, Never>?
+    private var generation = 0
+
+    /// Answers a query from every installed source at once, and paints each
+    /// source's hits the moment it arrives instead of waiting for the slowest one.
+    /// A newer query cancels the run before it, so an old answer can never
+    /// replace a fresh one.
     func run(_ query: String) async {
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard text.count >= 2 else {
+            stop()
             results = []
             lastQuery = nil
             return
@@ -6445,16 +6520,39 @@ final class SearchModel: ObservableObject {
             results = last.results
             return
         }
+        stop()
+        generation += 1
+        let current = generation
+        let token = "search-\(current)"
         loading = true
         error = nil
-        do {
-            let shelves = try await CinemaAPI.shared.search(text)
-            results = shelves.flatMap(\.items)
-            lastQuery = (text.lowercased(), results, Date())
-        } catch {
-            self.error = error.localizedDescription
-            results = []
+        answered = 0
+        let running = Task { [weak self] in
+            guard let self else { return }
+            let found = await CinemaAPI.shared.searchStreaming(text, token: token) { partial in
+                Task { @MainActor in
+                    guard self.generation == current else { return }
+                    self.results = partial
+                    self.answered += 1
+                }
+            }
+            await MainActor.run {
+                guard self.generation == current else { return }
+                self.results = found
+                self.lastQuery = (text.lowercased(), found, Date())
+                self.loading = false
+            }
         }
+        task = running
+        await running.value
+    }
+
+    /// Stops the live search: the sources behind the old query are cancelled
+    /// instead of finishing an answer nobody is waiting for.
+    func stop() {
+        task?.cancel()
+        task = nil
+        CinemaAPI.shared.cancelSearch("search-\(generation)")
         loading = false
     }
 
@@ -6577,13 +6675,31 @@ struct SearchView: View {
                     }
 
                     if model.loading {
-                        ProgressView().tint(CinemaTheme.accent).padding(30)
-                    } else if let error = model.error {
+                        HStack(spacing: 8) {
+                            ProgressView().tint(CinemaTheme.accent)
+                            Text(model.answered == 0
+                                 ? "يبحث في كل المصادر…"
+                                 : "يُتابع · \(model.results.count) نتيجة من \(model.answered) مصدرًا")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(CinemaTheme.muted)
+                            Spacer()
+                            Button("إيقاف") {
+                                Haptics.tap()
+                                model.stop()
+                            }
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.accent)
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.horizontal, 20)
+                    }
+
+                    if let error = model.error, ranked.isEmpty, !model.loading {
                         Text(error).font(.system(size: 13)).foregroundStyle(CinemaTheme.muted).padding(20)
                     } else if ranked.isEmpty {
-                        emptyState
+                        if !model.loading { emptyState }
                     } else {
-                        Text("\(ranked.count) نتيجة")
+                        Text("\(ranked.count) نتيجة" + (model.loading ? " حتى الآن" : "") + (model.answered > 0 ? " · \(model.answered) مصدرًا" : ""))
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(CinemaTheme.muted)
                             .padding(.horizontal, 20)

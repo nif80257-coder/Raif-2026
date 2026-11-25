@@ -486,6 +486,116 @@ class CinemaxAppleBridge {
         }
     }
 
+    /** Live searches, keyed by the token the interface hands in. */
+    private val searchJobs = mutableMapOf<String, Job>()
+
+    /**
+     * The same cross-addon search, but every source's hits are handed to
+     * [onUpdate] the moment they arrive, so one slow addon no longer holds the
+     * screen back. The token cancels the run before it, so an older answer can
+     * never replace a newer one.
+     */
+    fun searchStreaming(
+        query: String,
+        token: String,
+        onUpdate: (String) -> Unit,
+        onDone: (String) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        searchJobs.remove(token)?.cancel()
+        val text = query.trim()
+        if (text.length < 2) {
+            onDone(json.encodeToString(AppleShelves(emptyList())))
+            return
+        }
+        searchJobs[token] = scope.launch {
+            try {
+                val found = mutableListOf<AppleItem>()
+                val seen = mutableSetOf<String>()
+                fun publish() {
+                    onUpdate(
+                        json.encodeToString(
+                            AppleShelves(listOf(AppleShelf("search", "نتائج البحث", found.toList())))
+                        )
+                    )
+                }
+                val key = nuvioStore.loadTmdbApiKey()
+                if (key.isNotBlank()) {
+                    val encoded = text.encodeURLParameter()
+                    val tmdb = coroutineScope {
+                        listOf("movie", "tv").map { kind ->
+                            async {
+                                try {
+                                    withTimeoutOrNull(9_000) {
+                                        fetchTmdbList(
+                                            key,
+                                            "search/$kind?include_adult=false&query=$encoded"
+                                        )
+                                    } ?: emptyList()
+                                } catch (error: CancellationException) {
+                                    throw error
+                                } catch (_: Throwable) {
+                                    emptyList()
+                                }
+                            }
+                        }.awaitAll().flatten()
+                    }
+                    for (item in tmdb) {
+                        if (seen.add(item.id)) found += item
+                    }
+                    publish()
+                }
+                val addons = addonStore.load()
+                val perAddon = addons.map { addon ->
+                    async {
+                        addon.catalogs
+                            .filter { it.supportsExtra("search") }
+                            .map { catalog ->
+                                try {
+                                    withTimeoutOrNull(9_000) {
+                                        repository.searchCatalog(
+                                            addon.manifestUrl,
+                                            catalog.type,
+                                            catalog.id,
+                                            text
+                                        )
+                                    } ?: emptyList()
+                                } catch (error: CancellationException) {
+                                    throw error
+                                } catch (_: Throwable) {
+                                    emptyList()
+                                }
+                            }
+                            .flatten()
+                            .map { itemOf(it) }
+                    }
+                }
+                for (hits in perAddon) {
+                    for (item in hits.await()) {
+                        if (found.size >= 120) break
+                        if (seen.add(item.id)) found += item
+                    }
+                    publish()
+                }
+                onDone(
+                    json.encodeToString(
+                        AppleShelves(listOf(AppleShelf("search", "نتائج البحث", found.take(120))))
+                    )
+                )
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                onError(error.message ?: "تعذر البحث")
+            } finally {
+                searchJobs.remove(token)
+            }
+        }
+    }
+
+    /** Stops a live search the interface no longer wants. */
+    fun cancelSearch(token: String) {
+        searchJobs.remove(token)?.cancel()
+    }
+
     /** Full metadata, seasons and episodes for the detail page. */
     fun loadDetail(itemId: String, type: String, onDone: (String) -> Unit, onError: (String) -> Unit) {
         scope.launch {
