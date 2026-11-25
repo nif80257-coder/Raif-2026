@@ -212,6 +212,19 @@ private val resourceStringScope = CoroutineScope(SupervisorJob() + Dispatchers.D
  * snapshot map: the read of that map happens during composition, so the view redraws with the
  * viewer's language as soon as it lands, and every later call returns it without asking again.
  */
+/**
+ * Drops every text already read, so the next composition asks the resources again.
+ *
+ * The map above is what makes these helpers cheap, and it is also what would keep the old
+ * language on screen after the viewer changes it: every entry was read while the previous
+ * language was active. Called when the app language changes; the English text shows for the one
+ * frame it takes to read the new one.
+ */
+internal fun clearResolvedUiTexts() {
+    resolvedStrings.clear()
+    synchronized(resolvingLock) { resolvingStrings.clear() }
+}
+
 private fun resourceString(
     fallback: String,
     provider: suspend () -> String,

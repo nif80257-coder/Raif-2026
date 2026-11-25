@@ -1,5 +1,7 @@
 package com.nuvio.app.features.settings
 
+import com.nuvio.app.core.i18n.clearResolvedUiTexts
+
 import com.nuvio.app.core.ui.AppTheme
 import com.nuvio.app.core.ui.CustomThemeColors
 import com.nuvio.app.core.ui.NativeTabBridge
@@ -138,6 +140,9 @@ object ThemeSettingsRepository {
         if (_selectedAppLanguage.value == language) return
         ThemeSettingsStorage.saveSelectedAppLanguage(language.code)
         ThemeSettingsStorage.applySelectedAppLanguage(language.code)
+        // Every text already read was read in the previous language; without this the app keeps
+        // drawing them until it is restarted.
+        clearResolvedUiTexts()
         _selectedAppLanguage.value = language
     }
 
