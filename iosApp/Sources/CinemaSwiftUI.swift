@@ -4354,6 +4354,18 @@ struct PlayerOptionsPanel: View {
                             .buttonStyle(.plain)
                         }
                     }
+                    // One tap puts the picture back: fit, no crop, no zoom, which
+                    // is what a stretched frame after a rotation needs.
+                    Button {
+                        Haptics.select()
+                        onAspect("")
+                        onZoom(0)
+                    } label: {
+                        Label("إعادة ضبط الصورة", systemImage: "arrow.counterclockwise")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.accent)
+                    }
+                    .buttonStyle(.plain)
 
                     label("تكبير الصورة")
                     HStack(spacing: 10) {
@@ -6659,6 +6671,10 @@ struct SearchView: View {
                         if !query.isEmpty {
                             Button {
                                 Haptics.tap()
+                                // The sources behind the cleared query keep
+                                // working otherwise, and their late answer would
+                                // repaint the list the viewer just emptied.
+                                model.stop()
                                 query = ""
                                 model.results = []
                             } label: {
@@ -8285,7 +8301,21 @@ struct HypeHomeView: View {
     @State private var heroIndex = 0
     @State private var detailItem: CinemaItem?
     @State private var gridShelf: Shelf?
-    @State private var showSearch = false
+    /// One sheet only: SwiftUI keeps one presentation per view, so the episode
+    /// list and the search would fight for it and one would never appear.
+    @State private var panel: HypeSheet?
+
+    private enum HypeSheet: Identifiable {
+        case shelf(Shelf)
+        case search
+
+        var id: String {
+            switch self {
+            case .shelf(let shelf): return "shelf:" + shelf.id
+            case .search: return "search"
+            }
+        }
+    }
 
     private var hero: CinemaItem? {
         guard !model.heroItems.isEmpty else { return nil }
@@ -8321,14 +8351,16 @@ struct HypeHomeView: View {
         .fullScreenCover(item: $detailItem) { item in
             DetailView(item: item, onFavorite: { model.toggle(item) })
         }
-        .sheet(item: $gridShelf) { shelf in
-            ShelfGridScreen(shelf: shelf, onOpen: { item in
-                gridShelf = nil
-                detailItem = item
-            })
-        }
-        .sheet(isPresented: $showSearch) {
-            SearchView()
+        .sheet(item: $panel) { value in
+            switch value {
+            case .shelf(let shelf):
+                ShelfGridScreen(shelf: shelf, onOpen: { item in
+                    panel = nil
+                    detailItem = item
+                })
+            case .search:
+                SearchView()
+            }
         }
     }
 
@@ -8393,7 +8425,7 @@ struct HypeHomeView: View {
             }
             Button {
                 Haptics.tap()
-                showSearch = true
+                panel = .search
             } label: {
                 HStack(spacing: 10) {
                     Image(systemName: "magnifyingglass")
@@ -8601,7 +8633,7 @@ struct HypeHomeView: View {
                         },
                         saved: { model.favorites.contains($0) },
                         onOpen: { detailItem = $0 },
-                        onMore: { gridShelf = shelf }
+                        onMore: { panel = .shelf(shelf) }
                     )
                 }
             }
