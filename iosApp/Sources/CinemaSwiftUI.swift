@@ -2033,7 +2033,7 @@ struct CinematicHomeView: View {
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("CINEMAX")
+                Text(Brand.name.uppercased())
                     .font(.system(size: 11, weight: .semibold))
                     .tracking(3)
                     .foregroundStyle(CinemaTheme.muted)
@@ -7123,7 +7123,7 @@ struct LegacySettingsPage: View {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("CINEMAX")
+                        Text(Brand.name.uppercased())
                             .font(.system(size: 11, weight: .semibold))
                             .tracking(3)
                             .foregroundStyle(CinemaTheme.muted)
@@ -7481,7 +7481,7 @@ struct OnboardingView: View {
             CinemaTheme.canvas.ignoresSafeArea()
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
-                    Text("CINEMAX")
+                    Text(Brand.name.uppercased())
                         .font(.system(size: 11, weight: .semibold))
                         .tracking(4)
                         .foregroundStyle(CinemaTheme.muted)
@@ -7574,7 +7574,7 @@ enum SpotlightIndexer {
                 .compactMap { $0 }
                 .joined(separator: " · ")
             attributes.keywords = [
-                "CINEMAX",
+                Brand.name,
                 keyword,
                 item.type == "series" ? "مسلسل" : "فيلم"
             ]
@@ -7781,7 +7781,7 @@ struct CinemaRootView: View {
                         Image(systemName: "lock.shield.fill")
                             .font(.system(size: 40, weight: .light))
                             .foregroundStyle(CinemaTheme.accent)
-                        Text("CINEMAX مقفل")
+                        Text("\(Brand.name) مقفل")
                             .font(.system(size: 20, weight: .bold))
                             .foregroundStyle(.white)
                         Text("افتح بقفل الجهاز أو Face ID للمتابعة")
@@ -7935,6 +7935,14 @@ struct FilterChipsBar: View {
 
 // MARK: - Hype interface
 
+/// The name the interface wears. It is spelled here once, so the wordmark, the
+/// settings header and the system's search change together when it is renamed.
+enum Brand {
+    static let name = "HypeTV"
+    static let first = "hype"
+    static let second = "tv"
+}
+
 /// The Hype look: a coral wordmark over a pill search, one full-bleed hero with
 /// its eyebrow, chips and a white play pill, then a raised sheet of rows that
 /// scrolls under a five-tab bar.
@@ -7944,14 +7952,14 @@ struct HypeLogo: View {
             PlayGlyph()
                 .frame(width: 26, height: 24)
             HStack(spacing: 0) {
-                Text("cine")
+                Text(Brand.first)
                     .foregroundStyle(.white)
-                Text("max")
+                Text(Brand.second)
                     .foregroundStyle(CinemaTheme.accent)
             }
             .font(.system(size: 23, weight: .heavy))
         }
-        .accessibilityLabel("CINEMAX")
+        .accessibilityLabel(Brand.name)
     }
 }
 
@@ -8895,7 +8903,7 @@ struct PanoramaHomeView: View {
                     )
                 )
             VStack(alignment: .leading, spacing: 12) {
-                Text("CINEMAX")
+                Text(Brand.name.uppercased())
                     .font(.system(size: 11, weight: .semibold))
                     .tracking(4)
                     .foregroundStyle(.white.opacity(0.65))
@@ -9097,7 +9105,7 @@ struct SettingsView: View {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 22) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("CINEMAX")
+                        Text(Brand.name.uppercased())
                             .font(.system(size: 11, weight: .semibold))
                             .tracking(3)
                             .foregroundStyle(CinemaTheme.muted)
@@ -13171,7 +13179,7 @@ struct CinemaTitleCard: View {
             )
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 14) {
-                    Text("CINEMAX")
+                    Text(Brand.name.uppercased())
                         .font(.system(size: 24, weight: .heavy))
                         .tracking(6)
                         .foregroundStyle(.white.opacity(0.85))
@@ -13250,7 +13258,7 @@ struct CinemaListCard: View {
                 endPoint: .bottom
             )
             VStack(alignment: .leading, spacing: 14) {
-                Text("CINEMAX")
+                Text(Brand.name.uppercased())
                     .font(.system(size: 24, weight: .heavy))
                     .tracking(6)
                     .foregroundStyle(.white.opacity(0.85))
@@ -13295,7 +13303,7 @@ struct CinemaStatsCard: View {
             )
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 14) {
-                    Text("CINEMAX")
+                    Text(Brand.name.uppercased())
                         .font(.system(size: 24, weight: .heavy))
                         .tracking(6)
                         .foregroundStyle(.white.opacity(0.85))

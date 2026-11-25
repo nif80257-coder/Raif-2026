@@ -10,13 +10,13 @@
 		1DE57886683CED117CF66154 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 12746CC0A2CFFE3240A0B83F /* LaunchScreen.storyboard */; };
 		25BC496151E5C349BEB59177 /* MPVKit in Frameworks */ = {isa = PBXBuildFile; productRef = B73A55E408E3689569269737 /* MPVKit */; };
 		451177947F0750D99D9D6440 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 86D8962F93B52421BDC84975 /* Assets.xcassets */; };
-		C4D93EAC92A3F41B7EFA2647 /* CINEMAXApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D3B0BB72171AD456896D23 /* CINEMAXApp.swift */; };
-		C1A0000000000000000000F9 /* CinemaSwiftUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A0000000000000000000FA /* CinemaSwiftUI.swift */; };
-		D4F52D9CF762AAF93A3907B6 /* MPVPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64A4E8EDDFEC84BEAFAD3243 /* MPVPlayer.swift */; };
-		EA4427D75ACCBE608727AFDD /* MPVMetalLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78C407E766722C78198F9991 /* MPVMetalLayer.swift */; };
 		C1A0000000000000000000B7 /* nuvio-compat.js in Resources */ = {isa = PBXBuildFile; fileRef = C1A0000000000000000000F3 /* nuvio-compat.js */; };
 		C1A0000000000000000000B8 /* raif-sources.json in Resources */ = {isa = PBXBuildFile; fileRef = C1A0000000000000000000F4 /* raif-sources.json */; };
 		C1A0000000000000000000B9 /* raif2-sources.json in Resources */ = {isa = PBXBuildFile; fileRef = C1A0000000000000000000F5 /* raif2-sources.json */; };
+		C1A0000000000000000000F9 /* CinemaSwiftUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A0000000000000000000FA /* CinemaSwiftUI.swift */; };
+		C4D93EAC92A3F41B7EFA2647 /* CINEMAXApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D3B0BB72171AD456896D23 /* CINEMAXApp.swift */; };
+		D4F52D9CF762AAF93A3907B6 /* MPVPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64A4E8EDDFEC84BEAFAD3243 /* MPVPlayer.swift */; };
+		EA4427D75ACCBE608727AFDD /* MPVMetalLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78C407E766722C78198F9991 /* MPVMetalLayer.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -27,9 +27,9 @@
 		86D8962F93B52421BDC84975 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		C0D3B0BB72171AD456896D23 /* CINEMAXApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CINEMAXApp.swift; sourceTree = "<group>"; };
 		C1A0000000000000000000F3 /* nuvio-compat.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "nuvio-compat.js"; sourceTree = "<group>"; };
-		C1A0000000000000000000FA /* CinemaSwiftUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CinemaSwiftUI.swift; sourceTree = "<group>"; };
 		C1A0000000000000000000F4 /* raif-sources.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "raif-sources.json"; sourceTree = "<group>"; };
 		C1A0000000000000000000F5 /* raif2-sources.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "raif2-sources.json"; sourceTree = "<group>"; };
+		C1A0000000000000000000FA /* CinemaSwiftUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CinemaSwiftUI.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -252,7 +252,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 228;
+				CURRENT_PROJECT_VERSION = 229;
 				DEAD_CODE_STRIPPING = NO;
 				ENABLE_BITCODE = NO;
 				FRAMEWORK_SEARCH_PATHS = (
@@ -263,7 +263,7 @@
 				"FRAMEWORK_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/../composeApp/build/bin/iosSimulatorArm64/$(KOTLIN_FRAMEWORK_FLAVOR)Framework";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Sources/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = CINEMAX;
+				INFOPLIST_KEY_CFBundleDisplayName = HypeTV;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = NO;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = NO;
@@ -357,7 +357,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 228;
+				CURRENT_PROJECT_VERSION = 229;
 				DEAD_CODE_STRIPPING = NO;
 				ENABLE_BITCODE = NO;
 				FRAMEWORK_SEARCH_PATHS = (
@@ -368,7 +368,7 @@
 				"FRAMEWORK_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/../composeApp/build/bin/iosSimulatorArm64/$(KOTLIN_FRAMEWORK_FLAVOR)Framework";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Sources/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = CINEMAX;
+				INFOPLIST_KEY_CFBundleDisplayName = HypeTV;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = NO;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = NO;
