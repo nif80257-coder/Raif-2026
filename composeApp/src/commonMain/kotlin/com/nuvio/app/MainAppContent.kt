@@ -87,6 +87,7 @@ import com.nuvio.app.core.ui.localizedContinueWatchingSubtitle
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.platformExitApp
 import com.nuvio.app.features.addons.AddAddonResult
+import com.nuvio.app.features.addons.AddonDeepLinkInstallDialog
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.addons.isWaitingForFirstEnabledManifest
@@ -295,6 +296,7 @@ internal fun MainAppContent(
         var pickerPending by remember { mutableStateOf(false) }
         var pickerError by remember { mutableStateOf<String?>(null) }
         var pendingTrackingRemoval by remember { mutableStateOf<PendingTrackingMembershipRemoval?>(null) }
+        var pendingDeepLinkAddonInstall by remember { mutableStateOf<String?>(null) }
         val trackingListsUpdateFailedMessage = stringResource(Res.string.tracking_lists_update_failed)
         val addonsUiState by remember {
             AddonRepository.initialize()
@@ -727,14 +729,14 @@ internal fun MainAppContent(
                 when (deepLink) {
                     is AppDeepLink.Meta -> {
                         activateTab(AppScreenTab.Home)
-                        val routeTitle = runCatching {
-                            MetaDetailsRepository.fetch(deepLink.type, deepLink.id)?.name
-                        }.getOrNull().orEmpty().ifBlank { detailsFallbackTitle }
+                        // Navigate first and let the details screen load its own meta: waiting for
+                        // an add-on here leaves a blank screen after the tap, and a slow source
+                        // makes the link look broken.
                         navController.navigate(
                             DetailRoute(
                                 type = deepLink.type,
                                 id = deepLink.id,
-                                title = routeTitle,
+                                title = detailsFallbackTitle,
                             )
                         ) {
                             launchSingleTop = true
@@ -747,19 +749,10 @@ internal fun MainAppContent(
                         navController.navigate(AddonsSettingsRoute(addonsSettingsTitle)) {
                             launchSingleTop = true
                         }
-                        NuvioToastController.show(getString(Res.string.addons_modal_checking_title))
-                        AddonRepository.initialize()
-                        when (val result = AddonRepository.addAddon(deepLink.manifestUrl)) {
-                            is AddAddonResult.Success -> {
-                                NuvioToastController.show(
-                                    getString(Res.string.addons_modal_success_message, result.manifest.name),
-                                )
-                            }
-
-                            is AddAddonResult.Error -> {
-                                NuvioToastController.show(result.message)
-                            }
-                        }
+                        // Never install on the strength of the link alone: this is the one path
+                        // where someone else would choose what the player loads, and the scheme is
+                        // shared with other apps.
+                        pendingDeepLinkAddonInstall = deepLink.manifestUrl
                         AppDeepLinkRepository.markConsumed(deepLink)
                     }
 
@@ -2154,6 +2147,27 @@ internal fun MainAppContent(
                     kotlinx.coroutines.delay(1200)
                     profileSwitchLoading = false
                 }
+            }
+
+            pendingDeepLinkAddonInstall?.let { manifestUrl ->
+                AddonDeepLinkInstallDialog(
+                    manifestUrl = manifestUrl,
+                    onInstall = {
+                        pendingDeepLinkAddonInstall = null
+                        coroutineScope.launch {
+                            NuvioToastController.show(getString(Res.string.addons_modal_checking_title))
+                            AddonRepository.initialize()
+                            when (val result = AddonRepository.addAddon(manifestUrl)) {
+                                is AddAddonResult.Success -> NuvioToastController.show(
+                                    getString(Res.string.addons_modal_success_message, result.manifest.name),
+                                )
+
+                                is AddAddonResult.Error -> NuvioToastController.show(result.message)
+                            }
+                        }
+                    },
+                    onDismiss = { pendingDeepLinkAddonInstall = null },
+                )
             }
 
             NuvioFloatingPrompt(

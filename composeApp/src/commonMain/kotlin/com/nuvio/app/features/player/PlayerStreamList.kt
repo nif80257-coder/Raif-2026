@@ -61,8 +61,15 @@ internal fun PlayerStreamList(
         StreamBadgeSettingsRepository.uiState
     }.collectAsStateWithLifecycle()
     var searchQuery by remember { mutableStateOf("") }
+    // Search reads every link the sources returned, not only the rows the shorten switch left on:
+    // typing a dub's name is how the viewer reaches the row the shorter list cut.
     val visibleGroups = streamsUiState.visibleGroups
-    val allStreams = visibleGroups.flatMap { group -> group.streams }
+    val searchSource = if (searchQuery.isBlank()) {
+        visibleGroups
+    } else {
+        streamsUiState.filteredGroups
+    }
+    val allStreams = searchSource.flatMap { group -> group.streams }
     val streams = remember(allStreams, searchQuery) {
         filterPlayerStreams(allStreams, searchQuery)
     }

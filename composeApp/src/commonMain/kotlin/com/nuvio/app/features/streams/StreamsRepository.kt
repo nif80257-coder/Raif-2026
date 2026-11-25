@@ -302,6 +302,12 @@ object StreamsRepository {
             showDirectAutoPlayOverlay = isDirectAutoPlayFlow,
         )
 
+        // Read here, on the caller's thread: the settings screen mutates these caches on the main
+        // thread, and a plain map shared by two threads is the one thing Kotlin/Native does not
+        // offer.
+        val displayMergeDuplicates = StreamDisplayPreferences.mergeDuplicatesAcrossSources(streamCacheProfileId)
+        val displayHideJunk = StreamDisplayPreferences.hideJunkReleases(streamCacheProfileId)
+
         activeJob = scope.launch {
             val completions = Channel<StreamLoadCompletion>(capacity = Channel.BUFFERED)
             val pluginRemainingByAddonId = pluginProviderGroups
@@ -579,7 +585,8 @@ object StreamsRepository {
                         type = type,
                         id = videoId,
                     )
-                    log.d { "Fetching streams from: $url" }
+                    // The host only: a stream URL can carry a debrid or signed token in its path.
+                    log.d { "Fetching streams from ${url.substringAfter("://").substringBefore('/')}" }
 
                     val displayName = addon.addonName
                     var sourceElapsedMs = 0L
@@ -770,8 +777,8 @@ object StreamsRepository {
             // collapsed into one link is the user's choice: off by default, so each source keeps
             // every link it returned. Hiding camera copies and size-only re-encodes is a choice
             // too, and it is applied here so the count in each header matches what is listed.
-            val mergeDuplicates = StreamDisplayPreferences.mergeDuplicatesAcrossSources(streamCacheProfileId)
-            val hideJunk = StreamDisplayPreferences.hideJunkReleases(streamCacheProfileId)
+            val mergeDuplicates = displayMergeDuplicates
+            val hideJunk = displayHideJunk
             _uiState.update { current ->
                 val visible = if (hideJunk) {
                     current.groups.map { group ->

@@ -290,9 +290,8 @@ object MetaDetailsRepository {
 
         return try {
             TmdbSettingsRepository.ensureLoaded()
-            log.d { "Fetching meta from: $url" }
+            log.d { "Fetching meta from ${url.substringAfter("://").substringBefore('/')}" }
             val payload = fetchAddonResponseText(url)
-            log.d { "Raw payload length=${payload.length}, first 500 chars: ${payload.take(500)}" }
             val result = MetaDetailsParser.parse(payload)
             val tmdbEnriched = withTimeoutOrNull(TMDB_ENRICH_TIMEOUT_MS) {
                 TmdbMetadataService.enrichMeta(

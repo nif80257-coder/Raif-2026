@@ -105,9 +105,12 @@ final class OrientationLockCoordinator {
                     window.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
                 }
         } else {
+            let sceneOrientation = UIApplication.shared.connectedScenes
+                .compactMap { ($0 as? UIWindowScene)?.interfaceOrientation }
+                .first
             if forceRotate {
                 UIDevice.current.setValue(preferredLandscapeOrientation.rawValue, forKey: "orientation")
-            } else if UIDevice.current.orientation.isPortrait {
+            } else if sceneOrientation?.isPortrait ?? true {
                 UIDevice.current.setValue(UIInterfaceOrientation.portrait.rawValue, forKey: "orientation")
             }
             UIViewController.attemptRotationToDeviceOrientation()
@@ -121,7 +124,13 @@ final class OrientationLockCoordinator {
             return sceneOrientation
         }
 
-        switch UIDevice.current.orientation {
+        // The window scene's orientation, not the device's: on iPad, Split View and the foldable
+        // phone the device can be rotated while this scene is not, and the device's own value is
+        // deprecated for exactly that reason.
+        let sceneOrientation = UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene)?.interfaceOrientation }
+            .first ?? .landscapeRight
+        switch sceneOrientation {
         case .landscapeLeft:
             return .landscapeRight
         case .landscapeRight:

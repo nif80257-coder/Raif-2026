@@ -5,6 +5,7 @@ import com.nuvio.app.core.sync.decodeSyncString
 import com.nuvio.app.core.sync.encodeSyncBoolean
 import com.nuvio.app.core.sync.encodeSyncString
 import com.nuvio.app.core.storage.ProfileScopedKey
+import com.nuvio.app.core.storage.SecretStore
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -47,11 +48,24 @@ actual object TmdbSettingsStorage {
         saveBoolean(enabledKey, enabled)
     }
 
-    actual fun loadApiKey(): String? =
-        NSUserDefaults.standardUserDefaults.stringForKey(ProfileScopedKey.of(apiKeyKey))
+    /**
+     * A secret belongs in the Keychain, not in a plist that is written into the container and
+     * into a device backup. The value a build stored before this change is moved on first read.
+     */
+    actual fun loadApiKey(): String? {
+        val name = ProfileScopedKey.of(apiKeyKey)
+        SecretStore.read(name)?.let { return it }
+        val defaults = NSUserDefaults.standardUserDefaults
+        val legacy = defaults.stringForKey(name) ?: return null
+        SecretStore.write(name, legacy)
+        defaults.removeObjectForKey(name)
+        return legacy
+    }
 
     actual fun saveApiKey(apiKey: String) {
-        NSUserDefaults.standardUserDefaults.setObject(apiKey, forKey = ProfileScopedKey.of(apiKeyKey))
+        val name = ProfileScopedKey.of(apiKeyKey)
+        SecretStore.write(name, apiKey)
+        NSUserDefaults.standardUserDefaults.removeObjectForKey(name)
     }
 
     actual fun loadLanguage(): String? =

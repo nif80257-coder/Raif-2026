@@ -369,6 +369,12 @@ object PlayerStreamsRepository {
             isAnyLoading = isInitiallyLoading,
         )
 
+        // Read here, on the caller's thread: the settings screen mutates these caches on the main
+        // thread, and a plain map shared by two threads is the one thing Kotlin/Native does not
+        // offer.
+        val displayMergeDuplicates = StreamDisplayPreferences.mergeDuplicatesAcrossSources(streamCacheProfileId)
+        val displayHideJunk = StreamDisplayPreferences.hideJunkReleases(streamCacheProfileId)
+
         val job = scope.launch {
             // The quality the user settled on for each source last time, read once here — the load
             // already runs off the caller's thread — and kept read-only so the parallel fetches
@@ -670,8 +676,8 @@ object PlayerStreamsRepository {
             // All groups answered. Collapsing copies of the same file is the user's choice; off
             // by default, so a source keeps every link it returned. Camera copies and size-only
             // re-encodes are hidden only when the user asked for that.
-            val mergeDuplicates = StreamDisplayPreferences.mergeDuplicatesAcrossSources(streamCacheProfileId)
-            val hideJunk = StreamDisplayPreferences.hideJunkReleases(streamCacheProfileId)
+            val mergeDuplicates = displayMergeDuplicates
+            val hideJunk = displayHideJunk
             stateFlow.update { current ->
                 val visible = if (hideJunk) {
                     current.groups.map { group ->
@@ -715,11 +721,6 @@ object PlayerStreamsRepository {
         setJob(job)
     }
 }
-private data class PlayerInstalledStreamAddonTarget(
-    val addonName: String,
-    val addonId: String,
-    val manifest: com.nuvio.app.features.addons.AddonManifest,
-)
 
 private fun StreamsUiState.streamDiagnostics(): String {
     val streamCount = groups.sumOf { it.streams.size }

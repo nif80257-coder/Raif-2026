@@ -5,6 +5,7 @@ import com.nuvio.app.core.sync.decodeSyncString
 import com.nuvio.app.core.sync.encodeSyncBoolean
 import com.nuvio.app.core.sync.encodeSyncString
 import com.nuvio.app.core.storage.ProfileScopedKey
+import com.nuvio.app.core.storage.SecretStore
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -42,11 +43,21 @@ actual object MdbListSettingsStorage {
         saveBoolean(enabledKey, enabled)
     }
 
-    actual fun loadApiKey(): String? =
-        NSUserDefaults.standardUserDefaults.stringForKey(ProfileScopedKey.of(apiKey))
+    /** A secret belongs in the Keychain; the defaults entry a build stored before is moved here. */
+    actual fun loadApiKey(): String? {
+        val name = ProfileScopedKey.of(apiKey)
+        SecretStore.read(name)?.let { return it }
+        val defaults = NSUserDefaults.standardUserDefaults
+        val legacy = defaults.stringForKey(name) ?: return null
+        SecretStore.write(name, legacy)
+        defaults.removeObjectForKey(name)
+        return legacy
+    }
 
     actual fun saveApiKey(apiKey: String) {
-        NSUserDefaults.standardUserDefaults.setObject(apiKey, forKey = ProfileScopedKey.of(this.apiKey))
+        val name = ProfileScopedKey.of(this.apiKey)
+        SecretStore.write(name, apiKey)
+        NSUserDefaults.standardUserDefaults.removeObjectForKey(name)
     }
 
     actual fun loadUseImdb(): Boolean? = loadBoolean(useImdbKey)

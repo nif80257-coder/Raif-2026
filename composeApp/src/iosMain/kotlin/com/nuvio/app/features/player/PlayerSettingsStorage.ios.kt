@@ -11,6 +11,7 @@ import com.nuvio.app.core.sync.encodeSyncInt
 import com.nuvio.app.core.sync.encodeSyncString
 import com.nuvio.app.core.sync.encodeSyncStringSet
 import com.nuvio.app.core.storage.ProfileScopedKey
+import com.nuvio.app.core.storage.SecretStore
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -999,14 +1000,21 @@ actual object PlayerSettingsStorage {
         NSUserDefaults.standardUserDefaults.setObject(clientId, forKey = ProfileScopedKey.of(animeSkipClientIdKey))
     }
 
+    /** A secret belongs in the Keychain; the defaults entry a build stored before is moved here. */
     actual fun loadIntroDbApiKey(): String? {
+        val name = ProfileScopedKey.of(introDbApiKeyKey)
+        SecretStore.read(name)?.let { return it }
         val defaults = NSUserDefaults.standardUserDefaults
-        val key = ProfileScopedKey.of(introDbApiKeyKey)
-        return defaults.stringForKey(key)
+        val legacy = defaults.stringForKey(name) ?: return null
+        SecretStore.write(name, legacy)
+        defaults.removeObjectForKey(name)
+        return legacy
     }
 
     actual fun saveIntroDbApiKey(apiKey: String) {
-        NSUserDefaults.standardUserDefaults.setObject(apiKey, forKey = ProfileScopedKey.of(introDbApiKeyKey))
+        val name = ProfileScopedKey.of(introDbApiKeyKey)
+        SecretStore.write(name, apiKey)
+        NSUserDefaults.standardUserDefaults.removeObjectForKey(name)
     }
 
     actual fun loadIntroSubmitEnabled(): Boolean? {

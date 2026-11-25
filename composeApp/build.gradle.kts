@@ -374,6 +374,9 @@ val generateRuntimeConfigs = tasks.register<GenerateRuntimeConfigsTask>("generat
 
 tasks.withType<KotlinCompilationTask<*>>().configureEach {
     dependsOn(generateRuntimeConfigs)
+    // The storage singletons are `expect object`, which the compiler reports as Beta
+    // (KT-61573) once per file and hides real warnings behind that notice.
+    compilerOptions.freeCompilerArgs.add("-Xexpect-actual-classes")
 }
 
 kotlin {

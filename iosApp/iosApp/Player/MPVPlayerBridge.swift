@@ -359,7 +359,7 @@ final class MPVPlayerViewController: UIViewController {
         view.layer.masksToBounds = true
 
         metalLayer.contentsGravity = .resize
-        metalLayer.contentsScale = view.window?.screen.nativeScale ?? UIScreen.main.nativeScale
+        metalLayer.contentsScale = view.window?.screen.nativeScale ?? view.traitCollection.displayScale
         metalLayer.framebufferOnly = true
         metalLayer.backgroundColor = UIColor.black.cgColor
         metalLayer.wantsExtendedDynamicRangeContent = true
@@ -499,7 +499,7 @@ final class MPVPlayerViewController: UIViewController {
         let bounds = CGRect(origin: .zero, size: externallyManagedViewSize ?? view.bounds.size)
         guard bounds.width > 1, bounds.height > 1 else { return }
 
-        let scale = view.window?.screen.nativeScale ?? UIScreen.main.nativeScale
+        let scale = view.window?.screen.nativeScale ?? view.traitCollection.displayScale
         let drawableSize = CGSize(
             width: (bounds.width * scale).rounded(.toNearestOrAwayFromZero),
             height: (bounds.height * scale).rounded(.toNearestOrAwayFromZero)

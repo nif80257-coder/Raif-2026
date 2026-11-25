@@ -13,6 +13,9 @@
     <string name="about_supporters_contributors_subtitle">تقدير مفتوح وشكر للمساهمين في المشروع</string>
     <string name="action_back">رجوع</string>
     <string name="action_cancel">إلغاء</string>
+    <string name="addons_deep_link_title">تثبيت هذا المصدر؟</string>
+    <string name="addons_deep_link_description">طلب رابط إضافة %1$s إلى مصادرك. ثبّته فقط إذا كنت أنت من فتح ذلك الرابط.</string>
+    <string name="addons_deep_link_install">تثبيت</string>
     <string name="action_close">إغلاق</string>
     <string name="action_collapse">طي</string>
     <string name="action_expand">توسيع</string>

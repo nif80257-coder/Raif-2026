@@ -67,7 +67,15 @@ internal fun StreamItem.isWarmableLink(): Boolean {
  */
 internal object StreamLinkWarmer {
     private val log = Logger.withTag("StreamLinkWarmer")
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /**
+     * Every touch of [requestedKey] and [job] happens here, so the two fields need no lock.
+     *
+     * The list is published from the load's background coroutine and cancelled from the main
+     * thread; a plain `var` shared by both is the race that leaves a connection open after the
+     * sheet closed, and the safest fix is one thread rather than a lock around every read.
+     */
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     /** The link last asked for, so publishing the same list again does not ask again. */
     private var requestedKey: String? = null
@@ -75,6 +83,23 @@ internal object StreamLinkWarmer {
 
     /** Starts warming the top link of [groups], if there is one worth warming. */
     fun warmTopLink(groups: List<AddonStreamGroup>) {
+        val ordered = groups
+        scope.launch { requestWarm(ordered) }
+    }
+
+    /**
+     * Drops a warm-up in progress: the sheet is closed or a stream started, so the connection has
+     * no reason to stay open. The next list is warmed again from scratch.
+     */
+    fun cancel() {
+        scope.launch {
+            job?.cancel()
+            job = null
+            requestedKey = null
+        }
+    }
+
+    private fun requestWarm(groups: List<AddonStreamGroup>) {
         if (!PlayerSettingsRepository.uiState.value.streamWarmTopLinkEnabled) return
         val candidate = groups.topWarmCandidate() ?: return
         val url = candidate.playableDirectUrl ?: return
@@ -84,27 +109,19 @@ internal object StreamLinkWarmer {
 
         requestedKey = key
         job?.cancel()
-        job = scope.launch {
-            val startedAt = TimeSource.Monotonic.markNow()
-            val reached = runCatchingUnlessCancelled {
-                warmStreamLinkConnection(url = url, headers = headers, maxBytes = STREAM_WARM_BYTES)
-            }.getOrDefault(false)
-            if (reached) {
-                log.d { "Top link answered in ${startedAt.elapsedNow().inWholeMilliseconds} ms" }
-            } else {
-                log.d { "Top link did not answer before the tap" }
-            }
-        }
+        job = scope.launch { warm(url, headers) }
     }
 
-    /**
-     * Drops a warm-up in progress: the sheet is closed or a stream started, so the connection has
-     * no reason to stay open. The next list is warmed again from scratch.
-     */
-    fun cancel() {
-        job?.cancel()
-        job = null
-        requestedKey = null
+    private suspend fun warm(url: String, headers: Map<String, String>) {
+        val startedAt = TimeSource.Monotonic.markNow()
+        val reached = runCatchingUnlessCancelled {
+            warmStreamLinkConnection(url = url, headers = headers, maxBytes = STREAM_WARM_BYTES)
+        }.getOrDefault(false)
+        if (reached) {
+            log.d { "Top link answered in ${startedAt.elapsedNow().inWholeMilliseconds} ms" }
+        } else {
+            log.d { "Top link did not answer before the tap" }
+        }
     }
 
     private fun warmKey(url: String, headers: Map<String, String>): String =
