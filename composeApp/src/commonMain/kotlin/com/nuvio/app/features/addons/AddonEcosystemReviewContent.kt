@@ -416,7 +416,7 @@ internal val AddonReviewFixes: List<AddonReviewFix> = listOf(
         topic = "Orion",
         where = "DefaultAddonSources.kt",
         problem = "مفتاح Orion لمستخدم آخر مضمّن في الرابط",
-        fix = "أُزيل المصدر ومفتاحه من القائمة الافتراضية، ومضيفه صار في RetiredDefaultAddonHosts",
+        fix = "أُزيل المصدر ومفتاحه من القائمة الافتراضية، ومضيفه صار في RetiredDefaultAddonFragments",
     ),
     AddonReviewFix(
         topic = "optionsLimit",
@@ -437,7 +437,7 @@ internal val AddonReviewRisks: List<AddonReviewRisk> = listOf(
         title = "المفاتيح المضمّنة",
         body = "كان مفتاح Orion في القائمة الافتراضية ليس للمستخدم: يستهلك حصة شخص آخر، " +
             "ويتوقف المصدر بلا إنذار عند إبطاله، ويكشف بيانات اعتماد طرف ثالث داخل ملفات التطبيق. " +
-            "أُزيل الآن، ومضيفه في RetiredDefaultAddonHosts فلا يعود بتحديث أو سحب من الخادم. " +
+            "أُزيل الآن، ومضيفه في RetiredDefaultAddonFragments فلا يعود بتحديث أو سحب من الخادم. " +
             "القاعدة: لا مفاتيح في القائمة الافتراضية، وهو نفس سبب إخراج AutoStream و Jackettio.",
     ),
     AddonReviewRisk(

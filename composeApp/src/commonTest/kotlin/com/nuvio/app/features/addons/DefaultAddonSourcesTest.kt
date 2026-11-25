@@ -8,9 +8,9 @@ import kotlin.test.assertTrue
 
 class DefaultAddonSourcesTest {
     @Test
-    fun `the shipped list is the checked forty-one`() {
-        assertEquals(41, DefaultAddonSources.size)
-        assertEquals(41, DefaultAddonSources.map { source -> source.manifestUrl }.toSet().size)
+    fun `the shipped list is the checked twenty-six`() {
+        assertEquals(26, DefaultAddonSources.size)
+        assertEquals(26, DefaultAddonSources.map { source -> source.manifestUrl }.toSet().size)
     }
 
     @Test
@@ -48,6 +48,37 @@ class DefaultAddonSourcesTest {
     }
 
     @Test
+    fun `every stream source is http direct or p2p and never debrid only`() {
+        val urls = DefaultAddonSources.map { source -> source.manifestUrl }
+
+        // A debrid service fails the bundle's rule: it only plays once an account is linked.
+        listOf(
+            "addon.torrin.app",
+            "mediafusion.elfhosted.com",
+            "froststream.cloutteam.com",
+            "jackettio.elfhosted.com",
+            "comet.elfhosted.com",
+        ).forEach { host ->
+            assertTrue(urls.none { url -> url.contains(host) }, "debrid-only source $host")
+        }
+
+        // What stays either answers with a direct link or with an info hash.
+        assertTrue(urls.any { url -> url.contains("torrentio.strem.fun") })
+        assertTrue(urls.any { url -> url.contains("cinema.debrid.in") })
+        assertTrue(urls.any { url -> url.contains("hd.plavio.site") })
+    }
+
+    @Test
+    fun `the absolute cinema entry that ships has no live tv`() {
+        val url = DefaultAddonSources.map { source -> source.manifestUrl }
+            .first { url -> url.contains("cinema.debrid.in") }
+
+        assertTrue(url.contains("|livetv=0"))
+        assertTrue(url.contains("|sports=0"))
+        assertTrue(url.contains("|mode=http"))
+    }
+
+    @Test
     fun `an add-on the user hosts on raw github is not retired`() {
         assertFalse(isRetiredDefaultAddon("https://raw.githubusercontent.com/someone/addons/main/manifest.json"))
         assertTrue(isRetiredDefaultAddon("https://raw.githubusercontent.com/yowmamasita/usa-tv-next/main/manifest.json"))
@@ -61,9 +92,21 @@ class DefaultAddonSourcesTest {
     }
 
     @Test
+    fun `a host matched by fragment keeps the variant that still works`() {
+        // Both variants live on the same host; only the one with live TV was dropped.
+        assertFalse(
+            isRetiredDefaultAddon(
+                "https://cinema.debrid.in/sort=qualityseeders|mode=http|livetv=0/manifest.json",
+            ),
+        )
+        assertTrue(isRetiredDefaultAddon("https://cinema.debrid.in/sort=qualityseeders|livetv=1/manifest.json"))
+        assertTrue(isRetiredDefaultAddon("https://cinema.debrid.in/sort=qualityseeders|profile=970d9cd3af6706d88733fe7ff57d3dbf|mode=mixed/manifest.json"))
+    }
+
+    @Test
     fun `every bundled source has a stable one-based order`() {
         assertEquals(1, builtInSourceOrder(DefaultAddonSources.first().manifestUrl))
-        assertEquals(41, builtInSourceOrder(DefaultAddonSources.last().manifestUrl))
+        assertEquals(26, builtInSourceOrder(DefaultAddonSources.last().manifestUrl))
         assertNull(builtInSourceOrder("https://example.com/manifest.json"))
         assertTrue(isBuiltInSource(DefaultAddonSources[10].manifestUrl))
         assertFalse(isBuiltInSource("https://example.com/manifest.json"))

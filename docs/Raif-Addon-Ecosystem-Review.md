@@ -219,7 +219,7 @@
 - خانة «مجاني وقانوني» في الرئيسية: فحص Archivio أظهر أنه **متقاعد** (`docs.elfhosted.com/app/archivio`، ٢٤ سبتمبر ٢٠٢٦: «Retired and unsupported»)، فلم يُضف. Public Domain Movies مثبّتة بالفعل وتكفي.
 - كتالوجات IMDb وكتالوجات الجوائز.
 - استخدام `catalogs[].optionsLimit` في الطلبات المجمّعة: يحتاج أولًا دعم اختيار متعدد في حقول `extra`، فالعمل ليس صغيرًا.
-- مفتاح Orion المضمّن أُزيل مع مصدره: القائمة الآن ٤١ مصدرًا (٣ كتالوجات + ٥ ترجمات + ٣٣ بث)، ومضيف `orion.baby-beamup.club` في `RetiredDefaultAddonHosts` فلا يعود بتحديث ولا بسحب من الخادم، وتغطّيه اختبارات `DefaultAddonSourcesTest`.
+- مفتاح Orion المضمّن أُزيل مع مصدره: القائمة الآن ٢٦ مصدرًا (٣ كتالوجات + ٥ ترجمات + ١٨ بثًّا: أحد عشر رابطًا مباشرًا وسبعة p2p)، ومضيف `orion.baby-beamup.club` في `RetiredDefaultAddonFragments` فلا يعود بتحديث ولا بسحب من الخادم، وتغطّيه اختبارات `DefaultAddonSourcesTest`.
 
 **`background` وملصقات MetaHub وقائمة الحجب — نُفِّذت**
 - `AddonModels.kt` / `AddonManifestParser.kt`: حقل `backgroundUrl` مقروء من المانيفست ويُحلّ نسبةً إلى رابطه، ويُعرض شريطًا خافتًا أعلى بطاقة المصدر في `AddonsScreen.kt`.

@@ -418,6 +418,7 @@ actual object PluginRepository {
 
             val scrapers = manifest.scrapers
                 .filter { scraper -> scraper.isSupportedOnCurrentPlatform() }
+                .filterNot { scraper -> isExcludedProviderScraper(scraper.id) }
                 .mapNotNull { info ->
                     val codeUrl = if (info.filename.startsWith("http://") || info.filename.startsWith("https://")) {
                         info.filename

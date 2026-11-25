@@ -7,8 +7,13 @@ internal const val PLUGIN_REPOSITORY_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1_000L
 
 /**
  * Provider repositories installed automatically the first time a profile has none, so the source
- * list is not empty out of the box. This is the upstream Nuvio provider repository; seeding runs
- * once per profile, so removing it afterwards is remembered.
+ * list is not empty out of the box.
+ *
+ * Only the Nuvio project's own repository is bundled: its scrapers resolve a title straight to a
+ * direct link or an info hash, which is what this app plays, and none of them asks for a debrid
+ * account. [ExcludedProviderScraperIds] drops the anime sources it also lists.
+ *
+ * Seeding runs once per profile, so removing the repository afterwards is remembered.
  */
 internal val DefaultProviderRepositories: List<String> = listOf(
     "https://raw.githubusercontent.com/tapframe/nuvio-providers/main/manifest.json",

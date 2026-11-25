@@ -69,14 +69,20 @@ object AddonRepository {
     private val pushJobsByProfile = mutableMapOf<Int, Job>()
 
     /**
-     * A cold start resolves every installed add-on, and the shipped list has forty-two.
+     * A cold start resolves every installed add-on, and the shipped list has twenty-six.
      * Four at a time keeps the launch from opening every connection at once; the rest queue
      * behind and fill in as they answer, and a paused source skips the queue entirely.
      */
     private val manifestRefreshSemaphore = Semaphore(4)
 
-    /** Marks that the retired bundled sources were already removed from this profile. */
-    private const val RETIRED_DEFAULTS_CACHE = "retired-default-addons-v2"
+    /**
+     * Marks that the retired bundled sources were already removed from this profile.
+     *
+     * The value is versioned because the list of retired sources changes as the bundle is
+     * re-checked: bumping it makes the prune run once more, which is how a profile that was
+     * seeded with a debrid-dependent source loses it.
+     */
+    private const val RETIRED_DEFAULTS_CACHE = "retired-default-addons-v3"
 
     fun initialize() {
         val effectiveProfileId = resolveEffectiveProfileId(ProfileRepository.activeProfileId)

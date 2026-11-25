@@ -1,6 +1,7 @@
 {
-    "version": 1,
+    "version": 2,
     "exported_at": null,
+    "note": "Mirrors DefaultAddonSources.kt (26 entries). Every stream entry was asked for a real title and answered with a link the player can open: 11 direct https sources, 7 p2p sources, 3 catalogs, 5 subtitle providers. No debrid account and no embedded key.",
     "sources": [
         {
             "type": "addon",
@@ -68,74 +69,18 @@
         },
         {
             "type": "addon",
-            "name": "Torrin | Torrin",
-            "url": "https://addon.torrin.app/cfg_YnS-K1q9tBBN1H2y21aWOESwVPFwE5CU/manifest.json",
+            "name": "AIOStreams",
+            "url": "https://aiostreamsfortheweebsstable.midnightignite.me/stremio/c1a28aae-ef02-4e53-bce9-f93fa1461517/eyJpIjoiQ0xiT1MxbnJ2d0oyMHdWMTJpd3R0UT09IiwiZSI6IkR0UFhCN1ZFZm05MHdsUW02ZHdiSTNSOFM5d2ZlQ0c0Rm5aZzhJdkNYbDA9IiwidCI6ImEifQ/manifest.json",
             "enabled": true,
             "order": 8,
             "transport": "direct"
         },
         {
             "type": "addon",
-            "name": "AIOStreams",
-            "url": "https://aiostreamsfortheweebsstable.midnightignite.me/stremio/c1a28aae-ef02-4e53-bce9-f93fa1461517/eyJpIjoiQ0xiT1MxbnJ2d0oyMHdWMTJpd3R0UT09IiwiZSI6IkR0UFhCN1ZFZm05MHdsUW02ZHdiSTNSOFM5d2ZlQ0c0Rm5aZzhJdkNYbDA9IiwidCI6ImEifQ/manifest.json",
+            "name": "Absolute Cinema (HTTP, no Live TV)",
+            "url": "https://cinema.debrid.in/sort=qualityseeders|limit=200|subtitleLanguages=ar|salanguages=ta,te,ml,kn,hi,gu|asiandrama=0|extraanime=0|minseeders=0|maxsize=0|streamingservices=netflix,prime,disney,hulu,max,apple,peacock,paramount|sacatalogs=0|bollywood=0|marvelcatalog=1|dccatalog=1|animecatalogs=0|anilistcatalogs=0|airingweek=1|advisories=1|horrorCatalogs=0|worldnews=0|abc=0|sports=0|livetv=0|seedrlinks=0|uncachedlimit=0|subf2m=1|yify=1|profile=65fef63344fdc714bd325089e7ea345c|mode=http|httpsources=4khdhub,moviebox,vixsrc,be-vidsrc,be-rgshows,archiveorg,archiveorgdub|top10=1|yearpickers=1|curated=hidden,short,digital,awards,tonight/manifest.json",
             "enabled": true,
             "order": 9,
-            "transport": "direct"
-        },
-        {
-            "type": "addon",
-            "name": "CNCVerse Bridge · Main",
-            "url": "https://cncverse.dpdns.org/u/p_ek8k6v7epbmc/manifest.json",
-            "enabled": true,
-            "order": 10,
-            "transport": "direct"
-        },
-        {
-            "type": "addon",
-            "name": "Absolute Cinema",
-            "url": "https://cinema.debrid.in/sort=qualityseeders|limit=200|subtitleLanguages=ar|salanguages=ta,te,ml,kn,hi,gu|asiandrama=0|extraanime=0|minseeders=0|maxsize=0|streamingservices=netflix,prime,disney,hulu,max,apple,peacock,paramount|sacatalogs=0|bollywood=0|marvelcatalog=1|dccatalog=1|animecatalogs=0|anilistcatalogs=0|airingweek=1|advisories=1|horrorcatalogs=0|seedrlinks=25|uncachedlimit=10|subf2m=1|yify=1|profile=970d9cd3af6706d88733fe7ff57d3dbf|mode=mixed|httpsources=4khdhub,moviebox,vixsrc,be-vidsrc,be-rgshows,archiveorg,archiveorgdub|top10=1|yearpickers=1|curated=hidden,short,digital,awards,tonight/manifest.json",
-            "enabled": true,
-            "order": 12,
-            "transport": "direct"
-        },
-        {
-            "type": "addon",
-            "name": "Discussio | ElfHosted",
-            "url": "https://discussio.elfhosted.com/manifest.json",
-            "enabled": true,
-            "order": 13,
-            "transport": "direct"
-        },
-        {
-            "type": "addon",
-            "name": "ArabCity",
-            "url": "https://arabcity.fly.dev/YWxs/manifest.json",
-            "enabled": true,
-            "order": 14,
-            "transport": "direct"
-        },
-        {
-            "type": "addon",
-            "name": "WatchHub",
-            "url": "https://watchhub.strem.io/manifest.json",
-            "enabled": true,
-            "order": 15,
-            "transport": "direct"
-        },
-        {
-            "type": "addon",
-            "name": "Public Domain Movies",
-            "url": "https://caching.stremio.net/publicdomainmovies.now.sh/manifest.json",
-            "enabled": true,
-            "order": 16,
-            "transport": "direct"
-        },
-        {
-            "type": "addon",
-            "name": "Absolute Cinema (HTTP)",
-            "url": "https://cinema.debrid.in/sort=qualityseeders|limit=200|subtitleLanguages=ar|salanguages=ta,te,ml,kn,hi,gu|asiandrama=0|extraanime=0|minseeders=0|maxsize=0|streamingservices=netflix,prime,disney,hulu,max,apple,peacock,paramount|sacatalogs=0|bollywood=0|marvelcatalog=1|dccatalog=1|animecatalogs=0|anilistcatalogs=0|airingweek=1|advisories=1|horrorcatalogs=0|worldnews=1|abc=1|sports=1|livetv=1|seedrlinks=25|uncachedlimit=10|subf2m=1|yify=1|profile=65fef63344fdc714bd325089e7ea345c|mode=http|httpsources=4khdhub,moviebox,vixsrc,be-vidsrc,be-rgshows,archiveorg,archiveorgdub|top10=1|yearpickers=1|curated=hidden,short,digital,awards,tonight/manifest.json",
-            "enabled": true,
-            "order": 17,
             "transport": "direct"
         },
         {
@@ -143,31 +88,15 @@
             "name": "PlavioHD",
             "url": "https://hd.plavio.site/u/w6y5YbrH9fnV25qbziG8Vw/manifest.json",
             "enabled": true,
-            "order": 18,
+            "order": 10,
             "transport": "direct"
         },
         {
             "type": "addon",
-            "name": "Eh! Iptv",
-            "url": "https://stremio-addon.ehtudo.app/dd18a2a84427208753ebdf9153c7338c/manifest.json",
+            "name": "HdHub",
+            "url": "https://hdhub.thevolecitor.qzz.io/eyJ0b3Jib3giOiJ1bnNldCIsInF1YWxpdGllcyI6IjIxNjBwLDEwODBwLDcyMHAiLCJzb3J0IjoiZGVzYyIsImNhdGFsb2dzIjoiIn0/manifest.json",
             "enabled": true,
-            "order": 19,
-            "transport": "direct"
-        },
-        {
-            "type": "addon",
-            "name": "Cotonet",
-            "url": "https://cotonetnet-cotonet.hf.space/manifest.json",
-            "enabled": true,
-            "order": 20,
-            "transport": "direct"
-        },
-        {
-            "type": "addon",
-            "name": "Persian Streams",
-            "url": "https://stremio.alirostami.com/streams/manifest.json",
-            "enabled": true,
-            "order": 21,
+            "order": 11,
             "transport": "direct"
         },
         {
@@ -175,7 +104,15 @@
             "name": "PenguPlay",
             "url": "https://pengu.uk/zZc9NT8MwDAbg_5LzJLKOscINARIXRMUGErtUbuqtbtN4irOPDvHfYSA2mh3fx3aU90MJr73BHLwJZNSNYqcGf5is0DQWI93gElreEEo0-MGCd_E-rCx06GOmcgESIm1IpKkiNOSw5u78gZi4wNrvuzpi-_vfSIUtWwjk-KzHwtKxhUfJk-GV_p-HOu3lSdKLl_3p6HRckkBhMS_Jozl2h3Wo8sANuoMYPWq3d0k6H2fVVKePPL9-X5Iev07vny23afEWMj3Ldk8P36eBWtyzO3S7FYKLF-qgrNTnFw/manifest.json",
             "enabled": true,
-            "order": 22,
+            "order": 12,
+            "transport": "direct"
+        },
+        {
+            "type": "addon",
+            "name": "Persian Streams",
+            "url": "https://stremio.alirostami.com/streams/manifest.json",
+            "enabled": true,
+            "order": 13,
             "transport": "direct"
         },
         {
@@ -183,47 +120,15 @@
             "name": "Disney Arabic Dub",
             "url": "https://disney-arabic-dub.onrender.com/manifest.json",
             "enabled": true,
-            "order": 23,
-            "transport": "direct"
-        },
-        {
-            "type": "addon",
-            "name": "StreamX",
-            "url": "https://streamx.electron.al/u_3fa8eac141a8b51c32af/manifest.json",
-            "enabled": true,
-            "order": 24,
-            "transport": "direct"
-        },
-        {
-            "type": "addon",
-            "name": "Pinoy Movies",
-            "url": "https://peenoise.fkye.workers.dev/manifest.json",
-            "enabled": true,
-            "order": 25,
-            "transport": "direct"
-        },
-        {
-            "type": "addon",
-            "name": "K20 Phim Tổng Hợp",
-            "url": "https://sc.k-20.xyz/manifest.json",
-            "enabled": true,
-            "order": 26,
-            "transport": "direct"
-        },
-        {
-            "type": "addon",
-            "name": "StreamAR by dexter21767",
-            "url": "https://2ecbbd610840-stremio-ar.baby-beamup.club/manifest.json",
-            "enabled": true,
-            "order": 27,
+            "order": 14,
             "transport": "direct"
         },
         {
             "type": "addon",
             "name": "DesiFlix",
-            "url": "http://manifest.desitvhub.eu.org/manifest.json",
+            "url": "https://manifest.desitvhub.eu.org/manifest.json",
             "enabled": true,
-            "order": 28,
+            "order": 15,
             "transport": "direct"
         },
         {
@@ -231,7 +136,15 @@
             "name": "Muvibox",
             "url": "https://muvibox.znzcloud.my.id/manifest.json",
             "enabled": true,
-            "order": 29,
+            "order": 16,
+            "transport": "direct"
+        },
+        {
+            "type": "addon",
+            "name": "Public Domain Movies",
+            "url": "https://caching.stremio.net/publicdomainmovies.now.sh/manifest.json",
+            "enabled": true,
+            "order": 17,
             "transport": "direct"
         },
         {
@@ -239,7 +152,7 @@
             "name": "M_Rulz Scraper (Telugu)",
             "url": "https://stremio-movierulz-taupe.vercel.app/manifest.json",
             "enabled": true,
-            "order": 30,
+            "order": 18,
             "transport": "direct"
         },
         {
@@ -247,88 +160,56 @@
             "name": "Torrentio",
             "url": "https://torrentio.strem.fun/language=arabic|qualityfilter=480p,cam,other/manifest.json",
             "enabled": true,
-            "order": 31,
-            "transport": "torrent"
-        },
-        {
-            "type": "addon",
-            "name": "MediaFusion | ElfHosted",
-            "url": "https://mediafusion.elfhosted.com/D-gDvLuf64LMYxtL1FuWsrFb_p5M2lL2j3IFLOAqMtyboaex7zmCRefPZNVulSFhmoaTt6bvTa4i5DurekhKmiT5Fky3a98OTRJhJBz5Dtg9IwGYGsIwijiVtrznQiCpz2kpSQu6qzeSrqzVSnbJcdLF3L7oV2MLmMKUzQj3K_66bBrV7Z8EcuxvV8kQbKhtJovROXpXVg_PfMkOcp49J6DB21kTAH1BYpGIn6fWaDPrWJtiPPmdyknsWO7KUpDHRl0sQntKky_vvGmz2haBOcS7rIQgvlQudTRYQL-tVnn1Wpy61B7vlUvHh-_-m907TJ9M0J4A-2TFfWrFmmWgVfMHMvWzv5BauByNOmsVCCQ4n8dAbqe9X56yEczI-ldqp9ufix2F9wATYD03aK9jKbJKr3_S3Ym01aFhLjZyifIzuzGttT2P55a8zeUKamXDpxWQ2YQGPJzmQea_ynPylnDlzJhNTbJFxILkXLwsP05bTMLLrsZZXbwIUF92lBaasQIyrvOH9SDl666N56LRhKYXHjp5qlBz9hDrpMt_1E8axzaVG39-2dfCnucmj94h3nFzGr62YfcK0QeyhnQPOD4_VHtRbqFMmd0qqPw13Hl9FpwFGWFiJwvQh4Cfp50en26A2qgr3CD6mEFy7ro56IsIvjr4dO_YJvG99d11rPQyoDWbWhAhgma8LGxSTTJ7BK/manifest.json",
-            "enabled": true,
-            "order": 32,
-            "transport": "torrent"
+            "order": 19,
+            "transport": "p2p"
         },
         {
             "type": "addon",
             "name": "Meteor",
             "url": "https://meteorfortheweebs.midnightignite.me/eyJjYWNoZWRPbmx5IjpmYWxzZSwic2tpcFJlbGVhc2VGaWx0ZXIiOnRydWUsInJlbW92ZVRyYXNoIjpmYWxzZSwicmVtb3ZlU2FtcGxlcyI6ZmFsc2UsImFsbG93QWR1bHQiOnRydWUsImV4Y2x1ZGUzRCI6ZmFsc2UsImVuYWJsZVNlYURleCI6ZmFsc2UsInNob3dZb3VyTWVkaWEiOmZhbHNlLCJ5b3VyTWVkaWFMZWdhY3lNb2RlIjpmYWxzZSwibWluU2VlZGVycyI6MCwibWF4UmVzdWx0cyI6MCwibWF4UGVyUmVzb2x1dGlvbiI6MCwicmVzb2x1dGlvbnMiOltdLCJwcmVmZXJyZWRMYW5ncyI6WyJhciIsImVuIl0sImxhbmd1YWdlcyI6WyJhciJdLCJleGNsdWRlZExhbmdzIjpbXSwicmVzdWx0Rm9ybWF0IjpbInRpdGxlIiwicXVhbGl0eSIsInNpemUiLCJhdWRpbyIsInN1YmxhbmciLCJzb3VyY2UiLCJhdWRpb2xhbmciXSwibGFuZ3VhZ2VGb3JtYXQiOiJmbGFncyIsInNvcnRPcmRlciI6WyJ5b3VybWVkaWEiLCJjYWNoZWQiLCJzZWVkZXgiLCJyZXNvbHV0aW9uIiwicXVhbGl0eSIsInNjb3JlIiwibGFuZ3VhZ2UiLCJzZWVkZXJzIiwic2l6ZSIsInBhY2siLCJoZHIiLCJjb2RlYyJdLCJhbGxvd1AyUCI6dHJ1ZSwiZXhjbHVkZWRTb3VyY2VzIjpbXX0/manifest.json",
             "enabled": true,
-            "order": 33,
-            "transport": "torrent"
+            "order": 20,
+            "transport": "p2p"
         },
         {
             "type": "addon",
             "name": "TorrentsDB",
             "url": "https://torrentsdb.com/eyJsYW5ndWFnZSI6WyJhcmFiaWMiXX0=/manifest.json",
             "enabled": true,
-            "order": 34,
-            "transport": "torrent"
+            "order": 21,
+            "transport": "p2p"
         },
         {
             "type": "addon",
             "name": "TorrentClaw",
             "url": "https://torrentclaw.com/api/stremio/manifest.json",
             "enabled": true,
-            "order": 35,
-            "transport": "torrent"
-        },
-        {
-            "type": "addon",
-            "name": "Brazuca Torrents",
-            "url": "https://94c8cb9f702d-brazuca-torrents.baby-beamup.club/manifest.json",
-            "enabled": true,
-            "order": 36,
-            "transport": "torrent"
+            "order": 22,
+            "transport": "p2p"
         },
         {
             "type": "addon",
             "name": "Peerflix",
             "url": "https://addon.peerflix.mov/enc_BD0t3qdlF5yb_eu68KcvhS6t2irF3_xCkzy1cy7AtLr2DRsPVaGaTa3FGsLXwC0s0YYQwBnU-AYAt2_gPjAGeJ3o-ExsD2BwoMmdWZXwOjHbC7eSGaBrbPk6LX77YTYcNgpLwXt8tsX09-djaaqjAi4QvNDl8BFgNdAXuMzS/manifest.json",
             "enabled": true,
-            "order": 37,
-            "transport": "torrent"
+            "order": 23,
+            "transport": "p2p"
         },
         {
             "type": "addon",
             "name": "Peerflix (2)",
             "url": "https://addon.peerflix.mov/enc_BBgenvsYVV2lGfn3rpeDWFvjJ8mkO0KYlHAYmK5qdLC3ALE3D8PCkBJVkXM_959e1UkY5OBDAK0U2tNyHzRM_LIt2r-1dJqmdEpsbr6QnWj6kv1WgFAO_X1lgyfA8wZnJHaOhutr7eagWess36iuCKUJ-utP3NNpfHzAXHli/manifest.json",
             "enabled": true,
-            "order": 38,
-            "transport": "torrent"
+            "order": 24,
+            "transport": "p2p"
         },
         {
             "type": "addon",
-            "name": "HdHub",
-            "url": "https://hdhub.thevolecitor.qzz.io/eyJ0b3Jib3giOiJ1bnNldCIsInF1YWxpdGllcyI6IjIxNjBwLDEwODBwLDcyMHAiLCJzb3J0IjoiZGVzYyIsImNhdGFsb2dzIjoiIn0/manifest.json",
+            "name": "StreamX",
+            "url": "https://streamx.electron.al/u_3fa8eac141a8b51c32af/manifest.json",
             "enabled": true,
-            "order": 39,
-            "transport": "torrent"
-        },
-        {
-            "type": "addon",
-            "name": "CineTorrent",
-            "url": "https://150203dd784e-cinetorrent-addon.baby-beamup.club/manifest.json",
-            "enabled": true,
-            "order": 40,
-            "transport": "torrent"
-        },
-        {
-            "type": "addon",
-            "name": "Yukistreams",
-            "url": "https://stremio.yukistreams.xyz/p.YAWNo7KXUmEgwsxB/manifest.json",
-            "enabled": true,
-            "order": 41,
-            "transport": "torrent"
+            "order": 25,
+            "transport": "p2p"
         }
     ]
 }
