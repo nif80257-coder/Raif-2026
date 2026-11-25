@@ -19,6 +19,7 @@ import CinemaxKit
 /// settings screen and the whole interface agree on one list.
 enum AccentPalette {
     static let entries: [(id: String, name: String, hex: UInt32)] = [
+        ("hype", "Hype", 0xFF7C5C),
         ("raif", "Raif", 0xE8A24A),
         ("white", "الأبيض", 0xE5E5EA),
         ("violet", "البنفسجي", 0xC173E6),
@@ -40,28 +41,36 @@ enum AccentPalette {
     }
 }
 
-/// The house palette. The accent and the canvas come from settings, so a viewer
-/// can recolour the app and choose an OLED-deep or a softer black canvas.
+/// The house palette: Hype's near-black violet field, a raised sheet, a coral
+/// accent and a gold star. The accent and the canvas still come from settings, so
+/// a viewer can recolour the app or go OLED-deep.
 enum CinemaTheme {
     static var accent: Color {
-        AccentPalette.color(UserDefaults.standard.string(forKey: "cinemax.accent") ?? "raif")
+        let stored = UserDefaults.standard.string(forKey: "cinemax.accent") ?? "hype"
+        // The coral is the house accent now, so an install that never picked one
+        // has no old default left to answer with.
+        return AccentPalette.color(stored == "raif" ? "hype" : stored)
     }
 
     static var canvas: Color {
         UserDefaults.standard.bool(forKey: "cinemax.oled")
             ? .black
-            : Color(red: 0.039, green: 0.039, blue: 0.051)
+            : Color(red: 0.047, green: 0.039, blue: 0.063)
     }
 
     static var reduceMotion: Bool {
         UserDefaults.standard.bool(forKey: "cinemax.reduceMotion")
     }
 
-    static let surface = Color(red: 0.067, green: 0.067, blue: 0.075)
-    static let elevated = Color(red: 0.106, green: 0.106, blue: 0.118)
-    static let favourite = Color(red: 1.0, green: 0.357, blue: 0.557)
-    static let muted = Color(white: 0.58)
-    static let hairline = Color.white.opacity(0.08)
+    /// The raised panel the rows sit on, above the page's own base.
+    static let sheet = Color(red: 0.071, green: 0.063, blue: 0.09)
+    static let surface = Color(red: 0.071, green: 0.063, blue: 0.09)
+    static let elevated = Color(red: 0.09, green: 0.075, blue: 0.106)
+    static let favourite = Color(red: 1.0, green: 0.357, blue: 0.498)
+    static let gold = Color(red: 0.851, green: 0.635, blue: 0.31)
+    static let muted = Color(red: 0.67, green: 0.64, blue: 0.706)
+    static let tertiary = Color(red: 0.545, green: 0.518, blue: 0.592)
+    static let hairline = Color.white.opacity(0.07)
 
     /// The poster's corner comes from settings: sharp, soft or round.
     static var posterRadius: CGFloat {
@@ -7694,8 +7703,10 @@ struct CinemaRootView: View {
             Group {
                 switch selection {
                 case 0: HomeView(selection: $selection)
-                case 1: SearchView()
-                case 2: LibraryView()
+                case 1: HypeCatalogScreen(type: "series")
+                case 2: HypeCatalogScreen(type: "movie")
+                case 3: LibraryView()
+                case 4: HypeRecentScreen()
                 default: SettingsView()
                 }
             }
@@ -7703,7 +7714,7 @@ struct CinemaRootView: View {
             // Rebuilds the screens when the accent or the canvas changes, so the new
             // colour reaches every view instead of only newly created ones.
             .id(accent + (oled ? "-oled" : "-soft") + "-" + corner)
-            FloatingTabBar(selection: $selection, libraryBadge: LibraryModel.shared.progress.count)
+            HypeTabBar(selection: $selection)
         }
         .overlay(alignment: .top) {
             if !network.online {
@@ -7726,6 +7737,22 @@ struct CinemaRootView: View {
         .environment(\.layoutDirection, .rightToLeft)
         .tint(CinemaTheme.accent)
         .task {
+            // One move to the Hype interface: the coral accent and its home become
+            // the house look, unless the viewer had picked a colour or a layout of
+            // their own. The flag makes this run exactly once.
+            if !UserDefaults.standard.bool(forKey: "cinemax.hype.v1") {
+                UserDefaults.standard.set(true, forKey: "cinemax.hype.v1")
+                if UserDefaults.standard.string(forKey: "cinemax.accent") == "raif" {
+                    UserDefaults.standard.set("hype", forKey: "cinemax.accent")
+                    accent = "hype"
+                } else if UserDefaults.standard.string(forKey: "cinemax.accent") == nil {
+                    accent = "hype"
+                }
+                if UserDefaults.standard.string(forKey: "cinemax.design") == nil
+                    || UserDefaults.standard.string(forKey: "cinemax.design") == "cinematic" {
+                    UserDefaults.standard.set("hype", forKey: "cinemax.design")
+                }
+            }
             if !onboarded { showOnboarding = true }
             if appLock { authenticate() }
             handlePendingCommand()
@@ -7859,6 +7886,8 @@ struct HomeView: View {
 
     var body: some View {
         switch design {
+        case "hype":
+            HypeHomeView(selection: $selection)
         case "wall":
             PosterWallHomeView(selection: $selection)
         case "panorama":
@@ -7901,6 +7930,753 @@ struct FilterChipsBar: View {
             .padding(.horizontal, 20)
         }
         .padding(.bottom, 8)
+    }
+}
+
+// MARK: - Hype interface
+
+/// The Hype look: a coral wordmark over a pill search, one full-bleed hero with
+/// its eyebrow, chips and a white play pill, then a raised sheet of rows that
+/// scrolls under a five-tab bar.
+struct HypeLogo: View {
+    var body: some View {
+        HStack(spacing: 7) {
+            PlayGlyph()
+                .frame(width: 26, height: 24)
+            HStack(spacing: 0) {
+                Text("cine")
+                    .foregroundStyle(.white)
+                Text("max")
+                    .foregroundStyle(CinemaTheme.accent)
+            }
+            .font(.system(size: 23, weight: .heavy))
+        }
+        .accessibilityLabel("CINEMAX")
+    }
+}
+
+/// The two-tone play triangle of the wordmark.
+struct PlayGlyph: View {
+    var body: some View {
+        GeometryReader { proxy in
+            let width = proxy.size.width
+            let height = proxy.size.height
+            ZStack {
+                Path { path in
+                    path.move(to: CGPoint(x: 0, y: 0))
+                    path.addLine(to: CGPoint(x: width * 0.62, y: height / 2))
+                    path.addLine(to: CGPoint(x: 0, y: height))
+                    path.closeSubpath()
+                }
+                .fill(CinemaTheme.favourite)
+                Path { path in
+                    path.move(to: CGPoint(x: width * 0.55, y: 0))
+                    path.addLine(to: CGPoint(x: width, y: height / 2))
+                    path.addLine(to: CGPoint(x: width * 0.55, y: height))
+                    path.closeSubpath()
+                }
+                .fill(CinemaTheme.accent)
+            }
+        }
+    }
+}
+
+/// A poster the way Hype draws it: 2:3 artwork, a two-line title and one meta
+/// line with a gold star.
+struct HypeCard: View {
+    let item: CinemaItem
+    var width: CGFloat = 136
+    var progress: Double = 0
+    var saved = false
+    let onOpen: () -> Void
+
+    private var meta: String {
+        var parts: [String] = []
+        if let year = item.releaseInfo, !year.isEmpty { parts.append(year) }
+        if let rating = item.rating, !rating.isEmpty { parts.append("★ \(rating)") }
+        return parts.joined(separator: " · ")
+    }
+
+    var body: some View {
+        Button(action: onOpen) {
+            VStack(alignment: .leading, spacing: 7) {
+                ZStack(alignment: .bottomLeading) {
+                    RemoteImage(url: item.posterURL)
+                        .frame(width: width, height: width * 1.5)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    if progress > 0 {
+                        Capsule()
+                            .fill(CinemaTheme.accent)
+                            .frame(width: max(8, width * progress), height: 3)
+                            .padding(6)
+                    }
+                }
+                .overlay(alignment: .topTrailing) {
+                    if saved {
+                        Image(systemName: "heart.fill")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(CinemaTheme.favourite)
+                            .padding(6)
+                            .background(.black.opacity(0.5), in: Circle())
+                            .padding(6)
+                    }
+                }
+                Text(item.name)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .frame(width: width, alignment: .leading)
+                Text(meta)
+                    .font(.system(size: 12))
+                    .foregroundStyle(CinemaTheme.tertiary)
+                    .lineLimit(1)
+                    .frame(width: width, alignment: .leading)
+            }
+            .frame(width: width, alignment: .leading)
+        }
+        .buttonStyle(CinemaPressStyle())
+    }
+}
+
+/// One row: a bold heading with an inline gray subtitle, then the posters. The
+/// first row on the page carries the ghost rank numerals Hype puts behind them.
+struct HypeRow: View {
+    let title: String
+    var subtitle: String = ""
+    let items: [CinemaItem]
+    var ranked = false
+    var fraction: (String) -> Double = { _ in 0 }
+    var saved: (String) -> Bool = { _ in false }
+    let onOpen: (CinemaItem) -> Void
+    var onMore: (() -> Void)? = nil
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(title)
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(.white)
+                if !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.system(size: 13))
+                        .foregroundStyle(CinemaTheme.tertiary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                if let onMore {
+                    Button {
+                        Haptics.tap()
+                        onMore()
+                    } label: {
+                        Text("الكل")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.muted)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(alignment: .top, spacing: 14) {
+                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                        if ranked, index < 10 {
+                            ZStack(alignment: .bottomLeading) {
+                                Text("\(index + 1)")
+                                    .font(.system(size: 92, weight: .heavy))
+                                    .foregroundStyle(.white.opacity(0.10))
+                                    .offset(x: -8, y: 22)
+                                HypeCard(
+                                    item: item,
+                                    progress: fraction(item.id),
+                                    saved: saved(item.id),
+                                    onOpen: { onOpen(item) }
+                                )
+                                .padding(.leading, 30)
+                            }
+                        } else {
+                            HypeCard(
+                                item: item,
+                                progress: fraction(item.id),
+                                saved: saved(item.id),
+                                onOpen: { onOpen(item) }
+                            )
+                        }
+                    }
+                }
+                .padding(.horizontal, 2)
+            }
+        }
+    }
+}
+
+/// A quiet panel for a page with nothing in it yet.
+struct HypeEmpty: View {
+    let icon: String
+    let title: String
+    let detail: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 24, weight: .light))
+                .foregroundStyle(CinemaTheme.accent)
+            Text(title)
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(.white)
+            Text(detail)
+                .font(.system(size: 13))
+                .foregroundStyle(CinemaTheme.muted)
+                .lineSpacing(4)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(CinemaTheme.hairline, lineWidth: 1)
+        )
+    }
+}
+
+/// Design 4 — the Hype interface: wordmark and pill search, one hero, a raised
+/// sheet of rows, and a five-tab bar under it.
+struct HypeHomeView: View {
+    @Binding var selection: Int
+    @ObservedObject private var model = HomeModel.shared
+    @ObservedObject private var lists = ListsStore.shared
+    @AppStorage("cinemax.showHero") private var showHero = true
+    @State private var heroIndex = 0
+    @State private var detailItem: CinemaItem?
+    @State private var gridShelf: Shelf?
+    @State private var showSearch = false
+
+    private var hero: CinemaItem? {
+        guard !model.heroItems.isEmpty else { return nil }
+        return model.heroItems[min(max(0, heroIndex), model.heroItems.count - 1)]
+    }
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
+                header
+                if showHero, let hero {
+                    heroBlock(hero)
+                        .id(hero.id)
+                        .transition(.opacity)
+                }
+                sheet
+                Spacer(minLength: 120)
+            }
+        }
+        .background(CinemaTheme.canvas.ignoresSafeArea())
+        .refreshable { await model.load(force: true) }
+        .task { await model.load() }
+        .task(id: model.heroItems.count) {
+            guard !CinemaTheme.reduceMotion, model.heroItems.count > 1 else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 8_000_000_000)
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeInOut(duration: 0.5)) {
+                    heroIndex = (heroIndex + 1) % max(1, model.heroItems.count)
+                }
+            }
+        }
+        .fullScreenCover(item: $detailItem) { item in
+            DetailView(item: item, onFavorite: { model.toggle(item) })
+        }
+        .sheet(item: $gridShelf) { shelf in
+            ShelfGridScreen(shelf: shelf, onOpen: { item in
+                gridShelf = nil
+                detailItem = item
+            })
+        }
+        .sheet(isPresented: $showSearch) {
+            SearchView()
+        }
+    }
+
+    // MARK: Header
+
+    private var header: some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 10) {
+                HypeLogo()
+                Spacer(minLength: 0)
+                Button {
+                    Haptics.tap()
+                    selection = 3
+                } label: {
+                    bubble("arrow.down.circle.fill", accent: true)
+                }
+                .buttonStyle(.plain)
+                Menu {
+                    Button {
+                        selection = 3
+                    } label: {
+                        Label("المحفوظة", systemImage: "heart")
+                    }
+                    Button {
+                        selection = 4
+                    } label: {
+                        Label("الأخير", systemImage: "clock")
+                    }
+                    Button {
+                        selection = 5
+                    } label: {
+                        Label("الإعدادات", systemImage: "slider.horizontal.3")
+                    }
+                    if !lists.lists.isEmpty {
+                        Divider()
+                        ForEach(lists.lists) { list in
+                            Button {
+                                selection = 3
+                            } label: {
+                                Label("\(list.name) · \(list.items.count)", systemImage: "text.badge.plus")
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "list.bullet")
+                            .font(.system(size: 12, weight: .semibold))
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 9, weight: .bold))
+                    }
+                    .foregroundStyle(.white)
+                    .frame(width: 56, height: 38)
+                    .background(
+                        CinemaTheme.elevated,
+                        in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(CinemaTheme.hairline, lineWidth: 1)
+                    )
+                }
+            }
+            Button {
+                Haptics.tap()
+                showSearch = true
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 14, weight: .semibold))
+                    Text("ابحث عن فيلم أو مسلسل")
+                        .font(.system(size: 14))
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(CinemaTheme.muted)
+                .padding(.horizontal, 16)
+                .frame(height: 44)
+                .background(CinemaTheme.elevated.opacity(0.8), in: Capsule())
+                .overlay(Capsule().strokeBorder(CinemaTheme.hairline, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 6)
+        .padding(.bottom, 14)
+    }
+
+    private func bubble(_ name: String, accent: Bool) -> some View {
+        Image(systemName: name)
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(accent ? CinemaTheme.accent : CinemaTheme.muted)
+            .frame(width: 40, height: 38)
+            .background(
+                accent ? CinemaTheme.accent.opacity(0.18) : CinemaTheme.elevated,
+                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(CinemaTheme.hairline, lineWidth: 1)
+            )
+    }
+
+    // MARK: Hero
+
+    private func heroBlock(_ item: CinemaItem) -> some View {
+        ZStack(alignment: .bottomLeading) {
+            RemoteImage(url: item.backdropURL)
+                .frame(height: 460)
+                .frame(maxWidth: .infinity)
+                .clipped()
+            LinearGradient(
+                stops: [
+                    .init(color: .black.opacity(0.50), location: 0.0),
+                    .init(color: .black.opacity(0.10), location: 0.32),
+                    .init(color: CinemaTheme.canvas.opacity(0.35), location: 0.62),
+                    .init(color: CinemaTheme.canvas, location: 1.0)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            VStack(alignment: .leading, spacing: 10) {
+                Text(eyebrow(item))
+                    .font(.system(size: 11, weight: .semibold))
+                    .tracking(1.6)
+                    .foregroundStyle(CinemaTheme.tertiary)
+                    .lineLimit(2)
+                Text(item.name)
+                    .font(.system(size: 33, weight: .bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.7)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 8) {
+                    if let year = item.releaseInfo, !year.isEmpty { chip(year) }
+                    if let rating = item.rating, !rating.isEmpty { chip("★ \(rating)") }
+                    Text(item.type == "series" ? "مسلسل" : "فيلم")
+                        .font(.system(size: 13))
+                        .foregroundStyle(CinemaTheme.muted)
+                }
+                if let overview = item.overview, !overview.isEmpty {
+                    Text(overview)
+                        .font(.system(size: 15))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .lineSpacing(3)
+                        .lineLimit(2)
+                }
+                HStack(spacing: 10) {
+                    Button {
+                        Haptics.tap()
+                        detailItem = item
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 14, weight: .bold))
+                            Text(item.type == "series" ? "اعرض الحلقات" : "شاهد")
+                                .font(.system(size: 16, weight: .bold))
+                        }
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 24)
+                        .frame(height: 48)
+                        .background(
+                            Color(red: 0.96, green: 0.95, blue: 0.97),
+                            in: Capsule()
+                        )
+                    }
+                    .buttonStyle(CinemaPressStyle())
+                    Button {
+                        Haptics.tap()
+                        detailItem = item
+                    } label: {
+                        HStack(spacing: 7) {
+                            Image(systemName: "info.circle")
+                                .font(.system(size: 14, weight: .semibold))
+                            Text("التفاصيل")
+                                .font(.system(size: 15, weight: .semibold))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 18)
+                        .frame(height: 48)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .overlay(Capsule().strokeBorder(.white.opacity(0.22), lineWidth: 1))
+                    }
+                    .buttonStyle(CinemaPressStyle())
+                    Button {
+                        Haptics.tap()
+                        model.toggle(item)
+                    } label: {
+                        Image(systemName: model.favorites.contains(item.id) ? "heart.fill" : "heart")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(
+                                model.favorites.contains(item.id) ? CinemaTheme.favourite : .white
+                            )
+                            .frame(width: 48, height: 48)
+                            .background(.ultraThinMaterial, in: Circle())
+                            .overlay(Circle().strokeBorder(.white.opacity(0.22), lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                    Spacer(minLength: 0)
+                }
+                .padding(.top, 2)
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 24)
+        }
+        .frame(height: 460)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .clipped()
+    }
+
+    private func eyebrow(_ item: CinemaItem) -> String {
+        var parts = [item.type == "series" ? "مسلسل" : "فيلم"]
+        if model.favorites.contains(item.id) { parts.append("محفوظ") }
+        parts.append("من مكتبتك")
+        parts.append("يُحدَّث مع مصادرك")
+        return parts.joined(separator: "  ·  ").uppercased()
+    }
+
+    private func chip(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .frame(height: 28)
+            .background(
+                Color.white.opacity(0.10),
+                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(.white.opacity(0.22), lineWidth: 1)
+            )
+    }
+
+    // MARK: Sheet of rows
+
+    private var sheet: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            if model.loading {
+                HStack(spacing: 14) {
+                    ForEach(0..<3, id: \.self) { _ in
+                        ShimmerBlock(height: 204, width: 136)
+                    }
+                }
+            } else if model.visibleShelves.isEmpty {
+                HypeEmpty(
+                    icon: "puzzlepiece.extension",
+                    title: "لا شيء بعد",
+                    detail: "ثبّت إضافة كتالوج من الإعدادات ← الإضافات، وسيصل أول صف من البوسترات."
+                )
+            } else {
+                if !model.continueWatching.isEmpty {
+                    HypeRow(
+                        title: "أكمل المشاهدة",
+                        subtitle: "من حيث توقفت",
+                        items: model.continueWatching.map(\.item),
+                        fraction: { id in
+                            model.continueWatching.first { $0.item.id == id }?.fraction ?? 0
+                        },
+                        saved: { model.favorites.contains($0) },
+                        onOpen: { detailItem = $0 }
+                    )
+                }
+                ForEach(Array(model.visibleShelves.enumerated()), id: \.element.id) { index, shelf in
+                    HypeRow(
+                        title: shelf.title,
+                        subtitle: "\(shelf.items.count) عنوانًا",
+                        items: shelf.items,
+                        ranked: index == 0,
+                        fraction: { id in
+                            model.continueWatching.first { $0.item.id == id }?.fraction ?? 0
+                        },
+                        saved: { model.favorites.contains($0) },
+                        onOpen: { detailItem = $0 },
+                        onMore: { gridShelf = shelf }
+                    )
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 22)
+        .padding(.bottom, 28)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            CinemaTheme.sheet,
+            in: RoundedRectangle(cornerRadius: 26, style: .continuous)
+        )
+        .padding(.horizontal, 6)
+        .padding(.top, -14)
+    }
+}
+
+/// التبويب الأول للنوعين: الأفلام والمسلسلات كما وصلت من المصادر، في شبكة
+/// بوسترات واحدة مع بحث سريع.
+struct HypeCatalogScreen: View {
+    let type: String
+    @ObservedObject private var model = HomeModel.shared
+    @State private var query = ""
+    @State private var detailItem: CinemaItem?
+
+    private let columns = [GridItem(.adaptive(minimum: 104), spacing: 14)]
+
+    private var title: String { type == "movie" ? "أفلام" : "مسلسلات" }
+
+    private var items: [CinemaItem] {
+        let text = query.trimmingCharacters(in: .whitespaces)
+        var seen = Set<String>()
+        return model.shelves
+            .flatMap(\.items)
+            .filter { $0.type == type }
+            .filter { item in
+                guard seen.insert(item.id).inserted else { return false }
+                return text.isEmpty || item.name.localizedCaseInsensitiveContains(text)
+            }
+    }
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.system(size: 30, weight: .heavy))
+                        .foregroundStyle(.white)
+                    Text("\(items.count) عنوانًا من أول صفحة لكل إضافة")
+                        .font(.system(size: 13))
+                        .foregroundStyle(CinemaTheme.tertiary)
+                }
+                .padding(.top, 8)
+
+                HStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.muted)
+                    TextField("ابحث في \(title)", text: $query)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 14))
+                        .foregroundStyle(.white)
+                        .autocorrectionDisabled()
+                    if !query.isEmpty {
+                        Button { query = "" } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(CinemaTheme.muted)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .frame(height: 44)
+                .background(CinemaTheme.elevated.opacity(0.8), in: Capsule())
+                .overlay(Capsule().strokeBorder(CinemaTheme.hairline, lineWidth: 1))
+
+                if items.isEmpty {
+                    HypeEmpty(
+                        icon: "square.stack.3d.up",
+                        title: model.loading ? "جارٍ الجلب…" : "لا \(title) بعد",
+                        detail: "الأفلام والمسلسلات تأتي من صفوف إضافاتك. ثبّت مصدرًا من الإعدادات أو أضف إضافة كتالوج."
+                    )
+                } else {
+                    LazyVGrid(columns: columns, alignment: .leading, spacing: 18) {
+                        ForEach(items) { item in
+                            HypeCard(item: item, width: 104) {
+                                detailItem = item
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 120)
+        }
+        .background(CinemaTheme.canvas.ignoresSafeArea())
+        .task { await model.load() }
+        .refreshable { await model.load(force: true) }
+        .fullScreenCover(item: $detailItem) { DetailView(item: $0) }
+    }
+}
+
+/// ما بدأه المشاهد ولم يكمله، في صفحة واحدة.
+struct HypeRecentScreen: View {
+    @ObservedObject private var library = LibraryModel.shared
+    @State private var detailItem: CinemaItem?
+
+    private let columns = [GridItem(.adaptive(minimum: 104), spacing: 14)]
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("الأخير")
+                        .font(.system(size: 30, weight: .heavy))
+                        .foregroundStyle(.white)
+                    Text(
+                        library.progress.isEmpty
+                            ? "ما تبدأ مشاهدته يظهر هنا"
+                            : "\(library.progress.count) عنوانًا بدأت مشاهدته"
+                    )
+                    .font(.system(size: 13))
+                    .foregroundStyle(CinemaTheme.tertiary)
+                }
+                .padding(.top, 8)
+
+                if library.progress.isEmpty {
+                    HypeEmpty(
+                        icon: "clock",
+                        title: "لا شيء بعد",
+                        detail: "افتح أي عنوان وابدأ المشاهدة، وسيظهر هنا مع موضع توقفك بالضبط."
+                    )
+                } else {
+                    LazyVGrid(columns: columns, alignment: .leading, spacing: 18) {
+                        ForEach(library.progress) { entry in
+                            HypeCard(
+                                item: entry.item,
+                                width: 104,
+                                progress: entry.fraction
+                            ) {
+                                detailItem = entry.item
+                            }
+                            .contextMenu {
+                                Button(role: .destructive) {
+                                    Haptics.tap()
+                                    Task {
+                                        _ = await CinemaAPI.shared.removeProgress(
+                                            itemId: entry.item.id,
+                                            videoLabel: entry.episodeLabel
+                                        )
+                                        await LibraryModel.shared.load()
+                                    }
+                                } label: {
+                                    Label("إزالة من الأخير", systemImage: "trash")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 120)
+        }
+        .background(CinemaTheme.canvas.ignoresSafeArea())
+        .task { await library.load() }
+        .fullScreenCover(item: $detailItem) { DetailView(item: $0) }
+    }
+}
+
+/// Hype's bottom bar: five equal columns, the active one white.
+struct HypeTabBar: View {
+    @Binding var selection: Int
+
+    private let tabs: [(icon: String, title: String)] = [
+        ("house", "الرئيسية"),
+        ("tv", "مسلسلات"),
+        ("film", "أفلام"),
+        ("heart", "المحفوظة"),
+        ("clock", "الأخير")
+    ]
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(Array(tabs.enumerated()), id: \.offset) { index, tab in
+                Button {
+                    Haptics.select()
+                    selection = index
+                } label: {
+                    VStack(spacing: 4) {
+                        Image(systemName: selection == index ? tab.icon + ".fill" : tab.icon)
+                            .font(.system(size: 20, weight: .regular))
+                        Text(tab.title)
+                            .font(.system(size: 10.5, weight: .medium))
+                    }
+                    .foregroundStyle(selection == index ? .white : CinemaTheme.tertiary)
+                    .frame(maxWidth: .infinity)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.top, 10)
+        .padding(.bottom, 4)
+        .background(alignment: .top) {
+            CinemaTheme.canvas
+                .overlay(alignment: .top) {
+                    Rectangle()
+                        .fill(CinemaTheme.hairline)
+                        .frame(height: 1)
+                }
+                .ignoresSafeArea(edges: .bottom)
+        }
     }
 }
 
@@ -8305,6 +9081,7 @@ struct SettingsView: View {
 
     private var designName: String {
         switch design {
+        case "hype": return "واجهة Hype"
         case "wall": return "جدار بوسترات"
         case "panorama": return "بانورامي"
         default: return "سينمائي"
@@ -8870,7 +9647,7 @@ struct AppearanceSettings: View {
 }
 
 struct LayoutSettings: View {
-    @AppStorage("cinemax.design") private var design = "cinematic"
+    @AppStorage("cinemax.design") private var design = "hype"
     @AppStorage("cinemax.heroAuto") private var heroAuto = true
     @AppStorage("cinemax.showContinue") private var showContinue = true
     @AppStorage("cinemax.showHero") private var showHero = true
@@ -8883,6 +9660,7 @@ struct LayoutSettings: View {
     ]
 
     private let options: [(id: String, title: String, detail: String)] = [
+        ("hype", "واجهة Hype", "شعار مرجاني وبحث كبسولة، هيرو واحد ولوحة صفوف، وخمسة تبويبات"),
         ("cinematic", "سينمائي زجاجي", "هيرو بعرض الشاشة ووهج بلون البوستر وصفوف بوسترات"),
         ("wall", "جدار بوسترات", "بحث أولًا وشبكات كثيفة وعدّادات، بلا هيرو"),
         ("panorama", "بانورامي", "خلفية واحدة غامرة ثم بطاقات عريضة 16:9")
