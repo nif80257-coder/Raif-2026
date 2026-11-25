@@ -7935,12 +7935,13 @@ struct FilterChipsBar: View {
 
 // MARK: - Hype interface
 
-/// The name the interface wears. It is spelled here once, so the wordmark, the
-/// settings header and the system's search change together when it is renamed.
+/// The name the interface wears: ours, spelled here once, so the wordmark, the
+/// settings header and the system's search all follow it. The look is Hype's; the
+/// name on it stays CINEMAX.
 enum Brand {
-    static let name = "HypeTV"
-    static let first = "hype"
-    static let second = "tv"
+    static let name = "CINEMAX"
+    static let first = "cine"
+    static let second = "max"
 }
 
 /// The Hype look: a coral wordmark over a pill search, one full-bleed hero with
