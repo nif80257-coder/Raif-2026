@@ -1,11 +1,14 @@
 {
     "exported_at": null,
     "sources": [
+        {"type": "addon", "name": "PlavioHD", "url": "https://hd.plavio.site/u/w6y5YbrH9fnV25qbziG8Vw/manifest.json", "enabled": true, "order": 0},
         {"type": "addon", "name": "Torrentio", "url": "https://torrentio.strem.fun/manifest.json", "enabled": true, "order": 1},
         {"type": "addon", "name": "Comet | ElfHosted", "url": "https://comet.elfhosted.com/manifest.json", "enabled": true, "order": 2},
         {"type": "addon", "name": "MediaFusion | ElfHosted", "url": "https://mediafusion.elfhosted.com/manifest.json", "enabled": true, "order": 3},
         {"type": "addon", "name": "TorrentsDB", "url": "https://torrentsdb.com/eyJsYW5ndWFnZSI6WyJhcmFiaWMiXX0=/manifest.json", "enabled": true, "order": 4},
         {"type": "addon", "name": "StreamAR", "url": "https://2ecbbd610840-stremio-ar.baby-beamup.club/manifest.json", "enabled": true, "order": 5},
-        {"type": "addon", "name": "CineTorrent", "url": "https://150203dd784e-cinetorrent-addon.baby-beamup.club/manifest.json", "enabled": true, "order": 6}
+        {"type": "addon", "name": "CineTorrent", "url": "https://150203dd784e-cinetorrent-addon.baby-beamup.club/manifest.json", "enabled": true, "order": 6},
+        {"type": "addon", "name": "Yukistreams", "url": "https://stremio.yukistreams.xyz/p.YAWNo7KXUmEgwsxB/manifest.json", "enabled": true, "order": 7},
+        {"type": "addon", "name": "Muvibox", "url": "https://muvibox.znzcloud.my.id/manifest.json", "enabled": true, "order": 8}
     ]
 }

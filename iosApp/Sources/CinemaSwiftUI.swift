@@ -970,6 +970,41 @@ enum CuratedSources {
             url: "https://150203dd784e-cinetorrent-addon.baby-beamup.club/manifest.json",
             note: "P2P مجاني — تورنتات متعددة اللغات",
             isRepository: false
+        ),
+        Source(
+            id: "plavio",
+            name: "PlavioHD",
+            url: "https://hd.plavio.site/u/w6y5YbrH9fnV25qbziG8Vw/manifest.json",
+            note: "HTTP مجاني حتى 4K — العربية مُفعّلة افتراضيًا",
+            isRepository: false
+        ),
+        Source(
+            id: "yukistreams",
+            name: "Yukistreams",
+            url: "https://stremio.yukistreams.xyz/p.YAWNo7KXUmEgwsxB/manifest.json",
+            note: "HTTP مجاني — آسيوي وأنمي وفيلم عالمي",
+            isRepository: false
+        ),
+        Source(
+            id: "muvibox",
+            name: "Muvibox",
+            url: "https://muvibox.znzcloud.my.id/manifest.json",
+            note: "HTTP مجاني من Netflix وDisney بلا تورنت",
+            isRepository: false
+        ),
+        Source(
+            id: "torrentclaw",
+            name: "TorrentClaw",
+            url: "https://torrentclaw.com/api/stremio/manifest.json",
+            note: "P2P مجاني + كتالوجات وبيانات وأدق الروابط",
+            isRepository: false
+        ),
+        Source(
+            id: "publicdomain",
+            name: "Public Domain Movies",
+            url: "https://caching.stremio.net/publicdomainmovies.now.sh/manifest.json",
+            note: "أفلام ملكية عامة تبثّ قانونيًا وبلا حساب",
+            isRepository: false
         )
     ]
 
