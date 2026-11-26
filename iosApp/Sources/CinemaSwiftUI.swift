@@ -2334,8 +2334,11 @@ struct PlayerScreen: View {
     @State private var addonSubtitles: [SubtitleChoice] = []
     @State private var loadingSubtitles = false
     @State private var volume: Double = (UserDefaults.standard.object(forKey: "cinemax.volume") as? Double) ?? 100
-    @State private var aspect = UserDefaults.standard.string(forKey: "cinemax.aspect") ?? ""
-    @State private var zoom: Double = (UserDefaults.standard.object(forKey: "cinemax.zoom") as? Double) ?? 0
+    /// The picture's shape, which every title now opens fitted with bars. It is
+    /// kept for the screen alone and never stored: a crop left behind by an
+    /// earlier film is exactly what made the next one larger than the page.
+    @State private var aspect = ""
+    @State private var zoom: Double = 0
     @State private var subtitlePosition: Double = (UserDefaults.standard.object(forKey: "cinemax.subPos") as? Double) ?? 100
     @State private var buffering = false
     @State private var appliedInitial = false
@@ -2586,7 +2589,6 @@ struct PlayerScreen: View {
                         let index = options.firstIndex(of: aspect) ?? 0
                         let next = options[(index + 1) % options.count]
                         aspect = next
-                        UserDefaults.standard.set(next, forKey: "cinemax.aspect")
                         player?.setVideoAspect(next)
                     }
                     CircleButton(system: "lock.fill") {
@@ -2972,13 +2974,11 @@ struct PlayerScreen: View {
                     },
                     onAspect: { value in
                         aspect = value
-                        UserDefaults.standard.set(value, forKey: "cinemax.aspect")
                         player?.setVideoAspect(value)
                         Haptics.select()
                     },
                     onZoom: { value in
                         zoom = value
-                        UserDefaults.standard.set(value, forKey: "cinemax.zoom")
                         player?.setVideoZoom(value)
                         Haptics.select()
                     },
@@ -3413,9 +3413,11 @@ struct PlayerScreen: View {
         autoTries = 0
         loadTicks = 0
         didAutoSkipIntro = false
+        // The new link opens where the dead one stopped, a second before it, so a
+        // swap in the middle of a film never sends the viewer back to the start.
+        startMs = position > 5 ? Int64((position - 1) * 1000) : 0
         position = 0
         duration = 0
-        startMs = 0
         currentURL = pool[poolIndex].url
         currentHeaders = pool[poolIndex].headers ?? [:]
         playToken += 1
@@ -3812,13 +3814,16 @@ struct SystemPlayerScreen: View {
         }
         attempts.insert(next.url)
         EventLog.shared.add("player", "فشل المصدر · تجربة \(next.addon)")
+        // The replacement opens where the dead link stopped instead of starting
+        // the episode again, which is what makes a swap usable mid-film.
+        let keep = position > 5 ? Int64((position - 1) * 1000) : 0
         start(
             title: stageTitle,
             url: next.url,
             headers: next.headers ?? [:],
             videoId: stageVideoId,
             videoLabel: stageVideoLabel,
-            startAt: 0
+            startAt: keep
         )
     }
 
@@ -4005,6 +4010,10 @@ struct SystemPlayerSurface: UIViewControllerRepresentable {
         let controller = AVPlayerViewController()
         controller.player = player
         controller.showsPlaybackControls = true
+        // The picture is letterboxed inside the screen in both orientations. It
+        // is set here rather than left to the default so a player kept from an
+        // earlier screen can never come back filling the page.
+        controller.videoGravity = .resizeAspect
         controller.allowsPictureInPicturePlayback = true
         controller.canStartPictureInPictureAutomaticallyFromInline = true
         controller.entersFullScreenWhenPlaybackBegins = false
@@ -4014,6 +4023,9 @@ struct SystemPlayerSurface: UIViewControllerRepresentable {
     func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {
         if controller.player !== player {
             controller.player = player
+        }
+        if controller.videoGravity != .resizeAspect {
+            controller.videoGravity = .resizeAspect
         }
     }
 }
@@ -8018,9 +8030,11 @@ struct CinemaRootView: View {
                 }
             }
             // A ratio or a zoom left by an older build is what stretches a
-            // picture: anything the player cannot name is cleared here, so the
-            // next film opens fitted instead of inheriting it.
-            let allowedAspects = ["", "auto", "fit", "fill", "16:9", "4:3", "2.35:1"]
+            // picture: the player no longer stores either, so a crop answered by
+            // an earlier version is cleared here and the next film opens fitted.
+            // "fill" is deliberately not allowed any more: cropping the picture
+            // is what made it come out larger than the page in portrait.
+            let allowedAspects = ["", "auto", "fit", "16:9", "4:3", "2.35:1"]
             if let stored = UserDefaults.standard.string(forKey: "cinemax.aspect"),
                !allowedAspects.contains(stored) {
                 UserDefaults.standard.set("", forKey: "cinemax.aspect")
@@ -16662,6 +16676,10 @@ final class DownloadManager: ObservableObject {
                 }
             }
             if changed { save() }
+            // A transfer that was waiting its turn when the app closed starts
+            // here, as soon as the room the limit leaves is known: without this
+            // a queued file waited for a tap on resume that nobody makes.
+            pump()
         }
     }
 

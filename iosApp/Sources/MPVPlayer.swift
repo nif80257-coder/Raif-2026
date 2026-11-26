@@ -81,6 +81,10 @@ final class MPVViewController: UIViewController {
             metalLayer.drawableSize = drawable
         }
         CATransaction.commit()
+        // Turning the phone changes the window's shape, and libmpv keeps its own
+        // idea of the picture's shape across that: it is put back here so the
+        // landscape frame comes out fitted instead of cropped or stretched.
+        applyPicture()
     }
 
     /// A player that came back from the background is the classic black screen:
@@ -335,11 +339,27 @@ final class MPVViewController: UIViewController {
         setString(mpv, "sub-delay", String(format: "%.2f", seconds))
     }
 
+    /// The shape the viewer picked while this screen is open. It is kept here and
+    /// not in the preferences on purpose: libmpv forgets these per-file options
+    /// the moment a new file opens, and a crop left from an earlier film was what
+    /// made the next one come out larger than the page.
+    private var requestedAspect: String = ""
+    private var requestedZoom: Double = 0
+
     /// Forces an aspect ratio ("16:9", "4:3", "2.35:1"), fits the picture with
     /// bars ("ملاءمة" / empty), or crops it to fill the screen ("fill").
     func setVideoAspect(_ aspect: String) {
+        requestedAspect = aspect
+        applyPicture()
+    }
+
+    /// Puts the picture in the window the way the viewer asked for it: fitted
+    /// with bars unless they chose otherwise, and never stretched. Everything it
+    /// touches is a per-file option, so it is called again every time a file
+    /// opens, which is what keeps a switched source from coming back cropped.
+    private func applyPicture() {
         guard let mpv else { return }
-        let value = aspect.trimmingCharacters(in: .whitespaces)
+        let value = requestedAspect.trimmingCharacters(in: .whitespaces)
         let fits = value.isEmpty || value == "auto" || value == "fit"
         let fills = value == "fill"
         setString(mpv, "panscan", fills ? "1.0" : "0.0")
@@ -347,6 +367,7 @@ final class MPVViewController: UIViewController {
         // one leaves the last ratio in place, which is the stretched picture
         // the viewer saw after turning the phone.
         setString(mpv, "video-aspect-override", fits || fills ? "no" : value)
+        setString(mpv, "video-zoom", String(format: "%.2f", requestedZoom))
     }
 
     /// Subtitle text size, as libmpv's font-size property (default is 55).
@@ -363,8 +384,8 @@ final class MPVViewController: UIViewController {
 
     /// Zooms the picture inside the window; 0 fits, positive values crop in.
     func setVideoZoom(_ value: Double) {
-        guard let mpv else { return }
-        setString(mpv, "video-zoom", String(format: "%.2f", max(-1.0, min(1.0, value))))
+        requestedZoom = max(-1.0, min(1.0, value))
+        applyPicture()
     }
 
     func setVolumeLevel(_ volume: Double) {
@@ -571,6 +592,10 @@ final class MPVViewController: UIViewController {
             if event.pointee.event_id == MPV_EVENT_FILE_LOADED {
                 // A file that opened clears whatever the last link complained about.
                 errorText = ""
+                // A new file starts from libmpv's own defaults, so the shape the
+                // viewer asked for is put back on it here: without this a source
+                // switched mid-film came back cropped or stretched.
+                applyPicture()
             }
             if event.pointee.event_id == MPV_EVENT_END_FILE, let data = event.pointee.data {
                 let endFile = UnsafePointer<mpv_event_end_file>(OpaquePointer(data)).pointee
