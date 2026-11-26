@@ -2723,7 +2723,7 @@ struct PlayerScreen: View {
                             seek(by: 85)
                         }
                     }
-                    if let next = upNext, duration > 0, position > duration - 60 {
+                    if upNext != nil, duration > 0, position > duration - 60 {
                         chip("الحلقة التالية", system: "forward.end.fill") {
                             Haptics.tap()
                             playNext()
@@ -6316,7 +6316,7 @@ struct DetailView: View {
                                 Button {
                                     Haptics.select()
                                     withAnimation(.easeInOut(duration: 0.15)) {
-                                        expandedGroups.insert(group.id)
+                                        _ = expandedGroups.insert(group.id)
                                     }
                                 } label: {
                                     Text(
@@ -16526,29 +16526,32 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
             adopted[index] = task
         }
 
-        lock.lock()
-        wings[jobKey] = Wing(
-            total: total,
-            baseline: alreadyLanded,
-            open: 0,
-            failure: nil,
-            waiter: nil,
-            report: report
-        )
-        travelling[jobKey] = []
-        for (index, task) in adopted {
-            let (from, to) = bounds(index, total: total)
-            plans[task.taskIdentifier] = Plan(
-                jobKey: jobKey,
-                index: index,
-                expected: to - from + 1,
-                directory: directory,
-                written: 0
+        // The whole registration is one locked step, so an event that arrives in
+        // the middle never sees a half-planned job, and no lock is taken inside
+        // an asynchronous context.
+        lock.withLock {
+            wings[jobKey] = Wing(
+                total: total,
+                baseline: alreadyLanded,
+                open: 0,
+                failure: nil,
+                waiter: nil,
+                report: report
             )
-            wings[jobKey]?.open += 1
-            travelling[jobKey]?.append(task.taskIdentifier)
+            travelling[jobKey] = []
+            for (index, task) in adopted {
+                let (from, to) = bounds(index, total: total)
+                plans[task.taskIdentifier] = Plan(
+                    jobKey: jobKey,
+                    index: index,
+                    expected: to - from + 1,
+                    directory: directory,
+                    written: 0
+                )
+                wings[jobKey]?.open += 1
+                travelling[jobKey]?.append(task.taskIdentifier)
+            }
         }
-        lock.unlock()
 
         for index in missing where adopted[index] == nil {
             let (from, to) = bounds(index, total: total)
@@ -16559,24 +16562,22 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
             }
             let task = queue.downloadTask(with: request)
             task.taskDescription = tag(jobKey, index)
-            lock.lock()
-            plans[task.taskIdentifier] = Plan(
-                jobKey: jobKey,
-                index: index,
-                expected: to - from + 1,
-                directory: directory,
-                written: 0
-            )
-            wings[jobKey]?.open += 1
-            travelling[jobKey]?.append(task.taskIdentifier)
-            let stillOpen = wings[jobKey]?.open ?? 0
-            lock.unlock()
+            let stillOpen = lock.withLock {
+                plans[task.taskIdentifier] = Plan(
+                    jobKey: jobKey,
+                    index: index,
+                    expected: to - from + 1,
+                    directory: directory,
+                    written: 0
+                )
+                wings[jobKey]?.open += 1
+                travelling[jobKey]?.append(task.taskIdentifier)
+                return wings[jobKey]?.open ?? 0
+            }
             if stillOpen > 0 { task.resume() }
         }
 
-        lock.lock()
-        let left = wings[jobKey]?.open ?? 0
-        lock.unlock()
+        let left = lock.withLock { wings[jobKey]?.open ?? 0 }
 
         if left > 0 {
             // A part whose events never arrive — which happens when iOS finishes
@@ -16593,37 +16594,38 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
             do {
                 try await withTaskCancellationHandler {
                     try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                        lock.lock()
-                        if let wing = wings[jobKey], wing.open > 0 {
-                            wings[jobKey]?.waiter = continuation
-                            lock.unlock()
-                        } else {
-                            let failure = wings[jobKey]?.failure
-                            lock.unlock()
-                            if let failure {
-                                continuation.resume(throwing: failure)
-                            } else {
-                                continuation.resume()
+                        let pending = lock.withLock { () -> (waits: Bool, failure: Error?) in
+                            if let wing = wings[jobKey], wing.open > 0 {
+                                wings[jobKey]?.waiter = continuation
+                                return (true, nil)
                             }
+                            return (false, wings[jobKey]?.failure)
+                        }
+                        if pending.waits { return }
+                        if let failure = pending.failure {
+                            continuation.resume(throwing: failure)
+                        } else {
+                            continuation.resume()
                         }
                     }
                 } onCancel: {
                     self.cancel(jobKey: jobKey)
                 }
             } catch {
-                lock.lock()
-                wings[jobKey] = nil
-                travelling[jobKey] = nil
-                lock.unlock()
+                lock.withLock {
+                    wings[jobKey] = nil
+                    travelling[jobKey] = nil
+                }
                 throw error
             }
         }
 
-        lock.lock()
-        let failure = wings[jobKey]?.failure
-        wings[jobKey] = nil
-        travelling[jobKey] = nil
-        lock.unlock()
+        let failure = lock.withLock { () -> Error? in
+            let failure = wings[jobKey]?.failure
+            wings[jobKey] = nil
+            travelling[jobKey] = nil
+            return failure
+        }
         if let failure { throw failure }
     }
 

@@ -662,9 +662,10 @@ final class MPVViewController: UIViewController {
             if event.pointee.event_id == MPV_EVENT_LOG_MESSAGE, let data = event.pointee.data {
                 let log = UnsafePointer<mpv_event_log_message>(OpaquePointer(data)).pointee
                 if let text = log.text {
-                    let line = String(cString: log.prefix.map { String(cString: $0) } ?? "") +
-                        ": " + String(cString: text).trimmingCharacters(in: .whitespacesAndNewlines)
-                    recentLog.append(line)
+                    let prefix = Self.cString(log.prefix)
+                    let message = Self.cString(text)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    recentLog.append(prefix.isEmpty ? message : prefix + ": " + message)
                     if recentLog.count > 30 { recentLog.removeFirst(recentLog.count - 30) }
                 }
             }
@@ -676,6 +677,16 @@ final class MPVViewController: UIViewController {
         let tail = recentLog.suffix(18).joined(separator: "\n")
         if errorText.isEmpty { return tail }
         return tail.isEmpty ? errorText : errorText + "\n" + tail
+    }
+
+    /// Reads a C string libmpv handed over. The pointer is only valid until the
+    /// next event is fetched, so it is copied the moment it arrives.
+    private static func cString(_ pointer: UnsafePointer<CChar>?) -> String {
+        guard let pointer else { return "" }
+        return String(
+            decodingCString: UnsafeRawPointer(pointer).assumingMemoryBound(to: UInt8.self),
+            as: UTF8.self
+        )
     }
 
     private func setOption(_ ctx: OpaquePointer, _ name: String, _ value: String) {
