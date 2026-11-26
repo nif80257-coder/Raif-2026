@@ -1836,6 +1836,7 @@ final class HomeModel: ObservableObject {
     }
 
     private var lastLoaded: Date?
+    private var lastPersonal: Date?
     private var smartSeed: String?
     private let cacheKey = "cinemax.shelves.cache.v1"
 
@@ -1853,7 +1854,15 @@ final class HomeModel: ObservableObject {
     /// Refetches at most once a minute unless forced; the personal rows (resume
     /// points, watchlist) refresh on every visit since they change while watching.
     func load(force: Bool = false) async {
-        if !force, CinemaxPrefs.autoRefresh, let last = lastLoaded, Date().timeIntervalSince(last) < 60 {
+        // The rows are kept for five minutes instead of one: coming back to the
+        // app after a film refetched every catalogue, which is the reload the
+        // viewer sees. Pull-to-refresh still asks at once.
+        if !force, CinemaxPrefs.autoRefresh, let last = lastLoaded, Date().timeIntervalSince(last) < 300 {
+            // The personal rows are the only thing that changes while watching,
+            // and they are asked at most every twenty seconds: coming back to the
+            // home screen asked for them again on every single appearance.
+            if let asked = lastPersonal, Date().timeIntervalSince(asked) < 20 { return }
+            lastPersonal = Date()
             await refreshPersonal()
             return
         }
@@ -2464,6 +2473,9 @@ struct PlayerScreen: View {
     @State private var pool: [StreamChoice] = []
     @State private var poolIndex = 0
     @State private var playToken = 0
+    /// True once this screen has started, so a return from the background never
+    /// starts the film again.
+    @State private var started = false
     @State private var autoTries = 0
     @State private var loadTicks = 0
     @State private var playerError: String?
@@ -3238,6 +3250,11 @@ struct PlayerScreen: View {
             )
         }
         .task {
+            // The task runs again when the app comes back from the background,
+            // and starting again reopened the film from its resume point; the
+            // screen starts once.
+            guard !started else { return }
+            started = true
             UIApplication.shared.isIdleTimerDisabled = true
             try? AVAudioSession.sharedInstance().setActive(true)
             OrientationManager.shared.setPlayerRotation(CinemaxPrefs.allowRotation)
@@ -3664,6 +3681,9 @@ struct SystemPlayerScreen: View {
     @State private var stageVideoId: String?
     @State private var stageVideoLabel: String?
     @State private var switching = false
+    /// True once this screen has started, so a return from the background never
+    /// starts the film again.
+    @State private var started = false
     @State private var nextNote: String?
     /// The links already tried, so a failure never sends the player back to the
     /// host that just died.
@@ -3840,6 +3860,11 @@ struct SystemPlayerScreen: View {
         }
         .preferredColorScheme(.dark)
         .task {
+            // The task runs again when the app comes back from the background,
+            // and starting again reopened the film from its resume point; the
+            // screen starts once.
+            guard !started else { return }
+            started = true
             UIApplication.shared.isIdleTimerDisabled = true
             try? AVAudioSession.sharedInstance().setActive(true)
             OrientationManager.shared.setPlayerRotation(CinemaxPrefs.allowRotation)
@@ -5127,7 +5152,10 @@ struct DetailView: View {
     @State private var addonLatency: [String: Int64] = [:]
     @AppStorage("cinemax.sourcesCompact") private var compactSources = false
     @AppStorage("cinemax.prefetchNext") private var prefetchNext = true
-    @AppStorage("cinemax.raceSources") private var raceSources = true
+    /// Races the top links before the film opens. Off by default: the race waits
+    /// for one of three range requests before any picture, and a dead link is now
+    /// replaced in place from the same second, so waiting for it is wasted.
+    @AppStorage("cinemax.raceSources2") private var raceSources = false
     @State private var prefetchedEpisode: String?
     /// True once the page picked the episode to open on by itself, so a page with
     /// no source for that episode never asks again in a loop.
@@ -5273,22 +5301,16 @@ struct DetailView: View {
             similar = await CinemaAPI.shared.similar(item: item)
         }
         .onChange(of: model.streams) { streams in
-            // The list grows while the addons answer, so the measuring waits for it
-            // to settle and then only looks at links that have no number yet.
+            // The list grows with every addon's answer, so each answer used to
+            // start another round of measuring: a dozen rounds of half-megabyte
+            // downloads froze the screen along with the link. The measuring waits
+            // for a full second of quiet and then reads the top six rows only.
             prefetchNextEpisode()
             probeTask?.cancel()
             probeTask = Task {
-                // The first rows are what a viewer taps, so the top three are measured
-                // at once instead of waiting for the whole list to settle.
-                let first = Array(streams.filter { speeds[$0.url] == nil }.prefix(3))
-                if !first.isEmpty {
-                    let quick = await StreamProber.shared.speeds(for: first)
-                    guard !Task.isCancelled else { return }
-                    await MainActor.run { speeds.merge(quick) { _, fresh in fresh } }
-                }
-                try? await Task.sleep(nanoseconds: 700_000_000)
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
                 guard !Task.isCancelled else { return }
-                let pending = streams.filter { speeds[$0.url] == nil }
+                let pending = Array(streams.filter { speeds[$0.url] == nil }.prefix(6))
                 guard !pending.isEmpty else { return }
                 let measured = await StreamProber.shared.speeds(for: pending)
                 guard !Task.isCancelled else { return }
@@ -6142,7 +6164,11 @@ struct DetailView: View {
     }
 
     private func launchPlayback(_ stream: StreamChoice) {
-        guard HLSParser.shared.isHLS(stream.url) else {
+        // The film opens at once. Picking an adaptive link's rendition first was
+        // a network request of several seconds before any picture appeared, and
+        // both players adapt a master playlist themselves; the setting turns the
+        // pre-pick back on when a fixed rendition is wanted.
+        guard CinemaxPrefs.hlsRendition, HLSParser.shared.isHLS(stream.url) else {
             playbackEngine = CinemaxPrefs.engine(for: stream.url)
             withAnimation(.easeInOut(duration: 0.15)) { playing = stream }
             return
@@ -13335,7 +13361,7 @@ struct SourcesControlSettings: View {
     @AppStorage("cinemax.sourcesCompact") private var compact = false
     @AppStorage("cinemax.speedFirst") private var speedFirst = false
     @AppStorage("cinemax.prefetchNext") private var prefetchNext = true
-    @AppStorage("cinemax.raceSources") private var raceSources = true
+    @AppStorage("cinemax.raceSources2") private var raceSources = false
     @AppStorage("cinemax.prefQuality") private var prefQuality = "auto"
 
     private let qualities: [(id: String, title: String)] = [
@@ -15700,6 +15726,13 @@ enum CinemaxPrefs {
     /// The quality tier the viewer wants first: "auto", "4K", "1080p" or "720p".
     static var preferredQuality: String {
         UserDefaults.standard.string(forKey: "cinemax.prefQuality") ?? "auto"
+    }
+
+    /// True when an adaptive link's rendition is picked before playback opens.
+    /// Off by default: that pick is a network request of several seconds before
+    /// any picture, and both players adapt a master playlist by themselves.
+    static var hlsRendition: Bool {
+        (UserDefaults.standard.object(forKey: "cinemax.hlsRendition") as? Bool) ?? false
     }
 
     /// The engine a link opens with. The default is automatic: the system player

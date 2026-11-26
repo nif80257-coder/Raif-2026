@@ -123,7 +123,7 @@ data class AppleDetail(
  * evaluated on the main thread, so this number is what decides whether the list
  * appears at once or after a freeze of many seconds.
  */
-private const val MAX_PROVIDERS_PER_FETCH = 12
+private const val MAX_PROVIDERS_PER_FETCH = 6
 
 class CinemaxAppleBridge {
 

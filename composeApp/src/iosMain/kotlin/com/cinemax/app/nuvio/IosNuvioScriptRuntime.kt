@@ -13,8 +13,10 @@ import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.readBytes
 import kotlinx.cinterop.reinterpret
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.newSingleThreadContext
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -39,20 +41,26 @@ actual fun createNuvioScriptRuntime(http: HttpClient): NuvioScriptRuntime = IosN
  *
  * The bridge is JSON only: the prelude queues `fetch` calls and timers, and this
  * driver drains them, so no native JavaScript function bridging is involved.
- * The driver runs on the main dispatcher because a JSContext is not thread safe;
- * HTTP calls suspend, so waiting on a provider never blocks the UI.
+ * A JSContext is not thread safe, so every script runs on one dedicated thread
+ * of its own: on the main dispatcher the HTML parsing of a dozen providers
+ * froze the interface for seconds, and a pooled dispatcher would move a context
+ * between threads. HTTP calls suspend, so waiting on a provider never blocks.
  * Bundled modules that scrapers commonly require are provided by the shipped
  * `nuvio-compat.js` shim (a static-HTML cheerio and the crypto-js surface); the
  * shim is evaluated separately and a failure there leaves `require` untouched,
  * so a broken shim can never take working providers down with it.
  */
+@OptIn(DelicateCoroutinesApi::class, ExperimentalCoroutinesApi::class)
 class IosNuvioScriptRuntime(private val http: HttpClient) : NuvioScriptRuntime {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
     private val compatModule: String? by lazy { readBundledCompatScript() }
 
+    /// The one thread every provider script is evaluated on.
+    private val jsThread = newSingleThreadContext("cinemax-nuvio-js")
+
     override suspend fun streams(source: String, request: NuvioMediaRequest): List<NuvioStream> =
-        withContext(Dispatchers.Main) {
+        withContext(jsThread) {
             val context = JSContext()
             try {
                 evaluate(context, PRELUDE)
