@@ -6748,9 +6748,16 @@ final class SearchModel: ObservableObject {
             lastQuery = nil
             return
         }
-        // The same search within a minute is answered from memory.
+        // The same search within a minute is answered from memory. The spinner is
+        // stopped with it: before this it stayed on while nothing was fetched,
+        // and the "يبحث في كل المصادر" line sat under a list already painted.
         if let last = lastQuery, last.text == text.lowercased(),
            Date().timeIntervalSince(last.at) < 60 {
+            task?.cancel()
+            task = nil
+            loading = false
+            answered = 0
+            error = nil
             results = last.results
             return
         }
