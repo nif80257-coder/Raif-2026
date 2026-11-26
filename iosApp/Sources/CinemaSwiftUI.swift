@@ -4924,10 +4924,27 @@ final class DetailModel: ObservableObject {
         loading = false
     }
 
+    /// What the list on screen belongs to, so opening the same title again within
+    /// a minute shows the links it already had instead of fetching every source
+    /// once more.
+    private var loadedFor: (id: String, type: String, at: Date)?
+
     /// Starts a live fetch that fills the list while the addons are still answering.
-    func startStreams(id: String, type: String) {
+    func startStreams(id: String, type: String, force: Bool = false) {
+        // The same title reopened within a minute keeps its list: coming back
+        // from the player refetched every source for nothing.
+        if !force, let loadedFor, loadedFor.id == id, loadedFor.type == type,
+           Date().timeIntervalSince(loadedFor.at) < 60, !streams.isEmpty {
+            loadingStreams = false
+            return
+        }
         if let token = streamToken { CinemaAPI.shared.cancelStreams(token) }
-        loadingStreams = streams.isEmpty
+        loadedFor = (id, type, Date())
+        // A new title starts from an empty list, so the rows on screen never
+        // belong to the title before it.
+        streams = []
+        failures = []
+        loadingStreams = true
         firstResultSeconds = nil
         streamStartedAt = Date()
         EventLog.shared.add("sources", "جلب \(type) \(id)")
@@ -4956,9 +4973,10 @@ final class DetailModel: ObservableObject {
         )
     }
 
-    /// Kept for pull-to-refresh, which waits for the last addon before it stops.
+    /// Kept for pull-to-refresh, which asks every source again and waits for the
+    /// last addon before it stops.
     func loadStreams(id: String, type: String) async {
-        startStreams(id: id, type: type)
+        startStreams(id: id, type: type, force: true)
         for _ in 0..<120 where streamToken != nil {
             try? await Task.sleep(nanoseconds: 150_000_000)
         }
@@ -5098,6 +5116,10 @@ struct DetailView: View {
     /// True while an adaptive link's rendition is being chosen, so the page says
     /// it is opening instead of looking frozen.
     @State private var opening = false
+    /// The title this page has already loaded. A full-screen player closes back
+    /// onto the page and SwiftUI runs its task again, which refetched every
+    /// source and reset the chosen season and episode; this keeps what was there.
+    @State private var loadedItemID: String?
     @State private var hiddenSources: Set<String> = SourcePrefs.hidden
     @State private var offAddons: Set<String> = SourcePrefs.offAddons
     @State private var foldedGroups: Set<String> = SourcePrefs.folded
@@ -5209,22 +5231,30 @@ struct DetailView: View {
             }
         }
         .task {
-            await model.load(item: item)
-            // The heart shows what the library really holds: before this it always
-            // opened empty, so a saved title looked unsaved and a tap on it
-            // removed it while the page said it was never saved.
-            saved = HomeModel.shared.favorites.contains(item.id)
-            // A season the viewer was on last time comes back with the page.
-            let remembered = UserDefaults.standard.integer(forKey: "cinemax.season." + item.id)
-            if remembered > 0, let seasons = model.detail?.seasons, seasons.contains(remembered) {
-                season = remembered
-            }
-            // A series opens on the episode that follows the last one watched, and
-            // asks for its links: a series id alone answers no source, which left
-            // the watch button greyed out until an episode was tapped by hand.
-            if episode == nil, let next = episodeToOpenOn() {
-                episode = next
-                await model.loadStreams(id: next.id, type: item.type)
+            // The page is loaded once per title: coming back from the player
+            // ran this again, which fetched every source a second time and
+            // reset the season and the episode the viewer had picked.
+            if loadedItemID != item.id {
+                loadedItemID = item.id
+                await model.load(item: item)
+                // The heart shows what the library really holds: before this it
+                // always opened empty, so a saved title looked unsaved and a tap
+                // on it removed it while the page said it was never saved.
+                saved = HomeModel.shared.favorites.contains(item.id)
+                // A season the viewer was on last time comes back with the page.
+                let remembered = UserDefaults.standard.integer(forKey: "cinemax.season." + item.id)
+                if remembered > 0, let seasons = model.detail?.seasons,
+                   seasons.contains(remembered) {
+                    season = remembered
+                }
+                // A series opens on the episode that follows the last one
+                // watched, and asks for its links: a series id alone answers no
+                // source, which left the watch button greyed out until an
+                // episode was tapped by hand.
+                if episode == nil, let next = episodeToOpenOn() {
+                    episode = next
+                    await model.loadStreams(id: next.id, type: item.type)
+                }
             }
             prefetchNextEpisode()
         }
