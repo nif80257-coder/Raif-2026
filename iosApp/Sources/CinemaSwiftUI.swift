@@ -8231,21 +8231,42 @@ enum Brand {
 /// different one tomorrow. It is seeded by the day rather than drawn by luck, so
 /// the day has a film to open instead of a slot machine.
 enum DailyFeature {
+    /// The last pick and the day it belongs to: the band asks for it on every
+    /// layout pass, and sorting the whole pool there would run hundreds of times
+    /// a second for a value that only changes at midnight.
+    private static var cached: (day: Int, count: Int, pick: CinemaItem?)?
+    private static var weekday: (day: Int, label: String)?
+
     static func pick(from items: [CinemaItem], day: Date = Date()) -> CinemaItem? {
-        var pool = items.filter { !$0.name.isEmpty }
-        guard !pool.isEmpty else { return nil }
-        pool.sort { $0.id < $1.id }
         let calendar = Calendar(identifier: .gregorian)
         let number = Int(calendar.startOfDay(for: day).timeIntervalSince1970 / 86_400)
-        return pool[abs(number) % pool.count]
+        if let cached, cached.day == number, cached.count == items.count {
+            return cached.pick
+        }
+        var pool = items.filter { !$0.name.isEmpty }
+        guard !pool.isEmpty else {
+            cached = (number, items.count, nil)
+            return nil
+        }
+        pool.sort { $0.id < $1.id }
+        let chosen = pool[abs(number) % pool.count]
+        cached = (number, items.count, chosen)
+        return chosen
     }
 
     /// The Arabic name of the day, so the band reads «فيلم اليوم · الخميس».
+    /// The formatter and its answer are kept for the day: a formatter built on
+    /// every pass is the second cost on the same band.
     static func label(_ day: Date = Date()) -> String {
+        let calendar = Calendar(identifier: .gregorian)
+        let number = Int(calendar.startOfDay(for: day).timeIntervalSince1970 / 86_400)
+        if let weekday, weekday.day == number { return weekday.label }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "ar")
         formatter.dateFormat = "EEEE"
-        return formatter.string(from: day)
+        let label = formatter.string(from: day)
+        weekday = (number, label)
+        return label
     }
 }
 
