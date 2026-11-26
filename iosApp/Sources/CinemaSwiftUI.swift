@@ -7,6 +7,7 @@ import Charts
 import CoreSpotlight
 import LocalAuthentication
 import Photos
+import ImageIO
 import Network
 import SafariServices
 import UniformTypeIdentifiers
@@ -1096,14 +1097,21 @@ enum CuratedSources {
 // MARK: - Images
 
 /// A small memory cache in front of URLSession: no third-party loader, and the
-/// same image is never downloaded twice while scrolling.
+/// same image is never downloaded twice while scrolling. A poster is decoded to
+/// the size it is drawn at rather than its own, and the cache is capped in bytes
+/// as well as in images, because a handful of 4K stills is otherwise enough to
+/// push the app into a memory warning halfway down a grid.
 final class CinemaImageStore {
     static let shared = CinemaImageStore()
     private let cache = NSCache<NSURL, UIImage>()
     private let session = URLSession(configuration: .default)
+    /// The largest side a poster is decoded to: a hero fills the width at the
+    /// screen's own scale, and nothing is drawn larger than that.
+    private let maxPixel = 1_200
 
     init() {
         cache.countLimit = 160
+        cache.totalCostLimit = 96 * 1024 * 1024
     }
 
     func cached(_ url: URL) -> UIImage? {
@@ -1114,12 +1122,31 @@ final class CinemaImageStore {
         if let cached = cached(url) { return cached }
         do {
             let (data, _) = try await session.data(from: url)
-            guard let image = UIImage(data: data) else { return nil }
-            cache.setObject(image, forKey: url as NSURL)
+            guard let image = Self.decode(data, maxPixel: maxPixel) else { return nil }
+            let cost = image.cgImage.map { $0.bytesPerRow * $0.height } ?? data.count
+            cache.setObject(image, forKey: url as NSURL, cost: cost)
             return image
         } catch {
             return nil
         }
+    }
+
+    /// Decodes a poster straight to the size it is drawn at. Skipping this is
+    /// what makes a grid decode a full-resolution still for every card.
+    private static func decode(_ data: Data, maxPixel: Int) -> UIImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+            return UIImage(data: data)
+        }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixel
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return UIImage(data: data)
+        }
+        return UIImage(cgImage: image)
     }
 
     /// Frees every poster held in memory, for the data screen's action.
@@ -2383,6 +2410,8 @@ struct PlayerScreen: View {
     @State private var lastDoubleTap = Date.distantPast
     @State private var locked = false
     @State private var bufferTicks = 0
+    /// Counts the half seconds between two resume points written while playing.
+    @State private var saveTicks = 0
     @State private var didAutoSkipIntro = false
     @State private var resumeHint: String?
     @AppStorage("cinemax.playerHints") private var hintsShown = false
@@ -3302,7 +3331,10 @@ struct PlayerScreen: View {
         ticker?.invalidate()
         Task {
             let streams = (try? await CinemaAPI.shared.streams(for: next.id, type: type)) ?? []
-            guard let best = streams.first else {
+            // A link that belongs to another app cannot play here, so the roll
+            // opens the first link this player can read instead of whatever the
+            // addons answered with first.
+            guard let best = streams.first(where: { $0.externalUrl == nil }) else {
                 switching = false
                 if closeOnFailure { dismiss() } else { episodeError = true }
                 return
@@ -3318,6 +3350,11 @@ struct PlayerScreen: View {
             ready = true
             switching = false
             player = nil
+            // The next episode is another file with its own tracks, so the
+            // subtitle choice and the panel's volume are applied to it again.
+            subtitleTracks = []
+            audioTracks = []
+            appliedInitial = false
             startTicker()
             applyRememberedSpeed()
         }
@@ -3379,6 +3416,14 @@ struct PlayerScreen: View {
                 }
                 if !scrubbing {
                     position = Double(player.positionMs) / 1000
+                }
+                // The place the viewer reached is written every half minute while
+                // the film plays, so a call, a crash or the app being closed never
+                // loses it: before this it was only written on the way out.
+                saveTicks += 1
+                if saveTicks >= 60 {
+                    saveTicks = 0
+                    saveProgress()
                 }
                 if !appliedInitial {
                     // The panel's choices come back the way they were left.
@@ -3453,6 +3498,12 @@ struct PlayerScreen: View {
         autoTries = 0
         loadTicks = 0
         didAutoSkipIntro = false
+        // The new file has tracks of its own, and the surface behind it is a new
+        // player: the subtitle choice, the volume and the picture's shape are
+        // applied to it again instead of being carried over from the dead link.
+        subtitleTracks = []
+        audioTracks = []
+        appliedInitial = false
         // The new link opens where the dead one stopped, a second before it, so a
         // swap in the middle of a film never sends the viewer back to the start.
         startMs = position > 5 ? Int64((position - 1) * 1000) : 0
@@ -3588,6 +3639,8 @@ struct SystemPlayerScreen: View {
     @State private var pool: [StreamChoice] = []
     @State private var showOptions = false
     @State private var speed = 1.0
+    /// Counts the half seconds between two resume points written while playing.
+    @State private var saveTicks = 0
     @State private var sleepMinutes: Int?
     @State private var sleepDeadline: Date?
     @State private var sleepRemaining = 0
@@ -4000,6 +4053,13 @@ struct SystemPlayerScreen: View {
                 if total.isFinite, total > 0 { duration = total }
                 let now = player.currentTime().seconds
                 if now.isFinite { position = now }
+                // The resume point is written while the film plays as well as on
+                // the way out, so a call or a crash mid-episode keeps the place.
+                saveTicks += 1
+                if saveTicks >= 60 {
+                    saveTicks = 0
+                    saveProgress()
+                }
                 if current.status == .failed, errorText == nil {
                     // A host that died is not the end of the film: the next link
                     // that this engine can read takes its place.
@@ -16342,7 +16402,7 @@ enum CinemaHash {
 /// and every part it finished is already on disk when they come back. Four ranges
 /// still travel at once, so a host that caps one connection stays fast, and a
 /// transfer iOS kept alive is adopted instead of being asked for twice.
-final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate {
+final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
     static let shared = BackgroundTransfers()
     static let identifier = "com.cinemax.transfers"
     /// The fixed number of ranges a file is cut into, kept here so a transfer
@@ -16519,6 +16579,17 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate {
         lock.unlock()
 
         if left > 0 {
+            // A part whose events never arrive — which happens when iOS finishes
+            // a transfer in the instant before it is registered here — would
+            // leave the job waiting forever. The wait is therefore capped: a
+            // transfer that has not finished within four minutes is stopped, and
+            // the caller's next attempt plans only the parts really missing.
+            let stallGuard = Task {
+                try? await Task.sleep(nanoseconds: 240_000_000_000)
+                guard !Task.isCancelled else { return }
+                self.cancel(jobKey: jobKey)
+            }
+            defer { stallGuard.cancel() }
             do {
                 try await withTaskCancellationHandler {
                     try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
