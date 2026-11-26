@@ -5095,6 +5095,9 @@ struct DetailView: View {
     @State private var similarPick: CinemaItem?
     @State private var copied: String?
     @State private var detailSheet: DetailSheet?
+    /// True while an adaptive link's rendition is being chosen, so the page says
+    /// it is opening instead of looking frozen.
+    @State private var opening = false
     @State private var hiddenSources: Set<String> = SourcePrefs.hidden
     @State private var offAddons: Set<String> = SourcePrefs.offAddons
     @State private var foldedGroups: Set<String> = SourcePrefs.folded
@@ -5178,6 +5181,18 @@ struct DetailView: View {
                     .padding(.vertical, 6)
                     .background(CinemaTheme.accent.opacity(0.85), in: Capsule())
                     .padding(.top, 100)
+            }
+            if opening {
+                HStack(spacing: 8) {
+                    ProgressView().tint(CinemaTheme.accent)
+                    Text("جارٍ فتح المصدر…")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(.ultraThinMaterial, in: Capsule())
+                .padding(.top, 54)
             }
             if let copied {
                 Text(copied)
@@ -6102,6 +6117,9 @@ struct DetailView: View {
             withAnimation(.easeInOut(duration: 0.15)) { playing = stream }
             return
         }
+        // Choosing a rendition is a network request of a few seconds; the page
+        // says so instead of looking frozen with nothing on it.
+        opening = true
         Task {
             let resolved = await HLSParser.shared.bestStream(
                 for: stream.url,
@@ -6115,6 +6133,7 @@ struct DetailView: View {
                     EventLog.shared.add("hls", "\(resolved.label) ← \(stream.addon)")
                 }
                 playbackEngine = CinemaxPrefs.engine(for: chosen.url)
+                opening = false
                 withAnimation(.easeInOut(duration: 0.15)) { playing = chosen }
             }
         }
@@ -8740,6 +8759,11 @@ struct HypeLogo: View {
             }
             .font(.system(size: 23, weight: .heavy))
         }
+        // The wordmark is read left to right whatever the interface's language:
+        // inside an Arabic layout the two halves were laid out from the right, so
+        // "cine" and "max" came out as "maxcine" and the mark no longer spelled
+        // the app's own name.
+        .environment(\.layoutDirection, .leftToRight)
         .accessibilityLabel(Brand.name)
     }
 }

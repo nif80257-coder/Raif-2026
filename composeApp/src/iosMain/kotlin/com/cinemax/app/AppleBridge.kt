@@ -118,6 +118,13 @@ data class AppleDetail(
  * interface uses, and serialises everything to JSON so the Swift side needs no
  * knowledge of the Kotlin model types. Every call answers on the main thread.
  */
+/**
+ * How many Nuvio providers a single source fetch runs. Their scripts are
+ * evaluated on the main thread, so this number is what decides whether the list
+ * appears at once or after a freeze of many seconds.
+ */
+private const val MAX_PROVIDERS_PER_FETCH = 12
+
 class CinemaxAppleBridge {
 
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -1042,7 +1049,12 @@ class CinemaxAppleBridge {
             // first copy answers a title and the second is not run for it again.
             .distinctBy { it.descriptor.id }
         // A provider the viewer switched off is never asked, so it costs no time.
-        val active = providers.filter { it.displayName !in offSourceNames() }
+        // Each provider's script runs on the main thread, so ninety of them was a
+        // freeze of many seconds before a single link appeared; the first twelve
+        // enabled ones are asked here, and the rest stay for the viewer to pick.
+        val active = providers
+            .filter { it.displayName !in offSourceNames() }
+            .take(MAX_PROVIDERS_PER_FETCH)
         if (active.isEmpty()) return emptyList()
         val (season, episode) = seasonEpisodeOf(itemId, type)
         val request = try {
