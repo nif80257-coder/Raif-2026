@@ -1866,14 +1866,14 @@ final class HomeModel: ObservableObject {
     }
 
     /// Forgets the cached catalogues and forces the next visit to refetch, used
-    /// after an addon is installed or removed.
+    /// after an addon is installed or removed. The rows on screen stay while the
+    /// new ones load: emptying them here turned the home back into skeletons
+    /// every time a title was saved or marked watched.
     func resetCache() {
         UserDefaults.standard.removeObject(forKey: cacheKey)
         lastLoaded = nil
         smartShelf = nil
         smartSeed = nil
-        shelves = []
-        loading = true
         Task { await load(force: true) }
     }
 
@@ -1913,6 +1913,10 @@ final class HomeModel: ObservableObject {
         } else {
             favorites.remove(item.id)
         }
+        // The library tab reads the same store through its own model, so it is
+        // reloaded here instead of on the next visit to that tab, where the row
+        // the viewer just saved was missing.
+        Task { await LibraryModel.shared.load() }
     }
 
     /// Forgets one stop position, called from the "أكمل المشاهدة" row.
@@ -5046,6 +5050,9 @@ struct DetailView: View {
     @AppStorage("cinemax.prefetchNext") private var prefetchNext = true
     @AppStorage("cinemax.raceSources") private var raceSources = true
     @State private var prefetchedEpisode: String?
+    /// True once the page picked the episode to open on by itself, so a page with
+    /// no source for that episode never asks again in a loop.
+    @State private var autoPicked = false
 
     private var playlist: [CinemaItem] {
         guard let detail = model.detail, !detail.episodes.isEmpty else { return [] }
@@ -5054,14 +5061,32 @@ struct DetailView: View {
             guard !text.isEmpty else { return true }
             return entry.name.localizedCaseInsensitiveContains(text)
         }
-        guard let season else { return base }
+        // The season on screen is the one chosen or, before anything is chosen,
+        // the first one the page shows. Without this a series listed every
+        // episode of every season at once while its first chip looked selected.
+        guard let onScreen = season ?? model.detail?.seasons.first else { return base }
         // Episode ids end with ":season:episode" both for addons ("tt1:1:2") and for
         // TMDB ("tmdb:123:series:1:2"), so the season is the second-to-last piece.
         return base.filter { episode in
             let parts = episode.id.split(separator: ":")
             guard parts.count >= 2, let value = Int(parts[parts.count - 2]) else { return false }
-            return value == season
+            return value == onScreen
         }
+    }
+
+    /// The episode a series opens on: the first of this season not watched yet,
+    /// or the first of the season when every one of them is watched.
+    private func episodeToOpenOn() -> CinemaItem? {
+        guard item.type == "series", let detail = model.detail else { return nil }
+        let number = currentSeason
+        let inSeason = detail.episodes.filter { entry in
+            guard let number else { return true }
+            let parts = entry.id.split(separator: ":")
+            guard parts.count >= 2, let value = Int(parts[parts.count - 2]) else { return false }
+            return value == number
+        }
+        guard !inSeason.isEmpty else { return nil }
+        return inSeason.first { !watched($0) } ?? inSeason.first
     }
 
     var body: some View {
@@ -5116,10 +5141,21 @@ struct DetailView: View {
         }
         .task {
             await model.load(item: item)
+            // The heart shows what the library really holds: before this it always
+            // opened empty, so a saved title looked unsaved and a tap on it
+            // removed it while the page said it was never saved.
+            saved = HomeModel.shared.favorites.contains(item.id)
             // A season the viewer was on last time comes back with the page.
-            let saved = UserDefaults.standard.integer(forKey: "cinemax.season." + item.id)
-            if saved > 0, let seasons = model.detail?.seasons, seasons.contains(saved) {
-                season = saved
+            let remembered = UserDefaults.standard.integer(forKey: "cinemax.season." + item.id)
+            if remembered > 0, let seasons = model.detail?.seasons, seasons.contains(remembered) {
+                season = remembered
+            }
+            // A series opens on the episode that follows the last one watched, and
+            // asks for its links: a series id alone answers no source, which left
+            // the watch button greyed out until an episode was tapped by hand.
+            if episode == nil, let next = episodeToOpenOn() {
+                episode = next
+                await model.loadStreams(id: next.id, type: item.type)
             }
             prefetchNextEpisode()
         }
@@ -5464,8 +5500,9 @@ struct DetailView: View {
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(CinemaTheme.muted)
                 }
-                if let imdb = imdbID {
-                    Link(destination: URL(string: "https://www.imdb.com/title/\(imdb)/")!) {
+                if let imdb = imdbID,
+                   let page = URL(string: "https://www.imdb.com/title/\(imdb)/") {
+                    Link(destination: page) {
                         Label("IMDb", systemImage: "arrow.up.right.square")
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(CinemaTheme.accent)
@@ -5689,12 +5726,13 @@ struct DetailView: View {
         }
     }
 
-    /// Queues the three episodes that follow the one tapped, so a weak link or a
-    /// trip is watched from the device rather than from the network.
+    /// Queues the three episodes that follow the one tapped, inside the season
+    /// on screen: a season has its own numbering, so the whole episode list
+    /// would have queued the first episodes of the next season.
     private func downloadUpcoming(after entry: CinemaItem) {
-        guard let detail = model.detail,
-              let index = detail.episodes.firstIndex(where: { $0.id == entry.id }) else { return }
-        let upcoming = Array(detail.episodes.dropFirst(index + 1).prefix(3))
+        let entries = playlist
+        guard let index = entries.firstIndex(where: { $0.id == entry.id }) else { return }
+        let upcoming = Array(entries.dropFirst(index + 1).prefix(3))
         guard !upcoming.isEmpty else {
             copied = "لا حلقات بعد \(entry.name)"
             return
@@ -5907,6 +5945,24 @@ struct DetailView: View {
     /// The watch button does not trust the first row blindly: with racing on, the top
     /// few links are probed in parallel and the first that really serves bytes plays.
     private func playBest() {
+        // Nothing was answered for the series id: the page opens on the episode
+        // it should, asks for that episode's links, and then plays them.
+        if playableStreams.isEmpty {
+            guard !autoPicked, let next = episodeToOpenOn() else { return }
+            autoPicked = true
+            episode = next
+            Task {
+                await model.loadStreams(id: next.id, type: item.type)
+                await MainActor.run {
+                    if playableStreams.isEmpty {
+                        copied = "لا رابط لهذه الحلقة"
+                    } else {
+                        playBest()
+                    }
+                }
+            }
+            return
+        }
         guard let first = playableStreams.first else { return }
         guard raceSources, playableStreams.count > 1 else {
             play(first)
