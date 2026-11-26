@@ -951,13 +951,8 @@ enum CuratedSources {
             isRepository: false
         ),
         Source(
-            id: "comet",
-            name: "Comet",
-            url: "https://comet.elfhosted.com/manifest.json",
-            note: "P2P مجاني",
-            isRepository: false
-        ),
-        Source(
+            // Comet answered "client request invalid" for every title until it is
+            // configured with a debrid account, so it is not offered any more.
             id: "anime-kitsu",
             name: "Anime Kitsu",
             url: "https://anime-kitsu.strem.fun/manifest.json",
@@ -3680,6 +3675,9 @@ struct SystemPlayerScreen: View {
     @State private var speed = 1.0
     /// Counts the half seconds between two resume points written while playing.
     @State private var saveTicks = 0
+    /// Counts the half seconds a link has gone without a duration, so a source
+    /// that never opens is swapped instead of leaving a black screen.
+    @State private var stalledTicks = 0
     @State private var sleepMinutes: Int?
     @State private var sleepDeadline: Date?
     @State private var sleepRemaining = 0
@@ -4092,6 +4090,19 @@ struct SystemPlayerScreen: View {
                 if total.isFinite, total > 0 { duration = total }
                 let now = player.currentTime().seconds
                 if now.isFinite { position = now }
+                // A link that never produces a duration is the black screen the
+                // viewer stared at: after twenty-four seconds it is swapped for
+                // the next source instead of being waited on forever.
+                if duration <= 1, errorText == nil, !switching {
+                    stalledTicks += 1
+                    if stalledTicks >= 48 {
+                        stalledTicks = 0
+                        EventLog.shared.add("player", "مصدر بلا صورة · تجربة التالي")
+                        tryFailover()
+                    }
+                } else {
+                    stalledTicks = 0
+                }
                 // The resume point is written while the film plays as well as on
                 // the way out, so a call or a crash mid-episode keeps the place.
                 saveTicks += 1
@@ -4150,7 +4161,10 @@ struct SystemPlayerSurface: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         let controller = AVPlayerViewController()
         controller.player = player
-        controller.showsPlaybackControls = true
+        // The app draws its own header, scrubber and panels, so Apple's bar is
+        // turned off: with both on, the title and the AirPlay control sat on top
+        // of each other and half the words were unreadable.
+        controller.showsPlaybackControls = false
         // The picture is letterboxed inside the screen in both orientations. It
         // is set here rather than left to the default so a player kept from an
         // earlier screen can never come back filling the page.
@@ -4932,6 +4946,11 @@ final class DetailModel: ObservableObject {
                         "sources",
                         "انتهى: \(payload.streams.count) رابط، \(payload.failures?.count ?? 0) فشل"
                     )
+                    if let first = payload.failures?.first {
+                        // The page shows one Arabic word per failure; the whole
+                        // message, URL included, is kept here for a report.
+                        EventLog.shared.add("sources", "تفصيل: " + first)
+                    }
                 }
             }
         )
@@ -5547,6 +5566,39 @@ struct DetailView: View {
             }
         }
         .padding(.horizontal, 20)
+    }
+
+    /// A short Arabic reason for a source's failure. The engine's own message is
+    /// English with a full URL inside it, which is not something a viewer should
+    /// read on the page: the source's name and one word are enough, and the whole
+    /// text is kept in the event log for a report.
+    private func reason(_ failure: String) -> String {
+        let name = failure.split(separator: ":").first.map(String.init) ?? failure
+        let lowered = failure.lowercased()
+        let cause: String
+        if lowered.contains("timeout") || lowered.contains("timed out")
+            || lowered.contains("deadline") || lowered.contains("مهلة") {
+            cause = "انتهت المهلة"
+        } else if lowered.contains("invalid") || lowered.contains("غير صالح")
+            || lowered.contains("config") {
+            cause = "يحتاج إعدادًا"
+        } else if lowered.contains("403") || lowered.contains("forbidden")
+            || lowered.contains("401") || lowered.contains("unauthorized") {
+            cause = "الخادم رفض"
+        } else if lowered.contains("404") || lowered.contains("not found") {
+            cause = "غير موجود"
+        } else if lowered.contains("dns") || lowered.contains("offline")
+            || lowered.contains("network") || lowered.contains("connect") {
+            cause = "تعذر الاتصال"
+        } else {
+            cause = "لم يستجب"
+        }
+        return "\(name.trimmingCharacters(in: .whitespaces)): \(cause)"
+    }
+
+    /// The failures as one readable line, three at most.
+    private var failureNote: String {
+        model.failures.prefix(3).map(reason).joined(separator: " · ")
     }
 
     private var imdbID: String? {
@@ -6265,7 +6317,7 @@ struct DetailView: View {
                 }
                 .padding(.horizontal, 20)
                 if !model.failures.isEmpty {
-                    Text(model.failures.prefix(3).joined(separator: " · "))
+                    Text(failureNote)
                         .font(.system(size: 10))
                         .foregroundStyle(CinemaTheme.muted)
                         .lineLimit(2)
@@ -6292,7 +6344,7 @@ struct DetailView: View {
                         .font(.system(size: 13))
                         .foregroundStyle(CinemaTheme.muted)
                     if !model.failures.isEmpty {
-                        Text(model.failures.prefix(4).joined(separator: " · "))
+                        Text(failureNote)
                             .font(.system(size: 10))
                             .foregroundStyle(CinemaTheme.favourite)
                             .lineLimit(3)
