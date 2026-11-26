@@ -2506,7 +2506,9 @@ struct PlayerScreen: View {
             if ready {
                 MPVSurface(url: currentURL, headers: currentHeaders, startMs: startMs, controller: $player)
                     .id(currentURL + "-" + String(startMs) + "-" + String(playToken))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .ignoresSafeArea()
+                    .clipped()
                     .contentShape(Rectangle())
                     .highPriorityGesture(
                         SpatialTapGesture(count: 2)
@@ -3572,7 +3574,9 @@ struct SystemPlayerScreen: View {
             Color.black.ignoresSafeArea()
             if ready {
                 SystemPlayerSurface(player: player)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .ignoresSafeArea()
+                    .clipped()
             } else {
                 ProgressView().tint(CinemaTheme.accent)
             }

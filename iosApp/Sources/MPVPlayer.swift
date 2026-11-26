@@ -63,28 +63,72 @@ final class MPVViewController: UIViewController {
         })
     }
 
-    /// Keeps the drawable the same shape as the window, at the screen's own
-    /// scale, which is what makes the picture fill the screen after a rotation.
+    /// The video's own shape, read from libmpv. The layer is given exactly that
+    /// shape and centred in the window, so the picture is fitted by this code in
+    /// both orientations instead of by whatever the renderer works out itself —
+    /// which is what made the video come out larger than the page.
+    private var videoAspect: Double = 0
+
+    /// Sizes the layer to the picture's own shape, at the screen's own scale.
+    /// Keeping the layer the shape of the video is what makes libmpv fill it
+    /// exactly, with no stretch and nothing cropped, in either orientation.
     private func updateSurfaceSize() {
         let bounds = view.bounds
         guard bounds.width > 1, bounds.height > 1 else { return }
         let scale = view.window?.screen.nativeScale ?? UIScreen.main.nativeScale
+        let target = pictureRect(in: bounds)
         let drawable = CGSize(
-            width: (bounds.width * scale).rounded(),
-            height: (bounds.height * scale).rounded()
+            width: (target.width * scale).rounded(),
+            height: (target.height * scale).rounded()
         )
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        metalLayer.frame = bounds
+        metalLayer.frame = target
         metalLayer.contentsScale = scale
         if metalLayer.drawableSize != drawable {
             metalLayer.drawableSize = drawable
         }
         CATransaction.commit()
-        // Turning the phone changes the window's shape, and libmpv keeps its own
-        // idea of the picture's shape across that: it is put back here so the
-        // landscape frame comes out fitted instead of cropped or stretched.
+        // A ratio or a zoom the viewer picked sits on top of the fitted shape.
         applyPicture()
+    }
+
+    /// Where the picture sits inside the window: the video's own shape fitted
+    /// in it and centred, the whole window when a crop was asked for, and the
+    /// ratio the viewer named when they picked one.
+    private func pictureRect(in bounds: CGRect) -> CGRect {
+        let value = requestedAspect.trimmingCharacters(in: .whitespaces)
+        if value == "fill" { return bounds }
+        var aspect = videoAspect
+        if let forced = Self.ratio(value) { aspect = forced }
+        guard aspect >= 0.05, aspect <= 20 else { return bounds }
+        let windowAspect = bounds.width / bounds.height
+        var size: CGSize
+        if aspect > windowAspect {
+            size = CGSize(width: bounds.width, height: (bounds.width / aspect).rounded())
+        } else {
+            size = CGSize(width: (bounds.height * aspect).rounded(), height: bounds.height)
+        }
+        size.width = max(1, min(bounds.width, size.width))
+        size.height = max(1, min(bounds.height, size.height))
+        return CGRect(
+            x: ((bounds.width - size.width) / 2).rounded(),
+            y: ((bounds.height - size.height) / 2).rounded(),
+            width: size.width,
+            height: size.height
+        )
+    }
+
+    /// Reads a ratio such as "16:9" or "2.35:1"; nil when the value is not one.
+    private static func ratio(_ value: String) -> Double? {
+        let pieces = value.split(separator: ":")
+        guard pieces.count == 2,
+              let left = Double(pieces[0]),
+              let right = Double(pieces[1]),
+              left > 0, right > 0 else {
+            return nil
+        }
+        return left / right
     }
 
     /// A player that came back from the background is the classic black screen:
@@ -278,6 +322,17 @@ final class MPVViewController: UIViewController {
         cachedPositionMs = Int64(getDouble(mpv, "time-pos") * 1000)
         cachedDurationMs = Int64(getDouble(mpv, "duration") * 1000)
         cachedEnded = getFlag(mpv, "eof-reached")
+        // The shape of the file libmpv opened, which the layer is cut to. It is
+        // read here rather than only once, because the video parameters arrive a
+        // moment after the file does, and an episode can open in another shape
+        // than the one before it.
+        let aspect = getDouble(mpv, "video-params/aspect")
+        if aspect >= 0.05, aspect <= 20, abs(aspect - videoAspect) > 0.005 {
+            videoAspect = aspect
+            DispatchQueue.main.async { [weak self] in
+                self?.updateSurfaceSize()
+            }
+        }
     }
 
     var positionMs: Int64 { cachedPositionMs }

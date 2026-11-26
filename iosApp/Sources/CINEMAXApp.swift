@@ -13,15 +13,21 @@ final class OrientationManager {
 
     var isPlayerActive: Bool { mask != .portrait }
 
-    /// Lets the player rotate (or locks the interface back to portrait). The mask
-    /// is changed first and the root is told to re-read it, because iOS refuses a
-    /// geometry request whose orientation the window does not already allow.
+    /// Lets the player rotate (or locks the interface back to portrait). Only the
+    /// mask changes here: the panel's own أفقي / رأسي buttons are what turn the
+    /// window by force. Forcing landscape the moment the player opened made a
+    /// phone held upright show the film across a window wider than the page,
+    /// which is what looked like a video larger than the screen.
     func setPlayerRotation(_ allowed: Bool) {
         let wanted: UIInterfaceOrientationMask = allowed ? .allButUpsideDown : .portrait
         guard wanted != mask else { return }
         mask = wanted
         refresh()
-        request(allowed ? .landscapeRight : .portrait)
+        // Leaving the player puts the app upright again; opening it leaves the
+        // picture the way the phone is held.
+        if !allowed {
+            request(.portrait)
+        }
     }
 
     /// Turns the screen right now, for the player's own rotate button.
