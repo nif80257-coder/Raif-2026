@@ -8017,6 +8017,18 @@ struct CinemaRootView: View {
                     UserDefaults.standard.set("auto", forKey: "cinemax.playerEngine")
                 }
             }
+            // A ratio or a zoom left by an older build is what stretches a
+            // picture: anything the player cannot name is cleared here, so the
+            // next film opens fitted instead of inheriting it.
+            let allowedAspects = ["", "auto", "fit", "fill", "16:9", "4:3", "2.35:1"]
+            if let stored = UserDefaults.standard.string(forKey: "cinemax.aspect"),
+               !allowedAspects.contains(stored) {
+                UserDefaults.standard.set("", forKey: "cinemax.aspect")
+            }
+            let storedZoom = (UserDefaults.standard.object(forKey: "cinemax.zoom") as? Double) ?? 0
+            if storedZoom < -0.5 || storedZoom > 0.5 {
+                UserDefaults.standard.set(0, forKey: "cinemax.zoom")
+            }
             if !onboarded { showOnboarding = true }
             if appLock { authenticate() }
             handlePendingCommand()
