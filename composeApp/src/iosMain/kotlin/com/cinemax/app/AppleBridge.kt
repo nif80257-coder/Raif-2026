@@ -16,6 +16,7 @@ import com.cinemax.app.nuvio.TmdbIdResolver
 import com.cinemax.app.nuvio.createNuvioHttpClient
 import com.cinemax.app.nuvio.createNuvioScriptRuntime
 import com.cinemax.app.nuvio.nuvioSourcesFrom
+import com.cinemax.app.nuvio.runsOnIos
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.encodeURLParameter
@@ -1021,8 +1022,12 @@ class CinemaxAppleBridge {
         val providers = runCatching { nuvioStore.loadRepositories() }.getOrDefault(emptyList())
             .flatMap { repository ->
                 repository.scrapers
+                    // A provider the viewer turned off, or one built for another
+                    // platform, is never asked: it only costs time and answers
+                    // with nothing on this device.
                     .filter { scraper ->
-                        scraper.enabled && "${repository.manifestUrl}#${scraper.id}" in enabled
+                        scraper.enabled && scraper.runsOnIos &&
+                            "${repository.manifestUrl}#${scraper.id}" in enabled
                     }
                     .map { scraper ->
                         NuvioProviderEntry(
@@ -1033,6 +1038,9 @@ class CinemaxAppleBridge {
                         )
                     }
             }
+            // Two repositories carry the same provider under the same id, so the
+            // first copy answers a title and the second is not run for it again.
+            .distinctBy { it.descriptor.id }
         // A provider the viewer switched off is never asked, so it costs no time.
         val active = providers.filter { it.displayName !in offSourceNames() }
         if (active.isEmpty()) return emptyList()
@@ -1251,11 +1259,9 @@ class CinemaxAppleBridge {
                         description = scraper.description,
                         version = scraper.version,
                         types = scraper.supportedTypes,
-                        enabled = scraper.enabled && key in enabled,
+                        enabled = scraper.enabled && scraper.runsOnIos && key in enabled,
                         hasSettings = scraper.hasSettings,
-                        disabledOnIos = scraper.disabledPlatforms.any {
-                            it.equals("ios", ignoreCase = true)
-                        }
+                        disabledOnIos = !scraper.runsOnIos
                     )
                 }
             )
@@ -1272,7 +1278,7 @@ class CinemaxAppleBridge {
                 nuvioStore.saveRepositories(current + repository)
                 val keys = runCatching { nuvioStore.loadEnabledProviders() }
                     .getOrDefault(emptySet()).toMutableSet()
-                repository.scrapers.filter { it.enabled }.forEach { scraper ->
+                repository.scrapers.filter { it.enabled && it.runsOnIos }.forEach { scraper ->
                     keys.add(repository.manifestUrl + "#" + scraper.id)
                 }
                 nuvioStore.saveEnabledProviders(keys)

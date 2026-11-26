@@ -892,8 +892,11 @@ final class CinemaAPI {
 /// What CINEMAX offers on its own: free Stremio addons and Nuvio provider
 /// repositories that answer with a link over plain http or peer-to-peer, with no
 /// debrid and no proxy in the middle. Every URL was checked live before it was
-/// listed, so a dead or deprecated one is not here: WebStreamr, for one, answers
-/// with a "deprecated" page and is left out on purpose.
+/// listed, so a dead, deprecated or paywalled one is not here: WatchHub only
+/// hands out links to legal services, Nuvio Streams answers 404 from its own
+/// manifest host, and WebStreamr answers with a "deprecated" page. All three are
+/// gone on purpose, and a source installed by an earlier build is removed by
+/// `removeUnfree()` when it sits behind a debrid account or a proxy.
 enum CuratedSources {
     struct Source: Identifiable {
         let id: String
@@ -912,10 +915,10 @@ enum CuratedSources {
             isRepository: false
         ),
         Source(
-            id: "watchhub",
-            name: "WatchHub",
-            url: "https://watchhub.strem.io/manifest.json",
-            note: "أين يُعرض العنوان قانونيًا",
+            id: "streamar",
+            name: "StreamAR",
+            url: "https://2ecbbd610840-stremio-ar.baby-beamup.club/manifest.json",
+            note: "روابط عربية مباشرة: أكوام و wecima",
             isRepository: false
         ),
         Source(
@@ -926,10 +929,10 @@ enum CuratedSources {
             isRepository: false
         ),
         Source(
-            id: "nuvio-streams",
-            name: "Nuvio Streams",
-            url: "https://raw.githubusercontent.com/tapframe/NuvioStreamsAddon/master/manifest.json",
-            note: "روابط HTTP مباشرة بلا وسيط",
+            id: "torrentsdb",
+            name: "TorrentsDB",
+            url: "https://torrentsdb.com/eyJsYW5ndWFnZSI6WyJhcmFiaWMiXX0=/manifest.json",
+            note: "P2P مجاني — تورنتات عربية أولًا",
             isRepository: false
         ),
         Source(
@@ -958,6 +961,13 @@ enum CuratedSources {
             name: "Anime Kitsu",
             url: "https://anime-kitsu.strem.fun/manifest.json",
             note: "أنمي مجاني بلا وسيط",
+            isRepository: false
+        ),
+        Source(
+            id: "cinetorrent",
+            name: "CineTorrent",
+            url: "https://150203dd784e-cinetorrent-addon.baby-beamup.club/manifest.json",
+            note: "P2P مجاني — تورنتات متعددة اللغات",
             isRepository: false
         )
     ]
@@ -1052,6 +1062,34 @@ enum CuratedSources {
             ids.insert(source.id)
         }
         return ids
+    }
+
+    /// Every marker that names a paid service, a debrid account or a middleman
+    /// in a source URL. A link behind one of these is not free: it answers only
+    /// to a paid key or a private proxy, and it sat in the ready-made list of an
+    /// earlier build in exactly that shape.
+    private static let unfreeMarkers = [
+        "realdebrid", "real-debrid", "alldebrid", "premiumize", "torbox", "debridlink",
+        "easydebrid", "debrid", "offcloud", "put.io", "putio", "easynews", "seedr",
+        "jackettio", "aiostreams", "autostream", "orion", "stremthru", "mediaflow"
+    ]
+
+    /// Removes an installed source that sits behind a paid service or a proxy, so
+    /// the list holds only what plays for free over http or peer-to-peer. It runs
+    /// once, before the free set is offered, and a source it removes is never put
+    /// back: the ids offered are written after it.
+    @discardableResult
+    static func removeUnfree() async -> Int {
+        let installed = await CinemaAPI.shared.installedAddons()
+        var removed = 0
+        for addon in installed {
+            let lowered = addon.url.lowercased()
+            guard unfreeMarkers.contains(where: { lowered.contains($0) }) else { continue }
+            await CinemaAPI.shared.removeAddon(addon.url)
+            removed += 1
+            await EventLog.shared.add("addons", "حُذف \(addon.name): ليس مجانيًا")
+        }
+        return removed
     }
 }
 
@@ -8051,6 +8089,13 @@ struct CinemaRootView: View {
             if appLock { authenticate() }
             handlePendingCommand()
             await LibraryModel.shared.load()
+            // A paid service or a proxy behind an installed source is not free:
+            // it is removed once, before the free set is offered, so the list
+            // holds only what plays over http or peer-to-peer.
+            if !UserDefaults.standard.bool(forKey: "cinemax.free.v1") {
+                UserDefaults.standard.set(true, forKey: "cinemax.free.v1")
+                await CuratedSources.removeUnfree()
+            }
             // First launch: the free set is offered once, and an addon the viewer
             // removes afterwards is never put back behind their back.
             await CuratedSources.offerIfNeeded()

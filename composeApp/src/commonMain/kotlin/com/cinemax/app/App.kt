@@ -133,6 +133,7 @@ import com.cinemax.app.nuvio.TmdbSeasons
 import com.cinemax.app.nuvio.createNuvioHttpClient
 import com.cinemax.app.nuvio.createNuvioScriptRuntime
 import com.cinemax.app.nuvio.nuvioSourcesFrom
+import com.cinemax.app.nuvio.runsOnIos
 import com.cinemax.app.ui.CinemaxCatalogScreen
 import com.cinemax.app.ui.cinemaxTypography
 import com.cinemax.app.ui.InAppBrowser
@@ -197,12 +198,13 @@ fun App() {
     val nuvioProviders = nuvioRepositories.flatMap { repository ->
         repository.scrapers
             .filter { scraper ->
-                scraper.enabled && "${repository.manifestUrl}#${scraper.id}" in nuvioEnabled
+                scraper.enabled && scraper.runsOnIos &&
+                    "${repository.manifestUrl}#${scraper.id}" in nuvioEnabled
             }
             .map { scraper ->
                 NuvioProviderEntry("${repository.manifestUrl}#${scraper.id}", repository.name, repository, scraper)
             }
-    }
+    }.distinctBy { it.descriptor.id }
     val nuvioSignature = nuvioProviders.joinToString("|") { it.providerKey }
     val preferencesStore = remember { CinemaxPreferencesStore() }
     val favoritesStore = remember { FavoritesStore() }

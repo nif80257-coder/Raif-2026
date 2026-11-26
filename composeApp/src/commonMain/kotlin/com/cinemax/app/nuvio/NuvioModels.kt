@@ -34,6 +34,16 @@ data class NuvioScraperDescriptor(
     val disabledPlatforms: List<String> = emptyList()
 )
 
+/**
+ * True when this provider can run on iOS. A provider whose author excluded iOS,
+ * or one that says it was built for Android TV only, answers with nothing here:
+ * enabling it would cost a fetch and a script run for an empty answer, and it
+ * would claim a source that never plays.
+ */
+val NuvioScraperDescriptor.runsOnIos: Boolean
+    get() = disabledPlatforms.none { it.equals("ios", ignoreCase = true) } &&
+        description?.contains("android tv", ignoreCase = true) != true
+
 /** A repository installed on the device, with its providers. */
 @Serializable
 data class InstalledNuvioRepository(
