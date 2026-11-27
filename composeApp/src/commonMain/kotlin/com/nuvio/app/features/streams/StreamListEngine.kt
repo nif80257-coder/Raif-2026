@@ -119,6 +119,8 @@ internal object StreamListEngine {
                         streams = reusedStreams.expandingPlaylistLinks()
                             .sortedForGroupedDisplay(preferredRanksByAddonId[addon.addonId]),
                         isLoading = false,
+                        // No request was made, so the time the source was last measured at stands.
+                        speedMs = measuredSpeeds[addon.manifestUrl],
                     )
                 }
 
@@ -185,6 +187,7 @@ internal object StreamListEngine {
                             addonId = addon.addonId,
                             streams = expanded.sortedForGroupedDisplay(preferredRanksByAddonId[addon.addonId]),
                             isLoading = false,
+                            speedMs = elapsedMs.takeIf { ms -> ms > 0L },
                         )
                     },
                     onFailure = {

@@ -1799,6 +1799,7 @@
     <string name="streams_finding_streams">Finding streams…</string>
     <string name="streams_link_copied">Stream link copied</string>
     <string name="streams_link_count">%1$d links</string>
+    <string name="streams_source_speed">%1$s s</string>
     <string name="streams_no_direct_link">No direct stream link available</string>
     <string name="streams_no_metadata">No metadata available</string>
     <string name="streams_refresh">Refresh streams</string>

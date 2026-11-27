@@ -369,6 +369,8 @@ data class AddonStreamGroup(
     val streams: List<StreamItem>,
     val isLoading: Boolean = false,
     val error: String? = null,
+    /** How long this source took to answer, when this load measured it. */
+    val speedMs: Long? = null,
 )
 
 /** A source the app asked that answered successfully without a single playable link. */

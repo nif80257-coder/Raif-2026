@@ -1790,6 +1790,7 @@
     <string name="streams_finding_streams">جارٍ البحث عن مصادر البث…</string>
     <string name="streams_link_copied">تم نسخ رابط البث</string>
     <string name="streams_link_count">%1$d روابط</string>
+    <string name="streams_source_speed">%1$s ث</string>
     <string name="streams_no_direct_link">لا يتوفر رابط بث مباشر</string>
     <string name="streams_no_metadata">لا تتوفر بيانات وصفية</string>
     <string name="streams_refresh">تحديث مصادر البث</string>

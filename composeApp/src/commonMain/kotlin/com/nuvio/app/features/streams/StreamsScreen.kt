@@ -34,6 +34,7 @@ import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.SearchOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -722,6 +723,12 @@ internal fun StreamList(
     val filteredGroups = uiState.visibleGroups
     val hasGroups = filteredGroups.isNotEmpty()
     val hasAnyStreams = filteredGroups.any { it.streams.isNotEmpty() }
+    // A source that answered with nothing and said why is drawn as a row of its own: it is the
+    // difference between "no source has this title" and "one source is down", and the sheet owes
+    // the viewer that difference.
+    val hasUnavailableSources = filteredGroups.any { group ->
+        group.streams.isEmpty() && !group.isLoading && group.error != null
+    }
     val anyLoading = filteredGroups.any { it.isLoading }
     val torrentNotSupportedText = stringResource(Res.string.streams_torrent_not_supported)
     val fetchingText = stringResource(Res.string.streams_fetching)
@@ -773,7 +780,7 @@ internal fun StreamList(
                 }
             }
 
-            !hasAnyStreams && !uiState.isAnyLoading -> {
+            !hasAnyStreams && !hasUnavailableSources && !uiState.isAnyLoading -> {
                 item {
                     EmptyStateBlock(
                         reason = uiState.emptyStateReason,
@@ -831,7 +838,26 @@ private fun LazyListScope.streamSection(
     resumePositionMs: Long?,
     resumeProgressFraction: Float?,
 ) {
-    if (group.streams.isEmpty() && !group.isLoading) return
+    if (group.streams.isEmpty() && !group.isLoading) {
+        // The group carries the reason the source had nothing. Drawing it as one dim row keeps the
+        // source on screen, so a title with ten sources never reads as one with nine.
+        val unavailable = group.error ?: return
+        if (showHeader) {
+            item(key = "header_$sectionKey") {
+                StreamSectionHeader(
+                    addonName = group.addonName,
+                    streamCount = 0,
+                    isLoading = false,
+                    fetchingText = fetchingText,
+                    speedMs = group.speedMs,
+                )
+            }
+        }
+        item(key = "unavailable_$sectionKey") {
+            UnavailableSourceRow(message = unavailable)
+        }
+        return
+    }
 
     if (showHeader) {
         item(key = "header_$sectionKey") {
@@ -840,6 +866,7 @@ private fun LazyListScope.streamSection(
                 streamCount = group.streams.size,
                 isLoading = group.isLoading,
                 fetchingText = fetchingText,
+                speedMs = group.speedMs,
             )
         }
     }
@@ -941,8 +968,11 @@ private fun StreamSectionHeader(
     streamCount: Int,
     isLoading: Boolean,
     fetchingText: String,
+    /** The time this source took to answer, when this load measured it. */
+    speedMs: Long? = null,
     modifier: Modifier = Modifier,
 ) {
+    val speedText = speedMs?.takeIf { ms -> ms > 0L }?.let { ms -> formatSourceSpeedSeconds(ms) }
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -970,14 +1000,61 @@ private fun StreamSectionHeader(
                 StreamCountBadge(count = streamCount)
             }
         }
-        AnimatedVisibility(visible = isLoading, enter = fadeIn(), exit = fadeOut()) {
+        if (speedText != null && !isLoading) {
+            // What the source cost to answer, next to what it returned: the two together say which
+            // sources are worth waiting for.
             Text(
-                text = fetchingText,
-                modifier = Modifier.shimmer(),
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
-                color = MaterialTheme.colorScheme.primary,
+                text = stringResource(Res.string.streams_source_speed, speedText),
+                modifier = Modifier.padding(start = 8.dp),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                maxLines = 1,
             )
+        } else {
+            AnimatedVisibility(visible = isLoading, enter = fadeIn(), exit = fadeOut()) {
+                Text(
+                    text = fetchingText,
+                    modifier = Modifier.shimmer(),
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
         }
+    }
+}
+
+/**
+ * One dim row standing in for a source that answered with nothing.
+ *
+ * It carries the source's own sentence and no tap of its own: the refresh chip above the list is
+ * what asks every source again, and a second, per-row retry would only queue the same request.
+ */
+@Composable
+private fun UnavailableSourceRow(
+    message: String,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.Refresh,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            modifier = Modifier.size(16.dp),
+        )
+        Text(
+            text = message,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
