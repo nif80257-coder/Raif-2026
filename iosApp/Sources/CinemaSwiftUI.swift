@@ -266,6 +266,20 @@ struct StreamChoice: Identifiable, Codable, Hashable {
     var id: String { url }
 }
 
+/// The quality and language filters the viewer last chose, kept so the next
+/// title opens the way it was left. An empty string means «الكل», which is not
+/// the same as never having chosen a filter at all.
+enum SourceFilterMemory {
+    static func saved(_ key: String) -> String? {
+        guard let stored = UserDefaults.standard.string(forKey: key) else { return nil }
+        return stored.isEmpty ? nil : stored
+    }
+
+    static func store(_ key: String, _ value: String?) {
+        UserDefaults.standard.set(value ?? "", forKey: key)
+    }
+}
+
 /// The language a link says it carries, read from the words the addon prints in
 /// its own stream title ("1080p · عربي · 2.1 GB"). Stremio has no language
 /// field, so a link that says nothing stays «غير محدد» rather than being guessed:
@@ -2789,6 +2803,8 @@ struct PlayerScreen: View {
     @State private var playing = true
     @State private var position: Double = 0
     @State private var duration: Double = 0
+    /// When the current source was handed to libmpv, to time its first frame.
+    @State private var loadStartedAt = Date()
     /// Where the buffer ends, read from libmpv on every tick.
     @State private var bufferedMs: Int64 = 0
     /// The chapters the file declares, for the marks inside the timeline.
@@ -2827,6 +2843,9 @@ struct PlayerScreen: View {
     @State private var subtitleError = false
     @State private var addonSubtitles: [SubtitleChoice] = []
     @State private var loadingSubtitles = false
+    /// True once the subtitle addons were asked for this file, so they are not
+    /// asked again on every tick.
+    @State private var subtitlesRequested = false
     @State private var volume: Double = (UserDefaults.standard.object(forKey: "cinemax.volume") as? Double) ?? 100
     /// The picture's shape, which every title now opens fitted with bars. It is
     /// kept for the screen alone and never stored: a crop left behind by an
@@ -4105,6 +4124,12 @@ struct PlayerScreen: View {
             if value > 0 {
                 if subtitleTracks.isEmpty, audioTracks.isEmpty { loadTracks() }
                 if speed != 1 { player?.setSpeed(speed) }
+                // The subtitle addons are asked once per file, so a film with
+                // no Arabic track still gets one without opening any panel.
+                if !subtitlesRequested {
+                    subtitlesRequested = true
+                    loadAddonSubtitles()
+                }
             }
         }
         .task(id: "\(controlsVisible)-\(playing)") {
@@ -4219,6 +4244,7 @@ struct PlayerScreen: View {
             chapters = []
             bufferedMs = 0
             scrubValue = 0
+            subtitlesRequested = false
             appliedInitial = false
             startTicker()
             applyRememberedSpeed()
@@ -4251,6 +4277,9 @@ struct PlayerScreen: View {
 
     private func startTicker() {
         ticker?.invalidate()
+        // The clock for the first frame starts when the source is handed to the
+        // player, so the number written to its record is the real wait.
+        loadStartedAt = Date()
         ticker = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
             Task { @MainActor in
                 tickSleepTimer()
@@ -4327,7 +4356,14 @@ struct PlayerScreen: View {
                 if !healthRecorded {
                     if duration > 1 {
                         healthRecorded = true
-                        CinemaAPI.shared.recordSourceResult(url: currentURL, played: true)
+                        // How long this link took to its first frame, so the
+                        // list ranks by what actually happened on this device.
+                        let firstFrame = Int64(Date().timeIntervalSince(loadStartedAt) * 1000)
+                        CinemaAPI.shared.recordSourceResult(
+                            url: currentURL,
+                            played: true,
+                            firstFrameMs: max(0, firstFrame)
+                        )
                     } else if playerError != nil {
                         healthRecorded = true
                         CinemaAPI.shared.recordSourceResult(url: currentURL, played: false)
@@ -4362,15 +4398,36 @@ struct PlayerScreen: View {
         return parts.isEmpty ? sourceNote : parts.joined(separator: " · ")
     }
 
-    /// Asks the installed subtitle addons for this exact video.
+    /// Asks the installed subtitle addons for this exact video, and takes the
+    /// first Arabic one by itself when the file carries none: an Arabic-first
+    /// app should not open a film silent while a subtitle is a tap away.
     private func loadAddonSubtitles() {
         guard let id = currentVideoId ?? item?.id else { return }
         loadingSubtitles = true
         let kind = type
         Task {
-            addonSubtitles = await CinemaAPI.shared.subtitles(itemId: id, type: kind)
+            let found = await CinemaAPI.shared.subtitles(itemId: id, type: kind)
+            addonSubtitles = found
             loadingSubtitles = false
+            autoPickArabicSubtitle(found)
         }
+    }
+
+    /// Picks an Arabic subtitle from the addons when nothing else is on screen:
+    /// the preferred language is Arabic, the file has no Arabic track, and the
+    /// viewer has neither switched subtitles off nor loaded one already.
+    private func autoPickArabicSubtitle(_ found: [SubtitleChoice]) {
+        let defaults = UserDefaults.standard
+        let language = defaults.string(forKey: "cinemax.subtitleLang") ?? "ar"
+        let auto = (defaults.object(forKey: "cinemax.subtitleAuto") as? Bool) ?? true
+        guard auto, !subtitlesOff, externalSubtitle == nil else { return }
+        guard language.hasPrefix("ar") else { return }
+        guard !subtitleTracks.contains(where: { $0.language.lowercased().hasPrefix("ar") }) else { return }
+        guard let arabic = found.first(where: { $0.lang.lowercased().hasPrefix("ar") }) else { return }
+        player?.setSubtitle(arabic.url)
+        externalSubtitle = arabic.label.isEmpty ? arabic.url : arabic.label
+        resumeHint = "ترجمة عربية من \(arabic.addon)"
+        EventLog.shared.add("subtitle", "ترجمة عربية تلقائية من \(arabic.addon)")
     }
 
     /// Rebuilds the surface for the same link, for a stream that stalled on open.
@@ -4401,6 +4458,7 @@ struct PlayerScreen: View {
         chapters = []
         bufferedMs = 0
         scrubValue = 0
+        subtitlesRequested = false
         appliedInitial = false
         // The new link opens where the dead one stopped, a second before it, so a
         // swap in the middle of a film never sends the viewer back to the start.
@@ -6601,9 +6659,9 @@ struct DetailView: View {
     /// The engine the chosen link opens with, decided the moment it is picked so
     /// an adaptive link goes to the system player and a file stays with libmpv.
     @State private var playbackEngine = "mpv"
-    @State private var qualityFilter: String?
+    @State private var qualityFilter: String? = SourceFilterMemory.saved("cinemax.lastQuality")
     /// The language the viewer asked for, read from the words each link carries.
-    @State private var languageFilter: String?
+    @State private var languageFilter: String? = SourceFilterMemory.saved("cinemax.lastLanguage")
     @State private var addonFilter: String?
     @AppStorage("cinemax.sourcesCollapsed") private var sourcesCollapsed = false
     @State private var speeds: [String: Double] = [:]
@@ -8096,6 +8154,7 @@ struct DetailView: View {
         Button {
             Haptics.select()
             withAnimation(.easeInOut(duration: 0.15)) { qualityFilter = value }
+            SourceFilterMemory.store("cinemax.lastQuality", value)
         } label: {
             Text(title)
                 .font(.system(size: 12, weight: .semibold))
@@ -8116,6 +8175,7 @@ struct DetailView: View {
         Button {
             Haptics.select()
             withAnimation(.easeInOut(duration: 0.15)) { languageFilter = value }
+            SourceFilterMemory.store("cinemax.lastLanguage", value)
         } label: {
             Text(title)
                 .font(.system(size: 11, weight: .semibold))
@@ -11503,6 +11563,151 @@ struct SettingsSection<Content: View>: View {
     }
 }
 
+/// What the app has measured about each source: how fast an addon answers and
+/// how many times in a row it failed, plus how many links carry a track record
+/// of their own. It is the evidence the source list is ordered by, shown
+/// instead of guessed at.
+struct SourceHealthScreen: View {
+    @State private var rows: [SourceHealthRow] = []
+    @State private var linkCount = 0
+    @State private var loading = true
+    @State private var cleared = false
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 16) {
+                summary
+
+                if loading {
+                    ProgressView()
+                        .tint(CinemaTheme.accent)
+                        .padding(20)
+                        .frame(maxWidth: .infinity)
+                } else if rows.isEmpty {
+                    Text("لا سجل بعد: هذه الأرقام تُكتب من التشغيل الحقيقي، فأول فيلم يبدأ بتعبئتها.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(CinemaTheme.muted)
+                        .padding(.horizontal, 20)
+                        .lineSpacing(4)
+                } else {
+                    VStack(spacing: 10) {
+                        ForEach(rows) { row in
+                            HStack(spacing: 12) {
+                                Image(systemName: symbol(row))
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(tint(row))
+                                    .frame(width: 24)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(row.name)
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .foregroundStyle(.white)
+                                        .lineLimit(1)
+                                    Text(detail(row))
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(CinemaTheme.muted)
+                                }
+                                Spacer(minLength: 8)
+                                if !row.skipped, row.ms > 0 {
+                                    Text(verdict(row.ms))
+                                        .font(.system(size: 10, weight: .semibold))
+                                        .foregroundStyle(CinemaTheme.muted)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(Color.white.opacity(0.07), in: Capsule())
+                                }
+                            }
+                            .padding(14)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .strokeBorder(CinemaTheme.hairline, lineWidth: 1)
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 20)
+
+                    Button {
+                        Haptics.tap()
+                        CinemaAPI.shared.resetSourceHealth()
+                        cleared = true
+                        Task { await load() }
+                    } label: {
+                        Text(cleared ? "مُسح سجل الإضافات" : "امسح سجل الإضافات")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.favourite)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 20)
+                }
+
+                Spacer(minLength: 60)
+            }
+            .padding(.top, 8)
+        }
+        .background(CinemaTheme.canvas.ignoresSafeArea())
+        .navigationTitle("حالة المصادر")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await load() }
+    }
+
+    private var summary: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("ما قاسه التطبيق فعلًا")
+                .font(.system(size: 11, weight: .semibold))
+                .tracking(2)
+                .foregroundStyle(CinemaTheme.muted)
+            Text("حالة المصادر")
+                .font(.system(size: 28, weight: .heavy))
+                .foregroundStyle(.white)
+            Text("\(rows.count) إضافة لها سجل · \(linkCount) رابط له سجل")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(CinemaTheme.accent)
+            Text("السرعة هي متوسط زمن الإجابة، والفشل يُحسب متتاليًا: إضافة فشلت ثلاثًا تستريح ثم تُسأل من جديد.")
+                .font(.system(size: 11))
+                .foregroundStyle(CinemaTheme.muted)
+                .lineSpacing(4)
+        }
+        .padding(.horizontal, 20)
+    }
+
+    private func symbol(_ row: SourceHealthRow) -> String {
+        if row.skipped { return "pause.circle.fill" }
+        return row.failures > 0 ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
+    }
+
+    private func tint(_ row: SourceHealthRow) -> Color {
+        if row.skipped { return CinemaTheme.muted }
+        return row.failures > 0 ? CinemaTheme.favourite : CinemaTheme.accent
+    }
+
+    private func detail(_ row: SourceHealthRow) -> String {
+        if row.skipped { return "متوقفة مؤقتًا بعد فشل متكرر" }
+        if row.ms <= 0 { return row.failures > 0 ? "\(row.failures) فشل" : "لم تُقس بعد" }
+        return "\(row.ms) ms · \(row.failures) فشل"
+    }
+
+    private func verdict(_ ms: Int64) -> String {
+        if ms < 800 { return "سريعة" }
+        if ms < 2_500 { return "متوسطة" }
+        return "بطيئة"
+    }
+
+    private func load() async {
+        let health = await CinemaAPI.shared.sourceHealth()
+        // The fastest answer first, the resting ones last: the row a viewer
+        // cares about is the one that is about to be asked.
+        rows = health.sorted { lhs, rhs in
+            if lhs.skipped != rhs.skipped { return !lhs.skipped }
+            if lhs.ms == 0 { return false }
+            if rhs.ms == 0 { return true }
+            return lhs.ms < rhs.ms
+        }
+        linkCount = await CinemaAPI.shared.sourceLinkHealth().count
+        loading = false
+    }
+}
+
 /// Everything that feeds the catalogue in one place: the Stremio addons, the
 /// Nuvio repositories behind them, the metadata key, the manifest check and the
 /// sharing tools. Four separate entries in settings hid how they relate; here
@@ -11525,6 +11730,18 @@ struct SourcesHubScreen: View {
 
     private var tmdbState: String {
         CinemaAPI.shared.tmdbKey.isEmpty ? "غير مضبوط" : "مضبوط"
+    }
+
+    /// When the manifests were last asked, so the row says how fresh its answer
+    /// is instead of looking like a result from days ago.
+    private var lastCheckLabel: String {
+        guard let date = UserDefaults.standard.object(forKey: "cinemax.lastAddonCheck") as? Date else {
+            return "يسأل كل manifest عن نفسه ويقول أيّها يعمل وأيّها سقط"
+        }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.locale = Locale(identifier: "ar")
+        formatter.unitsStyle = .full
+        return "قُرئ " + formatter.localizedString(for: date, relativeTo: Date())
     }
 
     var body: some View {
@@ -11649,7 +11866,7 @@ struct SourcesHubScreen: View {
                                 Text("افحص الإضافات الآن")
                                     .font(.system(size: 15, weight: .semibold))
                                     .foregroundStyle(.white)
-                                Text(checkNote ?? "يسأل كل manifest عن نفسه ويقول أيّها يعمل وأيّها سقط")
+                                Text(checkNote ?? lastCheckLabel)
                                     .font(.system(size: 11))
                                     .foregroundStyle(
                                         checkNote == nil ? CinemaTheme.muted : CinemaTheme.accent
@@ -11676,6 +11893,18 @@ struct SourcesHubScreen: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(checking || addons.isEmpty)
+
+                    NavigationLink {
+                        SourceHealthScreen()
+                    } label: {
+                        SettingsRow(
+                            icon: "waveform.path.ecg",
+                            title: "حالة المصادر",
+                            detail: "زمن استجابة كل إضافة وفشلها المتتالي، وعدد الروابط ذات السجل",
+                            value: nil
+                        )
+                    }
+                    .buttonStyle(.plain)
 
                     HStack(spacing: 14) {
                         Image(systemName: "clock.arrow.circlepath")
@@ -11770,6 +11999,9 @@ struct SourcesHubScreen: View {
         checkNote = results.isEmpty
             ? "لا إضافة مثبتة لفحصها"
             : "الفحص: \(alive) تعمل من \(results.count)"
+        // The date is kept so the row can say how fresh its answer is the next
+        // time the screen opens, instead of showing a result from days ago.
+        UserDefaults.standard.set(Date(), forKey: "cinemax.lastAddonCheck")
         checking = false
         Haptics.select()
     }
@@ -11795,6 +12027,7 @@ struct SettingsView: View {
 
     private var destinations: [Destination] {
         [
+            Destination(id: "health", title: "حالة المصادر", detail: "زمن استجابة كل إضافة وفشلها المتتالي", icon: "waveform.path.ecg", keywords: "حالة صحة مصادر فشل سرعة health source stats"),
             Destination(id: "hub", title: "المصادر والإضافات", detail: "كل ما يغذّي الكتالوج في مكان واحد", icon: "antenna.radiowaves.left.and.right", keywords: "مصادر اضافات مستودعات مزودون مفاتيح فحص تصدير hub sources addons nuvio tmdb"),
             Destination(id: "appearance", title: "المظهر واللغة", detail: "لون، أنماط جاهزة، زوايا، اهتزاز", icon: "paintpalette.fill", keywords: "لون مظهر نمط زوايا اهتزاز oled accent theme"),
             Destination(id: "layout", title: "التخطيط", detail: "تصميم الرئيسية، الهيرو، الصفوف", icon: "rectangle.3.group.fill", keywords: "تخطيط رئيسية صفوف هيرو بوستر home layout"),
@@ -11829,6 +12062,7 @@ struct SettingsView: View {
     private func destinationView(_ id: String) -> some View {
         switch id {
         case "hub": SourcesHubScreen()
+        case "health": SourceHealthScreen()
         case "appearance": AppearanceSettings()
         case "layout": LayoutSettings()
         case "addons": AddonsSettings()
