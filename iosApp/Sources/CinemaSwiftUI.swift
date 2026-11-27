@@ -17529,8 +17529,13 @@ final class DownloadManager: ObservableObject {
     @Published private(set) var jobs: [DownloadJob] = []
     /// Bytes per second for the transfers that are moving.
     @Published private(set) var speeds: [String: Int64] = [:]
+    /// The speed over the whole transfer. The remaining time leans on it when a
+    /// single sample lands with no bytes in it, which used to blank the line.
+    @Published private(set) var averages: [String: Int64] = [:]
 
     private var lastSample: [String: (date: Date, bytes: Int64)] = [:]
+    /// Where the average starts: the bytes already on disk when this run began.
+    private var firstSample: [String: (date: Date, bytes: Int64)] = [:]
     private var runners: [String: Task<Void, Never>] = [:]
     /// How many times a stopped transfer is tried again before it is marked failed.
     private let maxRetries = 2
@@ -17657,6 +17662,8 @@ final class DownloadManager: ObservableObject {
         runners[job.id]?.cancel()
         runners[job.id] = nil
         speeds[job.id] = nil
+        averages[job.id] = nil
+        firstSample[job.id] = nil
         // The background session is told directly too: a transfer iOS is running
         // for this job must not keep pulling bytes the viewer stopped.
         BackgroundTransfers.shared.cancel(jobKey: CinemaHash.stable(job.id))
@@ -17696,6 +17703,8 @@ final class DownloadManager: ObservableObject {
         runners[job.id]?.cancel()
         runners[job.id] = nil
         speeds[job.id] = nil
+        averages[job.id] = nil
+        firstSample[job.id] = nil
         BackgroundTransfers.shared.cancel(jobKey: CinemaHash.stable(job.id))
         update(job.id) { entry in
             entry.state = "cancelled"
@@ -17708,6 +17717,8 @@ final class DownloadManager: ObservableObject {
         runners[job.id]?.cancel()
         runners[job.id] = nil
         speeds[job.id] = nil
+        averages[job.id] = nil
+        firstSample[job.id] = nil
         BackgroundTransfers.shared.cancel(jobKey: CinemaHash.stable(job.id))
         if let path = job.filePath {
             try? FileManager.default.removeItem(atPath: path)
@@ -17740,6 +17751,17 @@ final class DownloadManager: ObservableObject {
         // A little smoothing keeps the number readable instead of jumping.
         let smoothed = speeds[id].map { Int64(Double($0) * 0.6 + instant * 0.4) } ?? Int64(instant)
         speeds[id] = max(0, smoothed)
+        // The average is measured from where this run started, so it says how
+        // long the rest of the file still needs even while the link is quiet.
+        if let first = firstSample[id] {
+            let elapsed = now.timeIntervalSince(first.date)
+            if elapsed > 1 {
+                let overall = Double(max(0, job.received - first.bytes)) / elapsed
+                if overall > 0 { averages[id] = Int64(overall) }
+            }
+        } else {
+            firstSample[id] = (now, job.received)
+        }
         lastSample[id] = (now, job.received)
     }
 
@@ -17836,7 +17858,9 @@ final class DownloadManager: ObservableObject {
             }
         }
         speeds[id] = nil
+        averages[id] = nil
         lastSample[id] = nil
+        firstSample[id] = nil
         save()
         if jobs.first(where: { $0.id == id })?.state == "done" {
             notify(title: title)
@@ -18325,7 +18349,11 @@ struct DownloadsView: View {
     }
 
     private func etaText(_ job: DownloadJob) -> String {
-        guard let speed = manager.speeds[job.id], speed > 0, job.total > job.received else { return "" }
+        // The live speed is the better number, but one quiet sample used to take
+        // the whole line away; the transfer's own average stands in for it.
+        var speed = manager.speeds[job.id] ?? 0
+        if speed <= 0 { speed = manager.averages[job.id] ?? 0 }
+        guard speed > 0, job.total > job.received else { return "" }
         let seconds = Int(Double(job.total - job.received) / Double(speed))
         if seconds < 60 { return "بقي \(seconds) ثانية" }
         let minutes = seconds / 60
