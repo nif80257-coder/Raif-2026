@@ -344,14 +344,32 @@ object DownloadsRepository {
 
         retryScope.launch {
             val freshUrl = resolveFreshDownloadUrl(item)?.takeIf { it.isNotBlank() }
-            val addressChanged = freshUrl != null && freshUrl != item.sourceUrl
+            if (freshUrl == null) {
+                // The source was asked again and had nothing to give — it was removed, left
+                // disabled, or answered with no link. Restarting the address that already failed
+                // would only repeat the same 403 and rewrite the row as if something had changed.
+                val unavailableMessage = getString(Res.string.addon_source_unreachable)
+                mutateItem(item.id) { current ->
+                    if (current.status != DownloadStatus.Failed) {
+                        current
+                    } else {
+                        current.copy(
+                            errorMessage = unavailableMessage,
+                            updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+                        )
+                    }
+                }
+                return@launch
+            }
+
+            val addressChanged = freshUrl != item.sourceUrl
             if (addressChanged) {
                 DownloadsPlatformDownloader.removePartialFile(item.fileName)
                 lastProgressPersistAtMs.remove(item.id)
             }
 
             val next = item.copy(
-                sourceUrl = freshUrl ?: item.sourceUrl,
+                sourceUrl = freshUrl,
                 status = DownloadStatus.Downloading,
                 pausedByBackground = false,
                 localFileUri = null,
