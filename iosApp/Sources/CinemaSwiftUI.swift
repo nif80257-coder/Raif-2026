@@ -6628,6 +6628,11 @@ struct DetailView: View {
             let tier = stream.quality.flatMap { known.contains($0) ? $0 : nil } ?? "أخرى"
             return tier == qualityFilter
         }
+        // The score of every row is measured once, not once per comparison: the
+        // sort used to call streamScore inside its own comparator, which lowercased
+        // two URLs and read the speed and expiry of both on every step.
+        var scores: [String: Double] = [:]
+        for stream in list { scores[stream.url] = streamScore(stream) }
         // The viewer picks whether quality or the measured speed leads the list.
         var sorted: [StreamChoice]
         if CinemaxPrefs.speedFirst {
@@ -6635,10 +6640,10 @@ struct DetailView: View {
                 let left = speeds[lhs.url] ?? 0
                 let right = speeds[rhs.url] ?? 0
                 if abs(left - right) > 0.05 { return left > right }
-                return streamScore(lhs) > streamScore(rhs)
+                return (scores[lhs.url] ?? 0) > (scores[rhs.url] ?? 0)
             }
         } else {
-            sorted = list.sorted { streamScore($0) > streamScore($1) }
+            sorted = list.sorted { (scores[$0.url] ?? 0) > (scores[$1.url] ?? 0) }
         }
         // The link this title played with last time goes back to the top.
         if let remembered = lastPlayedURL,
@@ -6840,54 +6845,59 @@ struct DetailView: View {
                         .padding(.horizontal, 20)
                     }
                 }
-                ForEach(groupedStreams) { group in
-                    VStack(alignment: .leading, spacing: 8) {
-                        Button {
-                            Haptics.select()
-                            withAnimation(.easeInOut(duration: 0.15)) { foldGroup(group.id) }
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(
-                                    systemName: foldedGroups.contains(groupKey(group.id))
-                                        ? "chevron.left"
-                                        : "chevron.down"
-                                )
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(CinemaTheme.muted)
-                                Text("\(group.id) · \(group.streams.count)")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundStyle(CinemaTheme.muted)
-                                Spacer()
-                                if foldedGroups.contains(groupKey(group.id)) {
-                                    Text("فتح")
-                                        .font(.system(size: 10, weight: .semibold))
-                                        .foregroundStyle(CinemaTheme.accent)
-                                }
-                            }
-                            .padding(.horizontal, 20)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-
-                        if !foldedGroups.contains(groupKey(group.id)) {
-                            ForEach(group.streams.prefix(groupLimit(group.id))) { stream in
-                                sourceRow(stream)
-                            }
-                            if group.streams.count > groupLimit(group.id) {
-                                Button {
-                                    Haptics.select()
-                                    withAnimation(.easeInOut(duration: 0.15)) {
-                                        _ = expandedGroups.insert(group.id)
-                                    }
-                                } label: {
-                                    Text(
-                                        "عرض بقية \(group.id) (\(group.streams.count - groupLimit(group.id)))"
+                // Both containers are lazy: the page used to build every one of
+                // the fifty-four rows, each with its own poster and buttons, the
+                // moment it opened instead of as the list scrolled into view.
+                LazyVStack(alignment: .leading, spacing: 14) {
+                    ForEach(groupedStreams) { group in
+                        LazyVStack(alignment: .leading, spacing: 8) {
+                            Button {
+                                Haptics.select()
+                                withAnimation(.easeInOut(duration: 0.15)) { foldGroup(group.id) }
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(
+                                        systemName: foldedGroups.contains(groupKey(group.id))
+                                            ? "chevron.left"
+                                            : "chevron.down"
                                     )
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .foregroundStyle(CinemaTheme.accent)
-                                    .padding(.vertical, 4)
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundStyle(CinemaTheme.muted)
+                                    Text("\(group.id) · \(group.streams.count)")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundStyle(CinemaTheme.muted)
+                                    Spacer()
+                                    if foldedGroups.contains(groupKey(group.id)) {
+                                        Text("فتح")
+                                            .font(.system(size: 10, weight: .semibold))
+                                            .foregroundStyle(CinemaTheme.accent)
+                                    }
                                 }
-                                .buttonStyle(.plain)
+                                .padding(.horizontal, 20)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+
+                            if !foldedGroups.contains(groupKey(group.id)) {
+                                ForEach(group.streams.prefix(groupLimit(group.id))) { stream in
+                                    sourceRow(stream)
+                                }
+                                if group.streams.count > groupLimit(group.id) {
+                                    Button {
+                                        Haptics.select()
+                                        withAnimation(.easeInOut(duration: 0.15)) {
+                                            _ = expandedGroups.insert(group.id)
+                                        }
+                                    } label: {
+                                        Text(
+                                            "عرض بقية \(group.id) (\(group.streams.count - groupLimit(group.id)))"
+                                        )
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundStyle(CinemaTheme.accent)
+                                        .padding(.vertical, 4)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
                             }
                         }
                     }
