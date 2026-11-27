@@ -1987,6 +1987,49 @@ struct FloatingTabBar: View {
 
 // MARK: - Home
 
+/// The checks the app runs on its own, at most once a day: every installed
+/// addon is asked for its manifest, and the result is kept so the sources
+/// screen can say how many still answer without the viewer pressing anything.
+@MainActor
+enum DailyChecks {
+    private static let checkedKey = "cinemax.lastAddonCheck"
+    private static let aliveKey = "cinemax.lastAddonAlive"
+    private static let totalKey = "cinemax.lastAddonTotal"
+    private static var running = false
+
+    static func addonManifests() {
+        guard !running else { return }
+        if let last = UserDefaults.standard.object(forKey: checkedKey) as? Date,
+           Date().timeIntervalSince(last) < 24 * 3600 {
+            return
+        }
+        running = true
+        Task {
+            let results = await CinemaAPI.shared.checkAddons()
+            if !results.isEmpty {
+                UserDefaults.standard.set(Date(), forKey: checkedKey)
+                UserDefaults.standard.set(results.filter(\.ok).count, forKey: aliveKey)
+                UserDefaults.standard.set(results.count, forKey: totalKey)
+            }
+            running = false
+        }
+    }
+
+    /// «12 من 14 تعمل» for the sources screen, or nothing before a first check.
+    static var addonSummary: String? {
+        let total = UserDefaults.standard.integer(forKey: totalKey)
+        guard total > 0 else { return nil }
+        let alive = UserDefaults.standard.integer(forKey: aliveKey)
+        return "\(alive) من \(total) تعمل"
+    }
+
+    static func forget() {
+        UserDefaults.standard.removeObject(forKey: checkedKey)
+        UserDefaults.standard.removeObject(forKey: aliveKey)
+        UserDefaults.standard.removeObject(forKey: totalKey)
+    }
+}
+
 @MainActor
 final class HomeModel: ObservableObject {
     /// One model for the whole session: switching tabs must not throw the
@@ -2067,6 +2110,9 @@ final class HomeModel: ObservableObject {
             self.error = error.localizedDescription
         }
         loading = false
+        // Once a day the addons are asked for their own manifests, so a source
+        // that died is known before a viewer meets it in the middle of a film.
+        DailyChecks.addonManifests()
     }
 
     /// Warms the poster cache for the rows a viewer sees first, so the home paints
@@ -11744,6 +11790,14 @@ struct SourcesHubScreen: View {
         return "قُرئ " + formatter.localizedString(for: date, relativeTo: Date())
     }
 
+    /// What the check row says: the result just measured, or the last one the
+    /// app took on its own with its date.
+    private var checkDetail: String {
+        if let checkNote { return checkNote }
+        guard let summary = DailyChecks.addonSummary else { return lastCheckLabel }
+        return summary + " · " + lastCheckLabel
+    }
+
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 20) {
@@ -11866,7 +11920,7 @@ struct SourcesHubScreen: View {
                                 Text("افحص الإضافات الآن")
                                     .font(.system(size: 15, weight: .semibold))
                                     .foregroundStyle(.white)
-                                Text(checkNote ?? lastCheckLabel)
+                                Text(checkDetail)
                                     .font(.system(size: 11))
                                     .foregroundStyle(
                                         checkNote == nil ? CinemaTheme.muted : CinemaTheme.accent
@@ -17942,6 +17996,8 @@ enum CinemaxPrefs {
             "cinemax.playerHints", "cinemax.lists.v1", "cinemax.corner",
             "cinemax.hapticsLevel", "cinemax.sourcesCompact", "cinemax.prefetchNext",
             "cinemax.eventLog.v1",
+            "cinemax.lastAddonCheck", "cinemax.lastAddonAlive", "cinemax.lastAddonTotal",
+            "cinemax.lastQuality", "cinemax.lastLanguage",
             historyKey, lastRefreshKey
         ] {
             UserDefaults.standard.removeObject(forKey: key)
