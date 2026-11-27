@@ -3789,17 +3789,22 @@ struct PlayerScreen: View {
 /// invisible layer of the very same player: that is what gives the promised PiP
 /// back without bringing back the bar that covered the title.
 @MainActor
-final class CinemaxPictureInPicture: NSObject, AVPictureInPictureControllerDelegate {
+final class CinemaxPictureInPicture: NSObject, @preconcurrency AVPictureInPictureControllerDelegate {
     static let shared = CinemaxPictureInPicture()
 
     private var controller: AVPictureInPictureController?
     private var layer: AVPlayerLayer?
+    /// The view the layer lives in. It is kept so the next job removes it: each
+    /// episode used to add another invisible view to the window and keep its PiP
+    /// controller alive, which is a leak for every episode watched.
+    private var holder: UIView?
 
     var isPossible: Bool { controller?.isPictureInPicturePossible ?? false }
 
     /// Attaches a layer of this player to the tree, which is what PiP draws from.
     func attach(_ player: AVPlayer) {
         guard AVPictureInPictureController.isPictureInPictureSupported() else { return }
+        detach()
         let layer = AVPlayerLayer(player: player)
         layer.frame = CGRect(x: 0, y: 0, width: 2, height: 2)
         layer.opacity = 0
@@ -3808,13 +3813,31 @@ final class CinemaxPictureInPicture: NSObject, AVPictureInPictureControllerDeleg
         pip?.delegate = self
         pip?.canStartPictureInPictureAutomaticallyFromInline = true
         controller = pip
+        let host = Self.host(layer)
+        holder = host
         // The layer lives in the key window, far from the controls but in a view
         // that is on screen, since PiP ignores a layer outside a window.
+        keyWindow()?.addSubview(host)
+    }
+
+    /// Drops the previous job's layer, controller and view: the player it drew
+    /// from is gone, and keeping them leaks a view and a controller per episode.
+    private func detach() {
+        controller?.stopPictureInPicture()
+        controller?.delegate = nil
+        controller = nil
+        layer?.player = nil
+        layer?.removeFromSuperlayer()
+        layer = nil
+        holder?.removeFromSuperview()
+        holder = nil
+    }
+
+    private func keyWindow() -> UIWindow? {
         UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive }?
-            .keyWindow?
-            .addSubview(Self.host(layer))
+            .keyWindow
     }
 
     /// Puts the layer into a view so it is a visible part of the window.
