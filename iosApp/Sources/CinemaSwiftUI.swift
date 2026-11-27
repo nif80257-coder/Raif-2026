@@ -373,6 +373,36 @@ struct NuvioRepositoryRow: Identifiable, Codable {
     var enabledCount: Int { providers.filter(\.enabled).count }
 }
 
+/// When each repository and addon last answered on this device. The entry the
+/// data layer returns carries no date, and a viewer still needs to see which
+/// source was read the last time the app opened them, so the day is kept here.
+enum RepositoryHistory {
+    private static let prefix = "cinemax.repoRead."
+
+    static func mark(_ url: String) {
+        UserDefaults.standard.set(Date(), forKey: prefix + url)
+    }
+
+    static func markAll(_ urls: [String]) {
+        for url in urls { mark(url) }
+    }
+
+    /// "قُرئ قبل ٣ دقائق", or the plain truth when it was never read.
+    static func label(_ url: String) -> String {
+        guard let date = UserDefaults.standard.object(forKey: prefix + url) as? Date else {
+            return "لم يُقرأ بعد"
+        }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.locale = Locale(identifier: "ar")
+        formatter.unitsStyle = .full
+        return "قُرئ " + formatter.localizedString(for: date, relativeTo: Date())
+    }
+
+    static func forget(_ url: String) {
+        UserDefaults.standard.removeObject(forKey: prefix + url)
+    }
+}
+
 struct AddonCheckRow: Identifiable, Codable {
     let id: String
     let name: String
@@ -768,7 +798,11 @@ final class CinemaAPI {
                 continuation.resume(returning: text)
             })
         }
-        return (try? JSONDecoder().decode([NuvioRepositoryRow].self, from: Data(payload.utf8))) ?? []
+        let rows = (try? JSONDecoder().decode([NuvioRepositoryRow].self, from: Data(payload.utf8))) ?? []
+        // A repository that answered just now is the one the settings row can
+        // call the newest, and that is the only date the bridge gives us.
+        RepositoryHistory.markAll(rows.map(\.url))
+        return rows
     }
 
     func addNuvioRepository(_ url: String) async throws -> [NuvioRepositoryRow] {
@@ -800,11 +834,16 @@ final class CinemaAPI {
         return (try? JSONDecoder().decode([NuvioRepositoryRow].self, from: Data(payload.utf8))) ?? []
     }
 
-    func installedAddons() async -> [InstalledAddonRow] {        await withCheckedContinuation { (continuation: CheckedContinuation<[InstalledAddonRow], Never>) in
+    func installedAddons() async -> [InstalledAddonRow] {
+        let rows: [InstalledAddonRow] = await withCheckedContinuation { (continuation: CheckedContinuation<[InstalledAddonRow], Never>) in
             bridge.installedAddons(onDone: { json in
                 continuation.resume(returning: (try? self.decode([InstalledAddonRow].self, json)) ?? [])
             })
         }
+        // An addon that answered is one that is alive now, which is what its row
+        // in settings shows.
+        RepositoryHistory.markAll(rows.map(\.url))
+        return rows
     }
 
     func suggestedAddons() async -> [SuggestedAddonRow] {
@@ -827,6 +866,8 @@ final class CinemaAPI {
 
     func removeAddon(_ url: String) {
         bridge.removeAddon(url: url)
+        // A manifest that is gone has no last read to show the next time.
+        RepositoryHistory.forget(url)
     }
 
     func installAllSuggested() async -> String {
@@ -2666,6 +2707,15 @@ struct PlayerScreen: View {
     @State private var buffering = false
     @State private var appliedInitial = false
     @State private var lastDoubleTap = Date.distantPast
+    /// A short-lived answer to a double tap on the picture: which way it jumped
+    /// and by how much, so a thumb over a dark scene can see that it landed.
+    @State private var seekFlash: SeekFlash?
+
+    private struct SeekFlash: Equatable {
+        var forward: Bool
+        var amount: Int
+        var token: Int
+    }
     @State private var locked = false
     @State private var bufferTicks = 0
     /// Counts the half seconds between two resume points written while playing.
@@ -3152,6 +3202,21 @@ struct PlayerScreen: View {
         (UserDefaults.standard.object(forKey: "cinemax.autoSkipIntro") as? Bool) ?? false
     }
 
+    /// Shows the jump a double tap made, on the side it was tapped, and takes it
+    /// away again by itself. The newer flash owns the screen: an old one that
+    /// times out never clears the answer to a second tap.
+    private func flashSeek(forward: Bool) {
+        let token = Int(Date().timeIntervalSince1970 * 1000)
+        withAnimation(.easeOut(duration: 0.15)) {
+            seekFlash = SeekFlash(forward: forward, amount: Int(seekStep * 2), token: token)
+        }
+        Task {
+            try? await Task.sleep(nanoseconds: 650_000_000)
+            guard seekFlash?.token == token else { return }
+            withAnimation(.easeIn(duration: 0.2)) { seekFlash = nil }
+        }
+    }
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
@@ -3170,9 +3235,11 @@ struct PlayerScreen: View {
                                 lastDoubleTap = Date()
                                 if value.location.x < width * 0.33 {
                                     seek(by: -seekStep * 2)
+                                    flashSeek(forward: false)
                                     Haptics.tap()
                                 } else if value.location.x > width * 0.67 {
                                     seek(by: seekStep * 2)
+                                    flashSeek(forward: true)
                                     Haptics.tap()
                                 } else {
                                     withAnimation(.easeInOut(duration: 0.2)) {
@@ -3235,6 +3302,34 @@ struct PlayerScreen: View {
             .opacity(controlsVisible ? 1 : 0)
             .allowsHitTesting(controlsVisible)
             .animation(.easeInOut(duration: 0.22), value: controlsVisible)
+            // The jump a double tap made, on the side it was tapped. It is drawn
+            // with the controls but survives their hiding, because a viewer who
+            // tapped a hidden picture still wants to know what the tap did.
+            if let flash = seekFlash {
+                VStack {
+                    Spacer(minLength: 0)
+                    HStack(spacing: 0) {
+                        if flash.forward { Spacer(minLength: 0) }
+                        HStack(spacing: 6) {
+                            Image(systemName: flash.forward ? "goforward" : "gobackward")
+                                .font(.system(size: 13, weight: .semibold))
+                            Text("\(flash.amount) ث")
+                                .font(.system(size: 13, weight: .bold))
+                                .monospacedDigit()
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 15)
+                        .padding(.vertical, 10)
+                        .background(Color.black.opacity(0.5), in: Capsule())
+                        if !flash.forward { Spacer(minLength: 0) }
+                    }
+                    .environment(\.layoutDirection, .leftToRight)
+                    .padding(.horizontal, 34)
+                    Spacer(minLength: 0)
+                }
+                .allowsHitTesting(false)
+                .transition(.opacity)
+            }
             if let countdown = upNextCountdown, let next = upNext, controlsVisible {
                 VStack {
                     Spacer()
@@ -3284,14 +3379,14 @@ struct PlayerScreen: View {
                         }
                         .padding(10)
                         .background(
-                            .ultraThinMaterial,
+                            Color.black.opacity(0.55),
                             in: RoundedRectangle(cornerRadius: 16, style: .continuous)
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .strokeBorder(CinemaTheme.hairline, lineWidth: 1)
+                                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
                         )
-                        .shadow(color: .black.opacity(0.3), radius: 16, y: 8)
+                        .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
                     }
                     .padding(.horizontal, 20)
                     .padding(.bottom, 170)
@@ -3376,7 +3471,7 @@ struct PlayerScreen: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 9)
-                .background(.ultraThinMaterial, in: Capsule())
+                .background(Color.black.opacity(0.5), in: Capsule())
                 .transition(.opacity)
             }
             if let resumeHint {
@@ -8674,6 +8769,9 @@ struct LegacySettingsPage: View {
                                         Text("الإصدار \(addon.version)")
                                             .font(.system(size: 11))
                                             .foregroundStyle(CinemaTheme.muted)
+                                        Text(RepositoryHistory.label(addon.url))
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(CinemaTheme.muted.opacity(0.8))
                                     }
                                     Spacer()
                                     Button {
@@ -15979,6 +16077,9 @@ struct NuvioSettings: View {
                                             )
                                             .font(.system(size: 10))
                                             .foregroundStyle(CinemaTheme.muted)
+                                            Text(RepositoryHistory.label(repo.url))
+                                                .font(.system(size: 9))
+                                                .foregroundStyle(CinemaTheme.muted.opacity(0.8))
                                         }
                                     }
                                 }
