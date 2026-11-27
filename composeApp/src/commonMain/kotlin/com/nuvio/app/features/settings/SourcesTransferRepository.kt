@@ -1,6 +1,7 @@
 package com.nuvio.app.features.settings
 
 import com.nuvio.app.features.addons.AddAddonResult
+import com.nuvio.app.features.addons.AddonConfigSecretStore
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.servers.ServerRepository
 
@@ -38,13 +39,17 @@ internal object SourcesTransferRepository {
         AddonRepository.initialize()
         val addonEntries = AddonRepository.uiState.value.addons
             .distinctBy { addon -> addon.manifestUrl }
-            .mapIndexed { index, addon ->
+            .mapIndexedNotNull { index, addon ->
+                val exportUrl = AddonConfigSecretStore.safeExportManifestUrl(
+                    addon.manifestUrl,
+                    addon.manifest?.configFields.orEmpty(),
+                ) ?: return@mapIndexedNotNull null
                 SourcesTransferEntry(
                     type = SOURCE_TYPE_ADDON,
                     name = addon.userSetName?.takeIf(String::isNotBlank)
                         ?: addon.manifest?.name?.takeIf(String::isNotBlank)
-                        ?: addon.manifestUrl,
-                    url = addon.manifestUrl,
+                        ?: exportUrl,
+                    url = exportUrl,
                     enabled = addon.enabled,
                     order = index,
                 )

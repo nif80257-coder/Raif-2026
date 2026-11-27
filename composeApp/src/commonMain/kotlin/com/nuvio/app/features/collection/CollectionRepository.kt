@@ -10,7 +10,6 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -28,7 +27,6 @@ import nuvio.composeapp.generated.resources.collections_import_error_folder_dupl
 import nuvio.composeapp.generated.resources.collections_import_error_invalid_json
 import nuvio.composeapp.generated.resources.collections_import_error_source_blank_fields
 import nuvio.composeapp.generated.resources.collections_import_error_trakt_list_id
-import com.nuvio.app.core.i18n.localizedUiText
 import org.jetbrains.compose.resources.getString
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
@@ -136,7 +134,7 @@ object CollectionRepository {
         return mergedCollectionsJson().toString()
     }
 
-    fun importFromJson(jsonString: String): Result<List<Collection>> {
+    suspend fun importFromJson(jsonString: String): Result<List<Collection>> {
         return runCatching {
             val validation = validateJson(jsonString)
             if (!validation.valid) {
@@ -150,11 +148,11 @@ object CollectionRepository {
         }
     }
 
-    fun validateJson(jsonString: String): ValidationResult {
+    suspend fun validateJson(jsonString: String): ValidationResult {
         if (jsonString.isBlank()) {
             return ValidationResult(
                 valid = false,
-                error = localizedUiText("JSON is empty.") { getString(Res.string.collections_import_error_empty_json) },
+                error = getString(Res.string.collections_import_error_empty_json),
             )
         }
         return try {
@@ -170,9 +168,7 @@ object CollectionRepository {
         } catch (e: Exception) {
             ValidationResult(
                 valid = false,
-                error = localizedUiText("Invalid JSON: ${e.message.orEmpty()}") {
-                    getString(Res.string.collections_import_error_invalid_json, e.message.orEmpty())
-                },
+                error = getString(Res.string.collections_import_error_invalid_json, e.message.orEmpty()),
             )
         }
     }
@@ -321,24 +317,22 @@ internal fun validateImportModel(collections: List<Collection>): CollectionImpor
     return null
 }
 
-private fun CollectionImportModelError.localizedMessage(): String =
-    runBlocking {
-        when (this@localizedMessage) {
-            is CollectionImportModelError.BlankCollectionId ->
-                getString(Res.string.collections_import_error_collection_blank_id, collectionIndex)
-            is CollectionImportModelError.DuplicateCollectionId ->
-                getString(Res.string.collections_import_error_collection_duplicate_id, collectionId)
-            is CollectionImportModelError.BlankCollectionTitle ->
-                getString(Res.string.collections_import_error_collection_blank_title, collectionId)
-            is CollectionImportModelError.BlankFolderId ->
-                getString(Res.string.collections_import_error_folder_blank_id, folderIndex, collectionTitle)
-            is CollectionImportModelError.DuplicateFolderId ->
-                getString(Res.string.collections_import_error_folder_duplicate_id, folderId, collectionTitle)
-            is CollectionImportModelError.BlankFolderTitle ->
-                getString(Res.string.collections_import_error_folder_blank_title, folderId, collectionTitle)
-            is CollectionImportModelError.InvalidTraktListId ->
-                getString(Res.string.collections_import_error_trakt_list_id, sourceIndex, folderTitle)
-            is CollectionImportModelError.BlankSourceFields ->
-                getString(Res.string.collections_import_error_source_blank_fields, sourceIndex, folderTitle)
-        }
+private suspend fun CollectionImportModelError.localizedMessage(): String =
+    when (this@localizedMessage) {
+        is CollectionImportModelError.BlankCollectionId ->
+            getString(Res.string.collections_import_error_collection_blank_id, collectionIndex)
+        is CollectionImportModelError.DuplicateCollectionId ->
+            getString(Res.string.collections_import_error_collection_duplicate_id, collectionId)
+        is CollectionImportModelError.BlankCollectionTitle ->
+            getString(Res.string.collections_import_error_collection_blank_title, collectionId)
+        is CollectionImportModelError.BlankFolderId ->
+            getString(Res.string.collections_import_error_folder_blank_id, folderIndex, collectionTitle)
+        is CollectionImportModelError.DuplicateFolderId ->
+            getString(Res.string.collections_import_error_folder_duplicate_id, folderId, collectionTitle)
+        is CollectionImportModelError.BlankFolderTitle ->
+            getString(Res.string.collections_import_error_folder_blank_title, folderId, collectionTitle)
+        is CollectionImportModelError.InvalidTraktListId ->
+            getString(Res.string.collections_import_error_trakt_list_id, sourceIndex, folderTitle)
+        is CollectionImportModelError.BlankSourceFields ->
+            getString(Res.string.collections_import_error_source_blank_fields, sourceIndex, folderTitle)
     }

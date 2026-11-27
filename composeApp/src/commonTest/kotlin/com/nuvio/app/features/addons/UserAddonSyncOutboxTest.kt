@@ -21,11 +21,11 @@ class UserAddonSyncOutboxTest {
             profileId = 2,
             mutations = listOf(
                 PendingUserAddonMutation(
-                    addonId = "edited",
+                    addonId = "https://edited.example/manifest.json",
                     manifestUrl = "https://edited.example/manifest.json",
                     enabled = false,
                 ),
-                PendingUserAddonMutation(addonId = "removed"),
+                PendingUserAddonMutation(addonId = "https://removed.example/manifest.json"),
             ),
         )
         newOutbox().record(change)
@@ -34,13 +34,16 @@ class UserAddonSyncOutboxTest {
 
         val merged = applyPendingUserAddonMutations(
             remoteRows = listOf(
-                UserAddonSyncRecord("edited", "https://old.example/manifest.json"),
-                UserAddonSyncRecord("removed", "https://removed.example/manifest.json"),
-                UserAddonSyncRecord("untouched", "https://keep.example/manifest.json"),
+                UserAddonSyncRecord("https://edited.example/manifest.json", "https://old.example/manifest.json"),
+                UserAddonSyncRecord("https://removed.example/manifest.json", "https://removed.example/manifest.json"),
+                UserAddonSyncRecord("https://keep.example/manifest.json", "https://keep.example/manifest.json"),
             ),
             mutations = change.mutations,
         )
-        assertEquals(listOf("edited", "untouched"), merged.map(UserAddonSyncRecord::addonId))
+        assertEquals(
+            listOf("https://edited.example/manifest.json", "https://keep.example/manifest.json"),
+            merged.map(UserAddonSyncRecord::addonId),
+        )
         assertEquals("https://edited.example/manifest.json", merged.first().manifestUrl)
         assertFalse(merged.first().enabled)
     }
@@ -53,8 +56,14 @@ class UserAddonSyncOutboxTest {
             savePayload = { account, profile, payload -> disk[account to profile] = payload },
             clearPayload = { account, profile -> disk.remove(account to profile) },
         )
-        val original = PendingUserAddonChange("account-a", 1, listOf(PendingUserAddonMutation("one")))
-        val newer = original.copy(mutations = listOf(PendingUserAddonMutation("two")))
+        val original = PendingUserAddonChange(
+            "account-a",
+            1,
+            listOf(PendingUserAddonMutation("https://one.example/manifest.json")),
+        )
+        val newer = original.copy(
+            mutations = listOf(PendingUserAddonMutation("https://two.example/manifest.json")),
+        )
         val merged = original.copy(mutations = original.mutations + newer.mutations)
         outbox.record(original)
         outbox.record(newer)

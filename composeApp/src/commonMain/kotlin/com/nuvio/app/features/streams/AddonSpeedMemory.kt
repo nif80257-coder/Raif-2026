@@ -7,10 +7,10 @@ import kotlinx.serialization.json.Json
 /**
  * How long each installed source usually takes to answer a stream request.
  *
- * Opening a title asks every source, but only eight at a time, so the order the sources are
- * queued in decides when the first real result appears. Remembering the measured time lets the
- * fast sources take the first slots: the list fills with playable streams in a second or two
- * while the slow scrapers work through the rest.
+ * Opening a title asks every source, but only a dozen at a time (see [streamSourceFetchSemaphore]),
+ * so the order the sources are queued in decides when the first real result appears. Remembering the
+ * measured time lets the fast sources take the first slots: the list fills with playable streams in a
+ * second or two while the slow scrapers work through the rest.
  *
  * The stored value is a smoothed average of the whole request (fetch, cache write and parse). A
  * failure is recorded near the cap, so a source that just timed out goes to the back until it
@@ -87,11 +87,7 @@ internal object AddonSpeedMemory {
         val entries = entries(profileId)
         val previousEncoded = entries[manifestUrl]
         val previous = previousEncoded?.substringBefore('|')?.toLongOrNull()
-        val next = if (previous == null) {
-            elapsedMs
-        } else {
-            (previous + (elapsedMs - previous) * Smoothing).toLong()
-        }
+        val next = nextSpeedMs(previousMs = previous, elapsedMs = elapsedMs)
         val count = resultCount ?: parseResultCount(previousEncoded)
         val suffix = count?.let { value -> "|$value" }.orEmpty()
         entries[manifestUrl] = "$next|${EpisodeReleaseDatePlatform.nowEpochMs()}$suffix"
@@ -105,6 +101,21 @@ internal object AddonSpeedMemory {
         entries[manifestUrl] = "$FailureMs|${EpisodeReleaseDatePlatform.nowEpochMs()}"
         persistIfDue(profileId)
     }
+
+    /**
+     * The speed to store after one answer, smoothing from [previousMs].
+     *
+     * A failure writes [FailureMs]. Smoothing from that penalty would keep a source that just
+     * answered in a second measured at nine, then five, then three — queued behind every other
+     * source and given the full timeout, for several loads after a single bad minute. One answer
+     * that arrives is proof the source is alive, so it starts again from its real time.
+     */
+    internal fun nextSpeedMs(previousMs: Long?, elapsedMs: Long): Long =
+        if (previousMs == null || previousMs >= FailureMs) {
+            elapsedMs
+        } else {
+            (previousMs + (elapsedMs - previousMs) * Smoothing).toLong()
+        }
 
     /**
      * Drops the measurement and the failure penalty of one source, so it is queued by its own speed

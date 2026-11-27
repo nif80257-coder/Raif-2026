@@ -6,7 +6,21 @@ import com.nuvio.app.features.streams.StreamItem
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withTimeout
 import org.jetbrains.compose.resources.getString
+
+/**
+ * How long one media server may take before its row in the sheet counts as unreachable.
+ *
+ * The fetch semaphore hands out a fixed number of slots, and a server that accepts the connection
+ * and then says nothing holds its slot for as long as the socket lives: every other source queues
+ * behind an answer that is not coming. A server on the same network answers in well under a second,
+ * and one across a wide-area link still answers inside fifteen.
+ */
+internal const val SERVER_STREAM_LOAD_TIMEOUT_MS = 15_000L
+
+/** The `addonId` a media server's rows carry; the download retry path strips it back to an id. */
+internal const val SERVER_SOURCE_ADDON_PREFIX = "server:"
 
 internal class ServerStreamSource(
     val addonId: String,
@@ -18,7 +32,12 @@ internal class ServerStreamSource(
         AddonStreamGroup(addonName = addonName, addonId = addonId, streams = emptyList(), isLoading = true)
 
     suspend fun load(): AddonStreamGroup = try {
-        AddonStreamGroup(addonName = addonName, addonId = addonId, streams = loader(), isLoading = false)
+        AddonStreamGroup(
+            addonName = addonName,
+            addonId = addonId,
+            streams = withTimeout(SERVER_STREAM_LOAD_TIMEOUT_MS) { loader() },
+            isLoading = false,
+        )
     } catch (error: Throwable) {
         if (error is CancellationException) currentCoroutineContext().ensureActive()
         AddonStreamGroup(
@@ -41,7 +60,8 @@ internal object ServerStreams {
         return connections.any { ServerMatcher.shared.supports(it, request.kind) }
     }
 
-    fun isServerSourceId(addonId: String?): Boolean = addonId?.startsWith(GROUP_PREFIX) == true
+    fun isServerSourceId(addonId: String?): Boolean =
+        addonId?.startsWith(SERVER_SOURCE_ADDON_PREFIX) == true
 
     fun sources(
         type: String,
@@ -97,7 +117,5 @@ internal object ServerStreams {
             }
     }
 
-    private fun groupId(connectionId: String) = "$GROUP_PREFIX$connectionId"
-
-    private const val GROUP_PREFIX = "server:"
+    private fun groupId(connectionId: String) = "$SERVER_SOURCE_ADDON_PREFIX$connectionId"
 }

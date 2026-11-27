@@ -4,10 +4,8 @@ import co.touchlab.kermit.Logger
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.features.addons.AddonFailureMemory
 import com.nuvio.app.features.addons.AddonRepository
-import com.nuvio.app.features.addons.buildAddonResourceUrl
-import com.nuvio.app.features.addons.enabledAddons
-import com.nuvio.app.features.addons.fetchAddonResponseText
 import com.nuvio.app.features.addons.AddonSilentSourceMemory
+import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.addons.withoutPausedAddons
 import com.nuvio.app.features.debrid.DebridSettingsRepository
 import com.nuvio.app.features.debrid.DebridStreamPresentation
@@ -16,9 +14,9 @@ import com.nuvio.app.features.debrid.LocalDebridAvailabilityService
 import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.plugins.PluginRepository
 import com.nuvio.app.features.plugins.PluginsUiState
-import com.nuvio.app.features.plugins.pluginContentId
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.servers.ServerStreams
+import com.nuvio.app.features.streams.AddonSpeedMemory
 import com.nuvio.app.features.streams.AddonStreamGroup
 import com.nuvio.app.features.streams.InstalledStreamAddonTarget
 import com.nuvio.app.features.streams.StreamAutoPlaySelector
@@ -28,38 +26,27 @@ import com.nuvio.app.features.streams.StreamDisplayPreferences
 import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.streams.StreamLinkWarmer
 import com.nuvio.app.features.streams.StreamLoadCompletion
+import com.nuvio.app.features.streams.StreamListEngine
 import com.nuvio.app.features.streams.StreamParser
 import com.nuvio.app.features.streams.StreamResponseCache
-import com.nuvio.app.features.streams.streamSourceTimeoutMs
 import com.nuvio.app.features.streams.StreamsUiState
+import com.nuvio.app.features.streams.deduplicatedAcrossSources
 import com.nuvio.app.features.streams.isJunkRelease
-import com.nuvio.app.features.streams.runCatchingUnlessCancelled
+import com.nuvio.app.features.streams.orderedByRecordedSpeed
 import com.nuvio.app.features.streams.sortedForGroupedDisplay
 import com.nuvio.app.features.streams.streamAddonInstanceId
 import com.nuvio.app.features.streams.supportsStream
 import com.nuvio.app.features.streams.toEmptyStateReason
 import com.nuvio.app.features.streams.toPluginProviderGroups
-import com.nuvio.app.features.streams.toStreamItem
-import com.nuvio.app.features.streams.AddonSpeedMemory
-import com.nuvio.app.features.streams.orderedByRecordedSpeed
-import com.nuvio.app.features.streams.expandingPlaylistLinks
-import com.nuvio.app.features.streams.fetchStreamSourcePayload
-import com.nuvio.app.features.streams.streamSourceFetchSemaphore
-import com.nuvio.app.features.streams.deduplicatedAcrossSources
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlin.time.TimeSource
-import kotlinx.coroutines.sync.withPermit
-import nuvio.composeapp.generated.resources.*
-import org.jetbrains.compose.resources.getString
 
 /**
  * Dedicated stream fetcher for use inside the player (sources & episodes panels).
@@ -391,15 +378,7 @@ object PlayerStreamsRepository {
                 .associate { it.addonId to it.scrapers.size }
                 .toMutableMap()
             val pluginFirstErrorByAddonId = mutableMapOf<String, String>()
-            val totalTasks = streamAddons.size + pluginProviderGroups.sumOf { it.scrapers.size } + serverSources.size
-            val completions = Channel<StreamLoadCompletion>(capacity = Channel.BUFFERED)
             val debridAvailabilityJobs = mutableListOf<Job>()
-
-            fun publishCompletion(completion: StreamLoadCompletion) {
-                if (completions.trySend(completion).isFailure) {
-                    log.d { "Ignoring late player stream load completion after channel close" }
-                }
-            }
 
             fun presentStreamGroup(group: AddonStreamGroup): AddonStreamGroup {
                 val badgeGroup = StreamBadgePresentation.apply(
@@ -492,137 +471,25 @@ object PlayerStreamsRepository {
                 }
             }
 
-            streamAddons.forEach { addon ->
-                launch {
-                    val url = buildAddonResourceUrl(
-                        manifestUrl = addon.manifest.transportUrl,
-                        resource = "stream",
-                        type = type,
-                        id = videoId,
-                    )
+            val loadBatch = StreamListEngine.startLoading(
+                scope = this,
+                type = type,
+                videoId = videoId,
+                season = season,
+                episode = episode,
+                forceRefresh = forceRefresh,
+                reuseFreshPayloads = useCachedStreams,
+                streamAddons = streamAddons,
+                pluginProviderGroups = pluginProviderGroups,
+                serverSources = serverSources,
+                measuredSpeeds = measuredSpeeds,
+                preferredRanksByAddonId = preferredRanksByAddonId,
+                profileId = streamCacheProfileId,
+                contentKey = cachedContentKey,
+            )
 
-                    val displayName = addon.addonName
-                    var sourceElapsedMs = 0L
-                    val outcome = streamSourceFetchSemaphore.withPermit {
-                        val requestStartedAt = TimeSource.Monotonic.markNow()
-                        try {
-                            runCatchingUnlessCancelled {
-                                val payload = fetchStreamSourcePayload(
-                                    url = url,
-                                    forceRefresh = forceRefresh,
-                                    timeoutMs = streamSourceTimeoutMs(measuredSpeeds[addon.manifestUrl]),
-                                )
-                                StreamResponseCache.save(
-                                    profileId = streamCacheProfileId,
-                                    contentKey = cachedContentKey,
-                                    addonId = addon.addonId,
-                                    payload = payload,
-                                )
-                                StreamParser.parse(
-                                    payload = payload,
-                                    addonName = displayName,
-                                    addonId = addon.addonId,
-                                    addonLogo = addon.manifest.logoUrl,
-                                )
-                            }
-                        } finally {
-                            sourceElapsedMs = requestStartedAt.elapsedNow().inWholeMilliseconds
-                        }
-                    }
-                    if (outcome.isSuccess) {
-                        val returnedStreams = outcome.getOrNull().orEmpty()
-                        AddonSpeedMemory.recordSuccess(
-                            profileId = streamCacheProfileId,
-                            manifestUrl = addon.manifestUrl,
-                            elapsedMs = sourceElapsedMs,
-                            resultCount = returnedStreams.size,
-                        )
-                        AddonFailureMemory.recordSuccess(addon.manifestUrl)
-                        if (returnedStreams.isEmpty()) {
-                            AddonSilentSourceMemory.recordEmptyAnswer(streamCacheProfileId, addon.manifestUrl)
-                        } else {
-                            AddonSilentSourceMemory.recordAnswerWithLinks(streamCacheProfileId, addon.manifestUrl)
-                        }
-                    } else {
-                        AddonSpeedMemory.recordFailure(streamCacheProfileId, addon.manifestUrl)
-                        AddonFailureMemory.recordFailure(addon.manifestUrl, outcome.exceptionOrNull())
-                    }
-                    val group = outcome.fold(
-                        onSuccess = { streams ->
-                            // An M3U list behind one link becomes the entries it holds, with the
-                            // headers each entry asked for.
-                            val expanded = streams.expandingPlaylistLinks()
-                            AddonStreamGroup(
-                                displayName,
-                                addon.addonId,
-                                expanded.sortedForGroupedDisplay(preferredRankFor(addon.addonId)),
-                                isLoading = false,
-                            )
-                        },
-                        onFailure = { err ->
-                            log.w(err) { "Failed: ${displayName}" }
-                            AddonStreamGroup(displayName, addon.addonId, emptyList(), isLoading = false, error = err.message)
-                        },
-                    )
-                    publishCompletion(StreamLoadCompletion.Addon(group))
-                }
-            }
-
-            serverSources.forEach { source ->
-                launch {
-                    streamSourceFetchSemaphore.withPermit {
-                        publishCompletion(StreamLoadCompletion.Addon(source.load()))
-                    }
-                }
-            }
-
-            pluginProviderGroups.forEach { providerGroup ->
-                val includeScraperNameInSubtitle = false
-                providerGroup.scrapers.forEach { scraper ->
-                    launch {
-                        val completion = streamSourceFetchSemaphore.withPermit {
-                            PluginRepository.executeScraper(
-                                scraper = scraper,
-                                tmdbId = pluginContentId(
-                                    videoId = videoId,
-                                    season = season,
-                                    episode = episode,
-                                ),
-                                mediaType = type,
-                                season = season,
-                                episode = episode,
-                            ).fold(
-                                onSuccess = { results ->
-                                    StreamLoadCompletion.PluginScraper(
-                                        addonId = providerGroup.addonId,
-                                        streams = results.map { result ->
-                                            result.toStreamItem(
-                                                scraper = scraper,
-                                                addonName = providerGroup.addonName,
-                                                addonId = providerGroup.addonId,
-                                                includeScraperNameInSubtitle = includeScraperNameInSubtitle,
-                                            )
-                                        },
-                                        error = null,
-                                    )
-                                },
-                                onFailure = { error ->
-                                    log.w(error) { "Plugin scraper failed: ${scraper.name}" }
-                                    StreamLoadCompletion.PluginScraper(
-                                        addonId = providerGroup.addonId,
-                                        streams = emptyList(),
-                                        error = error.message ?: getString(Res.string.streams_failed_to_load_scraper, scraper.name),
-                                    )
-                                },
-                            )
-                        }
-                        publishCompletion(completion)
-                    }
-                }
-            }
-
-            repeat(totalTasks) {
-                when (val completion = completions.receive()) {
+            repeat(loadBatch.taskCount) {
+                when (val completion = loadBatch.completions.receive()) {
                     is StreamLoadCompletion.Addon -> {
                         publishStreamGroupAfterCacheCheck(completion.group)
                     }
@@ -672,6 +539,7 @@ object PlayerStreamsRepository {
                     }
                 }
             }
+            loadBatch.completions.close()
 
             // All groups answered. Collapsing copies of the same file is the user's choice; off
             // by default, so a source keeps every link it returned. Camera copies and size-only
@@ -716,7 +584,6 @@ object PlayerStreamsRepository {
                     }
                 }
             }
-            completions.close()
         }
         setJob(job)
     }

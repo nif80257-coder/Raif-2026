@@ -273,6 +273,38 @@ class StreamParserTest {
     }
 
     @Test
+    fun `parse drops unsafe playback schemes and malformed web authorities`() {
+        val streams = StreamParser.parse(
+            payload = """
+                {"streams":[
+                  {"url":"javascript:alert(1)"},
+                  {"url":"https://user:password@cdn.example/video.mp4"},
+                  {"url":"https://cdn.example:99999/video.mp4"},
+                  {"url":"https://cdn.example/video.mp4"},
+                  {"url":"magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"}
+                ]}
+            """.trimIndent(),
+            addonName = "Untrusted",
+            addonId = "untrusted.addon",
+        )
+
+        assertEquals(2, streams.size)
+        assertEquals("https://cdn.example/video.mp4", streams.first().playableDirectUrl)
+        assertTrue(streams.last().isTorrentStream)
+    }
+
+    @Test
+    fun `parse rejects non-web external targets`() {
+        val streams = StreamParser.parse(
+            payload = """{"streams":[{"externalUrl":"file:///etc/passwd"}]}""",
+            addonName = "Untrusted",
+            addonId = "untrusted.addon",
+        )
+
+        assertTrue(streams.isEmpty())
+    }
+
+    @Test
     fun `parse keeps ytId alongside a url without resolving it`() {
         val stream = StreamParser.parse(
             payload = """{"streams":[{"url":"https://example.com/video.mp4","ytId":"dQw4w9WgXcQ"}]}""",

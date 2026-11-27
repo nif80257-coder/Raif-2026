@@ -24,9 +24,9 @@ object StreamParser {
         val streamsArray = root["streams"] as? JsonArray ?: return emptyList()
         return streamsArray.mapNotNull { element ->
             val obj = element as? JsonObject ?: return@mapNotNull null
-            val url = obj.string("url")
+            val url = obj.string("url")?.trim()?.takeIf { it.isValidStreamSourceUrl() }
             val infoHash = obj.string("infoHash")
-            val externalUrl = obj.string("externalUrl")
+            val externalUrl = obj.string("externalUrl")?.takeIf { it.isSafeStreamHttpUrl() }
             val ytId = obj.string("ytId")?.trim()?.takeIf { it.isNotEmpty() }
             val clientResolve = obj.objectValue("clientResolve")?.toClientResolve()
 

@@ -58,9 +58,10 @@ internal object AddonDirectoryParser {
     private fun JsonObject.toDirectoryEntry(installed: Set<String>): AddonDirectoryEntry? {
         val embedded = this["manifest"] as? JsonObject
         val manifestUrl = (text("manifestUrl") ?: text("transportUrl"))
-            ?.takeIf { url -> url.startsWith("http://") || url.startsWith("https://") || url.startsWith("//") }
+            ?.takeIf { url -> url.startsWith("http://", ignoreCase = true) || url.startsWith("https://", ignoreCase = true) || url.startsWith("//") }
             ?.let { url -> if (url.startsWith("//")) "https:$url" else url }
-            ?.let(::ensureAddonManifestUrl)
+            ?.let { url -> runCatching { normalizeAddonManifestUrl(url) }.getOrNull() }
+            ?.takeIf(::isSafePublicWebUrl)
             ?: return null
         // A directory is a way to find sources that answer with links. One served from this
         // device — the app's own 127.0.0.1 add-on server — only answers while the app runs that
@@ -135,19 +136,7 @@ private fun manifestHost(url: String): String {
  * app bundles answers on 127.0.0.1 and nowhere else, so a source pointing there is not a source a
  * person can install and watch with. A link that is not plain HTTP is not one mpv can play either.
  */
-internal fun String.isLocalDeviceUrl(): Boolean {
-    if (!startsWith("http://") && !startsWith("https://")) return true
-    val host = manifestHost(this)
-    return host.isEmpty() ||
-        host == "localhost" ||
-        host == "127.0.0.1" ||
-        host == "0.0.0.0" ||
-        host == "[::1]" ||
-        host.endsWith(".local") ||
-        host.startsWith("192.168.") ||
-        host.startsWith("10.") ||
-        host.startsWith("172.16.")
-}
+internal fun String.isLocalDeviceUrl(): Boolean = !isSafePublicWebUrl(this)
 
 /** The manifest link of a directory entry, whether it was given as a base URL or a full one. */
 internal fun ensureAddonManifestUrl(url: String): String {

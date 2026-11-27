@@ -112,6 +112,13 @@ internal sealed interface StreamLoadCompletion {
     ) : StreamLoadCompletion
 }
 
+/**
+ * The `addonId` a provider carries when the list shows every provider on its own, and when the
+ * list is grouped by the repository it came from. The download retry path reads them back.
+ */
+internal const val PLUGIN_SOURCE_ADDON_PREFIX = "plugin:"
+internal const val PLUGIN_REPOSITORY_ADDON_PREFIX = "plugin-repo:"
+
 internal fun List<PluginScraper>.toPluginProviderGroups(
     repositories: List<PluginRepositoryItem>,
     groupByRepository: Boolean,
@@ -119,7 +126,7 @@ internal fun List<PluginScraper>.toPluginProviderGroups(
     if (!groupByRepository) {
         return map { scraper ->
             PluginProviderGroup(
-                addonId = "plugin:${scraper.id}",
+                addonId = "$PLUGIN_SOURCE_ADDON_PREFIX${scraper.id}",
                 addonName = scraper.name,
                 scrapers = listOf(scraper),
             )
@@ -130,7 +137,7 @@ internal fun List<PluginScraper>.toPluginProviderGroups(
     return groupBy { it.repositoryUrl }
         .map { (repositoryUrl, scrapers) ->
             PluginProviderGroup(
-                addonId = "plugin-repo:${repositoryUrl.lowercase()}",
+                addonId = "$PLUGIN_REPOSITORY_ADDON_PREFIX${repositoryUrl.lowercase()}",
                 addonName = repoNameByUrl[repositoryUrl].orEmpty().ifBlank { repositoryUrl.fallbackRepositoryLabel() },
                 scrapers = scrapers.sortedBy { it.name.lowercase() },
             )
@@ -159,10 +166,21 @@ internal suspend fun <T> runCatchingUnlessCancelled(block: suspend () -> T): Res
         Result.failure(error)
     }
 
+internal suspend fun <T> runSourceTaskOrFallback(
+    block: suspend () -> T,
+    fallback: suspend (Throwable) -> T,
+): T = try {
+    block()
+} catch (error: CancellationException) {
+    throw error
+} catch (error: Throwable) {
+    fallback(error)
+}
+
 internal fun PluginRuntimeResult.toStreamItem(
     scraper: PluginScraper,
     addonName: String = scraper.name,
-    addonId: String = "plugin:${scraper.id}",
+    addonId: String = "$PLUGIN_SOURCE_ADDON_PREFIX${scraper.id}",
     includeScraperNameInSubtitle: Boolean = false,
 ): StreamItem {
     val subtitleParts = listOfNotNull(
@@ -187,7 +205,7 @@ internal fun PluginRuntimeResult.toStreamItem(
     return StreamItem(
         name = name ?: title,
         description = subtitleParts.joinToString(" • ").ifBlank { null },
-        url = url,
+        url = url.takeIf { it.isValidStreamSourceUrl() },
         infoHash = infoHash,
         sourceName = scraper.name,
         addonName = addonName,
@@ -201,7 +219,7 @@ internal fun PluginRuntimeResult.toStreamItem(
                 proxyHeaders = StreamProxyHeaders(request = requestHeaders),
             )
         },
-        externalSubtitles = subtitles?.map {
+        externalSubtitles = subtitles?.filter { it.url.isSafeStreamHttpUrl() }?.map {
             StreamSubtitle(
                 url = it.url,
                 language = it.language,
@@ -217,6 +235,8 @@ private data class RankedStream(
     val stream: StreamItem,
     val quality: Int,
     val readiness: Int,
+    /** Size as a last tie-breaker: at the same quality and readiness the bigger file is the better copy. */
+    val sizeBytes: Long,
     val sourceKey: String,
     val labelKey: String,
     val subtitleKey: String,
@@ -234,6 +254,7 @@ internal fun List<StreamItem>.sortedForGroupedDisplay(
             stream = stream,
             quality = stream.qualityRank(),
             readiness = stream.playbackReadinessRank(),
+            sizeBytes = stream.behaviorHints.videoSize?.coerceAtLeast(0L) ?: 0L,
             sourceKey = stream.sourceName.orEmpty().lowercase(),
             labelKey = stream.streamLabel.lowercase(),
             subtitleKey = stream.streamSubtitle.orEmpty().lowercase(),
@@ -245,6 +266,7 @@ internal fun List<StreamItem>.sortedForGroupedDisplay(
                 ?: -item.quality
         }
             .thenByDescending { item -> item.readiness }
+            .thenByDescending { item -> item.sizeBytes }
             .thenBy { item -> item.sourceKey }
             .thenBy { item -> item.labelKey }
             .thenBy { item -> item.subtitleKey },
@@ -262,6 +284,9 @@ internal fun List<AddonStreamGroup>.deduplicatedAcrossSources(): List<AddonStrea
     }.sortedWith(
         compareByDescending<Triple<Int, Int, StreamItem>> { it.third.qualityRank() }
             .thenByDescending { it.third.playbackReadinessRank() }
+            // The same file offered at the same quality by two add-ons: the larger copy wins, so the
+            // one kept for the list is the higher-bitrate encode rather than whichever came first.
+            .thenByDescending { it.third.behaviorHints.videoSize ?: 0L }
             .thenBy { it.first }
             .thenBy { it.second },
     )

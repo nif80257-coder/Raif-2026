@@ -61,7 +61,7 @@ fun handleDownloadsBackgroundEvents(
 }
 
 fun pauseDownloadsForAppBackground() {
-    DownloadsRepository.pauseActiveDownloads()
+    DownloadsRepository.pauseActiveDownloadsForBackground()
 }
 
 @OptIn(ExperimentalForeignApi::class)

@@ -73,6 +73,10 @@ import nuvio.composeapp.generated.resources.plugins_repo_version
 import nuvio.composeapp.generated.resources.plugins_repositories_hidden_count
 import nuvio.composeapp.generated.resources.plugins_repositories_hide_all
 import nuvio.composeapp.generated.resources.plugins_repositories_show_all
+import nuvio.composeapp.generated.resources.plugins_repository_health_age_days
+import nuvio.composeapp.generated.resources.plugins_repository_health_age_hours
+import nuvio.composeapp.generated.resources.plugins_repository_health_failures
+import nuvio.composeapp.generated.resources.plugins_repository_health_never
 import nuvio.composeapp.generated.resources.plugins_repository_hide
 import nuvio.composeapp.generated.resources.plugins_repository_show
 import nuvio.composeapp.generated.resources.plugins_section_add_repo
@@ -410,6 +414,20 @@ fun PluginsSettingsPageContent(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                            val repositoryHealth = uiState.repositories.firstOrNull {
+                                it.manifestUrl == scraper.repositoryUrl
+                            }
+                            if (repositoryHealth != null) {
+                                Text(
+                                    text = repositoryHealthLine(repositoryHealth),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (repositoryHealth.consecutiveRefreshFailures > 0) {
+                                        MaterialTheme.colorScheme.error
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                )
+                            }
                         }
                         TextButton(
                             onClick = {
@@ -638,5 +656,27 @@ private fun String.fallbackRepositoryLabel(fallback: String): String {
     val host = withoutManifest.substringAfter("://", withoutManifest).substringBefore('/')
     return host.ifBlank {
         withoutManifest.substringAfterLast('/').ifBlank { fallback }
+    }
+}
+
+
+/**
+ * The health of one repository under its name: the last time it refreshed, or the run of failed
+ * refreshes that is keeping it off the automatic schedule. The row turns red on the first failure,
+ * so a host that has gone quiet is visible without opening the health page.
+ */
+@Composable
+private fun repositoryHealthLine(repository: PluginRepositoryItem): String {
+    if (repository.consecutiveRefreshFailures > 0) {
+        return stringResource(Res.string.plugins_repository_health_failures, repository.consecutiveRefreshFailures)
+    }
+    if (repository.lastUpdated <= 0L) {
+        return stringResource(Res.string.plugins_repository_health_never)
+    }
+    val hours = ((currentEpochMillis() - repository.lastUpdated) / 3_600_000L).coerceAtLeast(0L)
+    return if (hours < 24L) {
+        stringResource(Res.string.plugins_repository_health_age_hours, hours)
+    } else {
+        stringResource(Res.string.plugins_repository_health_age_days, hours / 24L)
     }
 }

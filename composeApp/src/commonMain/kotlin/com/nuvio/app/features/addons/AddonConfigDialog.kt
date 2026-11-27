@@ -79,6 +79,16 @@ internal fun AddonConfigDialog(
                 )
             }
 
+            if (fields.any(AddonConfigField::isSecret)) {
+                item {
+                    Text(
+                        text = stringResource(Res.string.addons_config_secret_note),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
             fields.forEach { field ->
                 item(key = "config:${field.key}") {
                     ConfigFieldCard(
@@ -118,10 +128,10 @@ internal fun AddonConfigDialog(
                             isInstalling = true
                             errorMessage = null
                             scope.launch {
-                                when (val result = AddonRepository.addAddon(configuredUrl)) {
+                                when (val result = AddonRepository.addAddon(configuredUrl, fields)) {
                                     is AddAddonResult.Success -> {
                                         isInstalling = false
-                                        AddonDirectoryRepository.markInstalled(configuredUrl)
+                                        AddonDirectoryRepository.markInstalled(result.manifest.transportUrl)
                                         onDismiss()
                                     }
 
@@ -141,10 +151,10 @@ internal fun AddonConfigDialog(
                                 isInstalling = true
                                 errorMessage = null
                                 scope.launch {
-                                    when (val result = AddonRepository.replaceAddon(addon.manifestUrl, configuredUrl)) {
+                                    when (val result = AddonRepository.replaceAddon(addon.manifestUrl, configuredUrl, fields)) {
                                         is AddAddonResult.Success -> {
                                             isInstalling = false
-                                            AddonDirectoryRepository.markInstalled(configuredUrl)
+                                            AddonDirectoryRepository.markInstalled(result.manifest.transportUrl)
                                             onDismiss()
                                         }
 

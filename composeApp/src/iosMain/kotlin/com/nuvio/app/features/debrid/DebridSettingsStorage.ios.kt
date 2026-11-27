@@ -1,6 +1,7 @@
 package com.nuvio.app.features.debrid
 
 import com.nuvio.app.core.storage.ProfileScopedKey
+import com.nuvio.app.core.storage.SecretStore
 import com.nuvio.app.core.sync.decodeSyncBoolean
 import com.nuvio.app.core.sync.decodeSyncInt
 import com.nuvio.app.core.sync.decodeSyncString
@@ -65,10 +66,10 @@ actual object DebridSettingsStorage {
     }
 
     actual fun loadProviderApiKey(providerId: String): String? =
-        loadString(providerApiKeyKey(providerId))
+        loadProviderApiKeyValue(providerApiKeyKey(providerId))
 
     actual fun saveProviderApiKey(providerId: String, apiKey: String) {
-        saveString(providerApiKeyKey(providerId), apiKey)
+        saveProviderApiKeyValue(providerApiKeyKey(providerId), apiKey)
     }
 
     actual fun loadTorboxApiKey(): String? = loadProviderApiKey(DebridProviders.TORBOX_ID)
@@ -191,6 +192,43 @@ actual object DebridSettingsStorage {
         NSUserDefaults.standardUserDefaults.setObject(value, forKey = ProfileScopedKey.of(key))
     }
 
+    private fun loadProviderApiKeyValue(key: String): String? {
+        val scopedKey = ProfileScopedKey.of(key)
+        val defaults = NSUserDefaults.standardUserDefaults
+        val storedSecret = SecretStore.read(scopedKey)
+        if (storedSecret != null) {
+            if (defaults.objectForKey(scopedKey) != null) defaults.removeObjectForKey(scopedKey)
+            return storedSecret
+        }
+
+        val legacyValue = defaults.stringForKey(scopedKey) ?: return null
+        if (legacyValue.isBlank()) {
+            defaults.removeObjectForKey(scopedKey)
+            return null
+        }
+
+        SecretStore.write(scopedKey, legacyValue)
+        val migratedValue = SecretStore.read(scopedKey)
+        if (migratedValue == legacyValue) {
+            defaults.removeObjectForKey(scopedKey)
+            return migratedValue
+        }
+        return legacyValue
+    }
+
+    private fun saveProviderApiKeyValue(key: String, value: String) {
+        val scopedKey = ProfileScopedKey.of(key)
+        val defaults = NSUserDefaults.standardUserDefaults
+        if (value.isBlank()) {
+            if (SecretStore.writeChecked(scopedKey, null)) defaults.removeObjectForKey(scopedKey)
+            return
+        }
+
+        if (SecretStore.writeChecked(scopedKey, value) && SecretStore.read(scopedKey) == value) {
+            defaults.removeObjectForKey(scopedKey)
+        }
+    }
+
     actual fun exportToSyncPayload(): JsonObject = buildJsonObject {
         loadEnabled()?.let { put(enabledKey, encodeSyncBoolean(it)) }
         loadCloudLibraryEnabled()?.let { put(cloudLibraryEnabledKey, encodeSyncBoolean(it)) }
@@ -213,8 +251,14 @@ actual object DebridSettingsStorage {
     }
 
     actual fun replaceFromSyncPayload(payload: JsonObject) {
-        syncKeys().forEach { key ->
-            NSUserDefaults.standardUserDefaults.removeObjectForKey(ProfileScopedKey.of(key))
+        // Provider credentials have their own sync channel. Migrate legacy values here, but do not
+        // delete a Keychain item merely because this preferences payload omits it.
+        DebridProviders.all().forEach { provider -> loadProviderApiKey(provider.id) }
+        val defaults = NSUserDefaults.standardUserDefaults
+        val providerApiKeyKeys = DebridProviders.all().map { providerApiKeyKey(it.id) }.toSet()
+
+        syncKeys().filterNot(providerApiKeyKeys::contains).forEach { key ->
+            defaults.removeObjectForKey(ProfileScopedKey.of(key))
         }
 
         payload.decodeSyncBoolean(enabledKey)?.let(::saveEnabled)

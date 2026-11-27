@@ -9,14 +9,21 @@ internal const val PLUGIN_REPOSITORY_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1_000L
  * Provider repositories installed automatically the first time a profile has none, so the source
  * list is not empty out of the box.
  *
- * Only the Nuvio project's own repository is bundled: its scrapers resolve a title straight to a
+ * Every entry here is a Nuvio provider repository: its scrapers resolve a title straight to a
  * direct link or an info hash, which is what this app plays, and none of them asks for a debrid
- * account. [ExcludedProviderScraperIds] drops the anime sources it also lists.
+ * account. [ExcludedProviderScraperIds] drops the anime sources they also list, and the very large
+ * community repositories (66 and 95 providers) are left out on purpose: every provider is a request
+ * on each title, so shipping them would cost more load time than they return.
  *
- * Seeding runs once per profile, so removing the repository afterwards is remembered.
+ * Seeding runs once per profile, so removing a repository afterwards is remembered.
  */
 internal val DefaultProviderRepositories: List<String> = listOf(
+    // Yoru's Repo — the Nuvio project's own provider list.
     "https://raw.githubusercontent.com/tapframe/nuvio-providers/main/manifest.json",
+    // Michat88 Repo — 30 providers, the most-used community list after Yoru's.
+    "https://raw.githubusercontent.com/michat88/nuvio-providers/refs/heads/main/manifest.json",
+    // Phisher's Repo — three providers, small enough to cost nothing on a load.
+    "https://raw.githubusercontent.com/TechEnthusiast47/phisher-nuvio-providers/main/manifest.json",
 )
 
 internal fun isPluginRepositoryRefreshDue(
@@ -39,7 +46,8 @@ data class PluginManifestScraper(
     val id: String,
     val name: String,
     val description: String? = null,
-    val version: String,
+    /** Community repositories do not always version each provider; an absent one is not fatal. */
+    val version: String = "",
     val filename: String,
     @SerialName("supportedTypes") val supportedTypes: List<String> = listOf("movie", "tv"),
     val enabled: Boolean = true,
@@ -61,6 +69,8 @@ data class PluginRepositoryItem(
     val version: String? = null,
     val scraperCount: Int = 0,
     val lastUpdated: Long = 0L,
+    /** Consecutive refresh failures. Auto refresh rests at three; the manual button still works. */
+    val consecutiveRefreshFailures: Int = 0,
     val isRefreshing: Boolean = false,
     val errorMessage: String? = null,
 )
@@ -117,6 +127,14 @@ data class PluginsUiState(
     val repositories: List<PluginRepositoryItem> = emptyList(),
     val scrapers: List<PluginScraper> = emptyList(),
     val defaultRepositoriesSeeded: Boolean = false,
+    /**
+     * How many entries of [DefaultProviderRepositories] have already been offered to this profile.
+     *
+     * Kept as a count rather than a flag so a later version that bundles one more repository
+     * installs just that one: the entries already offered are never handed back to a profile that
+     * removed them.
+     */
+    val defaultRepositoriesSeededCount: Int = 0,
 )
 
 sealed interface AddPluginRepositoryResult {
@@ -131,6 +149,7 @@ internal data class StoredPluginsState(
     val repositories: List<StoredPluginRepository> = emptyList(),
     val scrapers: List<StoredPluginScraper> = emptyList(),
     val defaultRepositoriesSeeded: Boolean = false,
+    val defaultRepositoriesSeededCount: Int = 0,
 )
 
 @Serializable
@@ -141,6 +160,7 @@ internal data class StoredPluginRepository(
     val version: String? = null,
     val scraperCount: Int = 0,
     val lastUpdated: Long = 0L,
+    val consecutiveRefreshFailures: Int = 0,
 )
 
 @Serializable
@@ -178,10 +198,12 @@ internal fun PluginsUiState.toStoredPluginsState(): StoredPluginsState =
                 version = repository.version,
                 scraperCount = repository.scraperCount,
                 lastUpdated = repository.lastUpdated,
+                consecutiveRefreshFailures = repository.consecutiveRefreshFailures,
             )
         },
         scrapers = scrapers.map(PluginScraper::toStoredPluginScraper),
         defaultRepositoriesSeeded = defaultRepositoriesSeeded,
+        defaultRepositoriesSeededCount = defaultRepositoriesSeededCount,
     )
 
 internal fun PluginScraper.toStoredPluginScraper(): StoredPluginScraper =

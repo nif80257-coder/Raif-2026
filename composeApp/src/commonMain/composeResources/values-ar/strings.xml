@@ -2841,6 +2841,9 @@
     <string name="addons_directory_p2p_note">مصدر التورنت يرى العنوان الذي تشاهده وعنوان IP الخاص بك.</string>
     <string name="addons_config_title">تهيئة %1$s</string>
     <string name="addons_config_description">املأ الحقول التي يعلنها هذا المصدر. تصبح القيم جزءًا من رابط مانيفسته، فتُثبَّت النسخة المهيّأة بجانب الأصلية.</string>
+    <string name="addons_config_secret_note">تُحفَظ الأسرار في التخزين الآمن على هذا الجهاز ولا تتم مزامنتها. مع ذلك، يتلقاها مزوّد الإضافة ضمن طلباته.</string>
+    <string name="addons_config_secret_https_required">تتطلب الإعدادات السرية مصدرًا آمنًا يستخدم HTTPS.</string>
+    <string name="addons_config_secret_storage_unavailable">تعذّر حفظ السر بأمان على هذا الجهاز. لم يُثبّت المصدر؛ حاول مجددًا.</string>
     <string name="addons_config_required">مطلوب</string>
     <string name="addons_config_install">تثبيت النسخة المهيّأة</string>
     <string name="addons_config_missing_required">املأ كل حقل مطلوب أولًا.</string>
@@ -2911,4 +2914,8 @@
     <string name="settings_homescreen_copy_sheet_title">انسخ من</string>
     <string name="settings_homescreen_copy_done">نُسخت إعدادات شاشة الرئيسية</string>
     <string name="settings_homescreen_copy_empty">ذلك الملف الشخصي لا يملك إعدادات محفوظة بعد</string>
+    <string name="plugins_repository_health_age_hours">آخر تحديث قبل %1$d ساعة</string>
+    <string name="plugins_repository_health_age_days">آخر تحديث قبل %1$d يوم</string>
+    <string name="plugins_repository_health_never">لم يُحدَّث بعد</string>
+    <string name="plugins_repository_health_failures">%1$d إخفاقات تحديث متتالية</string>
 </resources>

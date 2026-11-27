@@ -54,18 +54,32 @@ actual object TmdbSettingsStorage {
      */
     actual fun loadApiKey(): String? {
         val name = ProfileScopedKey.of(apiKeyKey)
-        SecretStore.read(name)?.let { return it }
         val defaults = NSUserDefaults.standardUserDefaults
+        SecretStore.read(name)?.let { storedSecret ->
+            if (defaults.objectForKey(name) != null) defaults.removeObjectForKey(name)
+            return storedSecret
+        }
         val legacy = defaults.stringForKey(name) ?: return null
-        SecretStore.write(name, legacy)
-        defaults.removeObjectForKey(name)
+        if (legacy.isBlank()) {
+            defaults.removeObjectForKey(name)
+            return null
+        }
+        if (SecretStore.writeChecked(name, legacy) && SecretStore.read(name) == legacy) {
+            defaults.removeObjectForKey(name)
+        }
         return legacy
     }
 
     actual fun saveApiKey(apiKey: String) {
         val name = ProfileScopedKey.of(apiKeyKey)
-        SecretStore.write(name, apiKey)
-        NSUserDefaults.standardUserDefaults.removeObjectForKey(name)
+        val defaults = NSUserDefaults.standardUserDefaults
+        if (apiKey.isBlank()) {
+            if (SecretStore.writeChecked(name, null)) defaults.removeObjectForKey(name)
+            return
+        }
+        if (SecretStore.writeChecked(name, apiKey) && SecretStore.read(name) == apiKey) {
+            defaults.removeObjectForKey(name)
+        }
     }
 
     actual fun loadLanguage(): String? =

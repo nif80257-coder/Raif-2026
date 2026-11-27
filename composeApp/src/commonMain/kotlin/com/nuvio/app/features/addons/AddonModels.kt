@@ -44,15 +44,43 @@ data class AddonConfigField(
         get() = options.isNotEmpty()
 
     /**
-     * Sources that need an API token or a password declare it in `config[]`; the value is typed
-     * into a masked field so it is not shown on screen while it is entered.
+     * Credential-like settings are masked and kept out of the synchronized manifest URL.
      */
     val isSecret: Boolean
-        get() = type?.equals("password", ignoreCase = true) == true ||
-            key.lowercase().let { name -> SECRET_CONFIG_KEY_HINTS.any(name::contains) }
+        get() = type?.let { value ->
+            value.equals("password", ignoreCase = true) ||
+                value.equals("secret", ignoreCase = true) ||
+                value.equals("credential", ignoreCase = true)
+        } == true ||
+            listOf(key, title.orEmpty(), description.orEmpty())
+                .any { value -> isSecretConfigKey(value) }
 }
 
-private val SECRET_CONFIG_KEY_HINTS = listOf("token", "apikey", "api_key", "password", "secret")
+internal fun isSecretConfigKey(value: String): Boolean {
+    val name = value.lowercase().filter(Char::isLetterOrDigit)
+    return SECRET_CONFIG_KEY_HINTS.any(name::contains)
+}
+
+private val SECRET_CONFIG_KEY_HINTS = listOf(
+    "token",
+    "apikey",
+    "password",
+    "secret",
+    "credential",
+    "authorization",
+    "bearer",
+    "accesskey",
+    "privatekey",
+    "profile",
+    "authkey",
+    "authcode",
+    "authentication",
+    "session",
+    "cookie",
+    "passcode",
+    "pin",
+    "signature",
+)
 
 /** True when this source serves a directory of other add-ons through `addon_catalog`. */
 fun AddonManifest.servesAddonDirectory(): Boolean =

@@ -410,7 +410,7 @@ object TraktAuthRepository : TrackingAuthProvider {
             )
         }.onFailure { error ->
             if (error is CancellationException) throw error
-            log.w { "Trakt token refresh transport failure: ${error.message}" }
+            log.w { "Trakt token refresh transport failure" }
         }.getOrNull() ?: return@withLock false
 
         if (ProfileRepository.activeProfileId != profileId || authState.refreshToken != refreshToken) {

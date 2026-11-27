@@ -113,7 +113,7 @@ internal fun partyChatRows(messages: List<PartyChatMessage>): List<PartyChatRow>
         val nextShowsTime = next != null && next.sentAt - message.sentAt > TIME_GAP_MS
         PartyChatRow(
             message = message,
-            startsGroup = showTime || previous?.author != message.author,
+            startsGroup = showTime || previous.author != message.author,
             endsGroup = next == null || nextShowsTime || next.author != message.author,
             showTime = showTime,
         )

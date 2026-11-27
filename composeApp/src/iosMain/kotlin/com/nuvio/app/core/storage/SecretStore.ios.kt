@@ -46,28 +46,54 @@ internal actual object SecretStore {
         }
     }
 
-    actual fun write(name: String, value: String?) = query(name) { query ->
+    actual fun write(name: String, value: String?) {
+        writeSecret(name, value)
+    }
+
+    actual fun writeChecked(name: String, value: String?): Boolean = writeSecret(name, value)
+
+    private fun writeSecret(name: String, value: String?): Boolean = query(name) { query ->
         if (value == null) {
             val status = SecItemDelete(query)
             if (status != errSecSuccess && status != errSecItemNotFound) {
                 log.w { "Keychain delete refused (OSStatus $status)" }
             }
-            return@query
+            return@query status == errSecSuccess || status == errSecItemNotFound
         }
         val bytes = value.encodeToByteArray().toUByteArray()
-        if (bytes.isEmpty()) return@query
-        val data = CFDataCreate(null, bytes.refTo(0), bytes.size.toLong()) ?: return@query
+        if (bytes.isEmpty()) return@query false
+        val data = CFDataCreate(null, bytes.refTo(0), bytes.size.toLong()) ?: return@query false
         val attributes = dictionary()
         try {
             CFDictionarySetValue(attributes, kSecValueData, data)
-            val update = SecItemUpdate(query, attributes)
-            if (update == errSecItemNotFound) {
-                CFDictionarySetValue(query, kSecValueData, data)
-                CFDictionarySetValue(query, kSecAttrAccessible, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly)
-                val added = SecItemAdd(query, null)
-                if (added != errSecSuccess) log.w { "Keychain add refused (OSStatus $added)" }
-            } else if (update != errSecSuccess) {
-                log.w { "Keychain update refused (OSStatus $update)" }
+            when (val update = SecItemUpdate(query, attributes)) {
+                errSecSuccess -> true
+                errSecItemNotFound -> {
+                    val addQuery = CFDictionaryCreateMutableCopy(null, 0, query)
+                    if (addQuery == null) {
+                        log.w { "Keychain add query could not be created" }
+                        false
+                    } else {
+                        try {
+                            CFDictionarySetValue(addQuery, kSecValueData, data)
+                            CFDictionarySetValue(addQuery, kSecAttrAccessible, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly)
+                            when (val added = SecItemAdd(addQuery, null)) {
+                                errSecSuccess -> true
+                                errSecDuplicateItem -> SecItemUpdate(query, attributes) == errSecSuccess
+                                else -> {
+                                    log.w { "Keychain add refused (OSStatus $added)" }
+                                    false
+                                }
+                            }
+                        } finally {
+                            CFRelease(addQuery)
+                        }
+                    }
+                }
+                else -> {
+                    log.w { "Keychain update refused (OSStatus $update)" }
+                    false
+                }
             }
         } finally {
             CFRelease(attributes)
@@ -80,18 +106,26 @@ internal actual object SecretStore {
             ?: error("Unable to create a Keychain query")
 
     private inline fun <T> query(name: String, block: (CFMutableDictionaryRef) -> T): T {
+        require(name.isNotEmpty() && '\u0000' !in name) { "Invalid Keychain account name" }
         val service = CFStringCreateWithCString(null, "com.raif.stream.secrets", kCFStringEncodingUTF8)
             ?: error("Unable to encode the Keychain service")
-        val account = CFStringCreateWithCString(null, name, kCFStringEncodingUTF8)
-        val query = dictionary()
         try {
-            CFDictionarySetValue(query, kSecClass, kSecClassGenericPassword)
-            CFDictionarySetValue(query, kSecAttrService, service)
-            account?.let { CFDictionarySetValue(query, kSecAttrAccount, it) }
-            return block(query)
+            val account = CFStringCreateWithCString(null, name, kCFStringEncodingUTF8)
+                ?: error("Unable to encode the Keychain account")
+            try {
+                val query = dictionary()
+                try {
+                    CFDictionarySetValue(query, kSecClass, kSecClassGenericPassword)
+                    CFDictionarySetValue(query, kSecAttrService, service)
+                    CFDictionarySetValue(query, kSecAttrAccount, account)
+                    return block(query)
+                } finally {
+                    CFRelease(query)
+                }
+            } finally {
+                CFRelease(account)
+            }
         } finally {
-            CFRelease(query)
-            account?.let { CFRelease(it) }
             CFRelease(service)
         }
     }

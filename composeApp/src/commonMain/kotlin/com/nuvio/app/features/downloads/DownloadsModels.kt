@@ -46,6 +46,15 @@ data class DownloadItem(
     val localFileUri: String? = null,
     val fileName: String,
     val status: DownloadStatus,
+    /**
+     * True while the reason this row is paused is the background transition, not the viewer.
+     *
+     * The pause is written with the row rather than kept in memory: iOS suspends and often kills an
+     * app that is left in the background, so a marker held in a field would be gone by the time the
+     * app comes back, and the row would stay paused with nobody to resume it. Coming back to the
+     * foreground resumes only the rows that carry this flag; a pause the viewer asked for stays.
+     */
+    val pausedByBackground: Boolean = false,
     val downloadedBytes: Long = 0L,
     val totalBytes: Long? = null,
     val errorMessage: String? = null,

@@ -35,6 +35,7 @@ import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.plugins_error_enter_repo_url
 import nuvio.composeapp.generated.resources.plugins_error_enter_valid_url
 import nuvio.composeapp.generated.resources.plugins_error_provider_not_found
+import nuvio.composeapp.generated.resources.plugins_manifest_no_providers
 import nuvio.composeapp.generated.resources.plugins_repository_already_installed
 import nuvio.composeapp.generated.resources.plugins_repository_install_failed
 import nuvio.composeapp.generated.resources.plugins_repository_refresh_failed
@@ -72,6 +73,9 @@ actual object PluginRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val log = Logger.withTag("PluginRepository")
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+
+    /** How many refreshes in a row may fail before the scheduled refresh leaves the host alone. */
+    private const val AutoRefreshFailureLimit = 3
 
     private val _uiState = MutableStateFlow(PluginsUiState())
     actual val uiState: StateFlow<PluginsUiState> = _uiState.asStateFlow()
@@ -131,8 +135,16 @@ actual object PluginRepository {
                 }
                 .decodeList<PluginRow>()
 
-            val urls = dedupeManifestUrls(rows.map { it.url })
+            val serverUrls = dedupeManifestUrls(rows.map { it.url })
             val existingState = _uiState.value
+            /*
+             * A server copy written before the app bundled one more repository must not take it
+             * away again: the local entry for a bundled default the server does not list is kept.
+             */
+            val keptDefaultUrls = existingState.repositories
+                .map { repository -> repository.manifestUrl }
+                .filter { url -> url in DefaultProviderRepositories && url !in serverUrls }
+            val urls = serverUrls + keptDefaultUrls
             val existingReposByUrl = existingState.repositories.associateBy { it.manifestUrl }
             val nowEpochMs = currentEpochMillis()
             val nextRepos = urls.map { url ->
@@ -165,6 +177,7 @@ actual object PluginRepository {
                 repositories = nextRepos,
                 scrapers = nextScrapers,
                 defaultRepositoriesSeeded = _uiState.value.defaultRepositoriesSeeded,
+                defaultRepositoriesSeededCount = _uiState.value.defaultRepositoriesSeededCount,
             )
             persist()
 
@@ -258,7 +271,13 @@ actual object PluginRepository {
                     result.fold(
                         onSuccess = { (repo, scrapers) ->
                             val updatedRepos = state.repositories.map { existing ->
-                                if (existing.manifestUrl == manifestUrl) repo else existing
+                                if (existing.manifestUrl == manifestUrl) {
+                                    // A successful refresh is what puts a repository back on the
+                                    // automatic schedule after it rested through failures.
+                                    repo.copy(consecutiveRefreshFailures = 0)
+                                } else {
+                                    existing
+                                }
                             }
                             state.copy(
                                 repositories = updatedRepos,
@@ -271,6 +290,7 @@ actual object PluginRepository {
                                     if (existing.manifestUrl == manifestUrl) {
                                         existing.copy(
                                             isRefreshing = false,
+                                            consecutiveRefreshFailures = existing.consecutiveRefreshFailures + 1,
                                             errorMessage = error.message ?: runBlocking { getString(Res.string.plugins_repository_refresh_failed) },
                                         )
                                     } else {
@@ -358,6 +378,7 @@ actual object PluginRepository {
         mediaType: String,
         season: Int?,
         episode: Int?,
+        timeoutMs: Long,
     ): Result<List<PluginRuntimeResult>> = executeScraperInternal(
         scraper = scraper,
         tmdbId = tmdbId,
@@ -365,6 +386,7 @@ actual object PluginRepository {
         season = season,
         episode = episode,
         respectSearchPause = true,
+        timeoutMs = timeoutMs,
     )
 
     private suspend fun executeScraperInternal(
@@ -374,6 +396,7 @@ actual object PluginRepository {
         season: Int?,
         episode: Int?,
         respectSearchPause: Boolean,
+        timeoutMs: Long = DefaultPluginTimeoutMs,
     ): Result<List<PluginRuntimeResult>> {
         val resolvedTmdbId = resolvePluginTmdbId(
             tmdbId = tmdbId,
@@ -389,6 +412,7 @@ actual object PluginRepository {
                 episode = episode,
                 scraperId = scraper.id,
                 respectSearchPause = respectSearchPause,
+                timeoutMs = timeoutMs,
             )
         }
     }
@@ -463,6 +487,14 @@ actual object PluginRepository {
                     }.getOrNull()
                 }
 
+            // A repository whose every provider was dropped — anime only, or unavailable on iOS —
+            // would be installed empty: it would take a row in settings, be refreshed for ever and
+            // answer nothing. Refusing it here is what the user sees as "install failed", and it
+            // also keeps the seeding walk from marking a dead list as offered.
+            if (scrapers.isEmpty()) {
+                throw IllegalArgumentException(getString(Res.string.plugins_manifest_no_providers))
+            }
+
             val repo = PluginRepositoryItem(
                 manifestUrl = manifestUrl,
                 name = manifest.name,
@@ -490,8 +522,12 @@ actual object PluginRepository {
         repository: PluginRepositoryItem,
         scrapers: List<PluginScraper>,
         nowEpochMs: Long,
-    ): Boolean = isPluginRepositoryRefreshDue(repository.lastUpdated, nowEpochMs) ||
-        scrapers.count { scraper -> scraper.repositoryUrl == repository.manifestUrl } < repository.scraperCount
+    ): Boolean =
+        // A dead host is not asked again on a timer: three consecutive failures rest the scheduled
+        // refresh, while a manual refresh from settings still goes through and can wake it.
+        repository.consecutiveRefreshFailures < AutoRefreshFailureLimit &&
+            (isPluginRepositoryRefreshDue(repository.lastUpdated, nowEpochMs) ||
+                scrapers.count { scraper -> scraper.repositoryUrl == repository.manifestUrl } < repository.scraperCount)
 
     private fun markRefreshing(manifestUrl: String) {
         _uiState.update { state ->
@@ -508,27 +544,43 @@ actual object PluginRepository {
     }
 
     /**
-     * Installs the bundled default provider repositories the first time a profile has none, so the
-     * source list works out of the box. The flag lives in the persisted state, so a repository the
-     * user removes afterwards is not added back.
+     * Installs the bundled provider repositories, so the source list works out of the box.
+     *
+     * [DefaultProviderRepositories] is walked as a prefix: the first runs install everything, and a
+     * later version that bundles one more repository installs only the new entry, because the count
+     * of entries already offered is stored with the profile. A profile that added repositories of
+     * its own is left alone.
      */
     private fun seedDefaultRepositoriesIfNeeded(profileId: Int) {
-        if (_uiState.value.defaultRepositoriesSeeded) return
+        val state = _uiState.value
+        val seededCount = state.defaultRepositoriesSeededCount.coerceIn(0, DefaultProviderRepositories.size)
+        val pendingDefaults = DefaultProviderRepositories.drop(seededCount)
+
+        if (pendingDefaults.isEmpty()) {
+            if (!state.defaultRepositoriesSeeded) {
+                _uiState.update { it.copy(defaultRepositoriesSeeded = true) }
+                persist()
+            }
+            return
+        }
         if (defaultSeedJob?.isActive == true) return
 
-        val existingUrls = _uiState.value.repositories.map { it.manifestUrl }
-        val hasOwnRepositories = existingUrls.isNotEmpty() && existingUrls.any { it !in DefaultProviderRepositories }
-        if (hasOwnRepositories || DefaultProviderRepositories.all { it in existingUrls }) {
-            // Either the profile curated its own repositories, or the defaults are already in
-            // place. Both mean there is nothing to seed, so remember it and stop trying.
-            _uiState.update { it.copy(defaultRepositoriesSeeded = true) }
+        val existingUrls = state.repositories.map { it.manifestUrl }
+        if (existingUrls.any { url -> url !in DefaultProviderRepositories }) {
+            // The profile curated its own repositories, so the bundle stays out of its way.
+            _uiState.update {
+                it.copy(
+                    defaultRepositoriesSeeded = true,
+                    defaultRepositoriesSeededCount = DefaultProviderRepositories.size,
+                )
+            }
             persist()
             return
         }
 
         var seedJob: Job? = null
         seedJob = scope.launch {
-            DefaultProviderRepositories.forEach { manifestUrl ->
+            pendingDefaults.forEach { manifestUrl ->
                 if (currentProfileId != profileId) return@launch
                 if (_uiState.value.repositories.any { it.manifestUrl == manifestUrl }) return@forEach
 
@@ -536,25 +588,38 @@ actual object PluginRepository {
                     fetchRepositoryData(manifestUrl, _uiState.value.scrapers.associateBy { it.id })
                 }.getOrNull() ?: return@forEach
 
-                _uiState.update { state ->
-                    state.copy(
-                        repositories = state.repositories + result.first,
-                        scrapers = state.scrapers + result.second,
+                _uiState.update { current ->
+                    current.copy(
+                        repositories = current.repositories + result.first,
+                        scrapers = current.scrapers + result.second,
                     )
                 }
             }
 
-            val seededUrls = _uiState.value.repositories.map { it.manifestUrl }
-            if (seededUrls.isEmpty()) {
+            val installedUrls = _uiState.value.repositories.map { it.manifestUrl }
+            if (installedUrls.isEmpty()) {
                 log.w { "seedDefaultRepositoriesIfNeeded() — nothing installed; retrying on the next launch" }
                 return@launch
             }
 
-            val complete = DefaultProviderRepositories.all { it in seededUrls }
+            // Only the leading defaults that are actually in place count as offered, so a network
+            // failure on one of them is retried on the next launch instead of being skipped.
+            var offeredCount = 0
+            while (offeredCount < DefaultProviderRepositories.size &&
+                DefaultProviderRepositories[offeredCount] in installedUrls
+            ) {
+                offeredCount += 1
+            }
+            val complete = offeredCount == DefaultProviderRepositories.size
             if (!complete) {
                 log.w { "seedDefaultRepositoriesIfNeeded() — defaults incomplete; retrying on the next launch" }
             }
-            _uiState.update { it.copy(defaultRepositoriesSeeded = complete) }
+            _uiState.update {
+                it.copy(
+                    defaultRepositoriesSeeded = complete,
+                    defaultRepositoriesSeededCount = offeredCount,
+                )
+            }
             persist()
             pushToServer()
             log.i { "seedDefaultRepositoriesIfNeeded() — default repositories in place: $complete" }
@@ -683,6 +748,7 @@ actual object PluginRepository {
                             version = it.version,
                             scraperCount = it.scraperCount,
                             lastUpdated = it.lastUpdated,
+                            consecutiveRefreshFailures = it.consecutiveRefreshFailures,
                             isRefreshing = false,
                             errorMessage = null,
                         )
@@ -690,6 +756,7 @@ actual object PluginRepository {
                     ?: emptyList(),
                 scrapers = scrapers,
                 defaultRepositoriesSeeded = stored?.defaultRepositoriesSeeded ?: false,
+                defaultRepositoriesSeededCount = stored?.defaultRepositoriesSeededCount ?: 0,
             ),
             requiresMigration = requiresMigration,
         )

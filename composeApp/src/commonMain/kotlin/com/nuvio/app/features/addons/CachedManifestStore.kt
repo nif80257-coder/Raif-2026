@@ -88,6 +88,21 @@ internal object CachedManifestStore {
         writeEntries(profileId, entries - manifestUrl)
     }
 
+    /** Re-keys cached manifests when a legacy configured URL is migrated to its secret-free form. */
+    fun rekey(profileId: Int, manifestUrlMap: Map<String, String>) {
+        if (manifestUrlMap.isEmpty()) return
+        val entries = readEntries(profileId)
+        val migrated = linkedMapOf<String, Entry>()
+        entries.forEach { (manifestUrl, entry) ->
+            val safeUrl = manifestUrlMap[manifestUrl] ?: manifestUrl
+            val existing = migrated[safeUrl]
+            if (existing == null || entry.cachedAtMs > existing.cachedAtMs) {
+                migrated[safeUrl] = entry
+            }
+        }
+        if (migrated != entries) writeEntries(profileId, migrated)
+    }
+
     /** Drops entries for add-ons the profile no longer has installed. */
     fun retainOnly(profileId: Int, manifestUrls: Set<String>) {
         val entries = readEntries(profileId)

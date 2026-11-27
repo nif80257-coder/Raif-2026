@@ -359,7 +359,7 @@ private fun PlayerScreenRuntime.tryAutoSelectPreferredSubtitleFromAvailableTrack
         selectionPlan.targets.any { target ->
             SubtitleLanguageMatching.matchesLanguageCode(selectedAddon.language, target)
         }
-    if (selectedAddonMatchesTarget && selectedAddon != null) {
+    if (selectedAddonMatchesTarget) {
         val selectedMatchesPrimary = SubtitleLanguageMatching.matchesLanguageCode(
             selectedAddon.language,
             selectionPlan.targets.first(),

@@ -1,5 +1,8 @@
 package com.nuvio.app.features.addons
 
+import io.ktor.utils.io.ByteReadChannel
+import io.ktor.utils.io.readAvailable
+
 internal expect object AddonStorage {
     fun loadInstalledAddonUrls(profileId: Int): List<String>
     fun saveInstalledAddonUrls(profileId: Int, urls: List<String>)
@@ -21,6 +24,35 @@ internal expect object AddonStorage {
     fun saveStartupCache(profileId: Int, name: String, payload: String)
 }
 
+internal data class LimitedAddonResponseBody(
+    val bytes: ByteArray,
+    val truncated: Boolean,
+)
+
+/** Reads at most [maxBytes] plus one probe byte, never buffering an unbounded response. */
+internal suspend fun readLimitedAddonResponseBody(
+    channel: ByteReadChannel,
+    maxBytes: Int,
+): LimitedAddonResponseBody {
+    val limit = maxBytes.coerceAtLeast(0)
+    val bytes = ByteArray(limit)
+    var total = 0
+    while (total < limit) {
+        val count = channel.readAvailable(bytes, total, limit - total)
+        if (count == -1) return LimitedAddonResponseBody(bytes.copyOf(total), truncated = false)
+        if (count == 0) continue
+        total += count
+    }
+
+    val probe = ByteArray(1)
+    var probeCount: Int
+    do {
+        probeCount = channel.readAvailable(probe, 0, probe.size)
+    } while (probeCount == 0)
+
+    return LimitedAddonResponseBody(bytes.copyOf(total), truncated = probeCount > 0)
+}
+
 data class RawHttpResponse(
     val status: Int,
     val statusText: String,
@@ -29,6 +61,7 @@ data class RawHttpResponse(
     val headers: Map<String, String>,
     /** The response body before charset decoding. */
     val bodyBytes: ByteArray = body.encodeToByteArray(),
+    val bodyTruncated: Boolean = false,
 )
 
 /** Default safety limit for generic and plugin-provided HTTP responses. */

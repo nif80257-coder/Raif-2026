@@ -39,6 +39,14 @@ import nuvio.composeapp.generated.resources.generic_unknown
 import org.jetbrains.compose.resources.getString
 
 internal const val MAX_CONCURRENT_PLUGINS = 10
+
+/**
+ * The longest one provider may run when nothing else says otherwise.
+ *
+ * A settings test waits this long on purpose: it is a single provider the viewer is watching. A
+ * stream search passes its own shorter budget, because a provider that needs more than ten seconds
+ * is holding one of the ten JS slots while sixty others wait for it.
+ */
 internal const val PLUGIN_TIMEOUT_MS = 60_000L
 
 internal object PluginRuntime {
@@ -58,6 +66,7 @@ internal object PluginRuntime {
         episode: Int?,
         scraperId: String,
         respectSearchPause: Boolean = true,
+        timeoutMs: Long = PLUGIN_TIMEOUT_MS,
     ): List<PluginRuntimeResult> {
         suspend fun run(): List<PluginRuntimeResult> {
             val scraperSettingsJson = PluginStorage.loadScraperSettings(scraperId) ?: "{}"
@@ -67,7 +76,7 @@ internal object PluginRuntime {
 
             return scraperSemaphore.withPermit {
                 withContext(pluginDispatcher) {
-                    withTimeout(PLUGIN_TIMEOUT_MS) {
+                    withTimeout(timeoutMs) {
                         executePluginInternal(
                             code = code,
                             tmdbId = tmdbId,

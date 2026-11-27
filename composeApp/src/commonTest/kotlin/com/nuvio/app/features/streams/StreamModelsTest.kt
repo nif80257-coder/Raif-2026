@@ -94,6 +94,17 @@ class StreamModelsTest {
     }
 
     @Test
+    fun `malformed or executable web schemes are not playable or externally opened`() {
+        val executable = stream(url = "javascript:alert(1)")
+        val privateFile = stream(externalUrl = "file:///etc/passwd")
+        val userInfo = stream(url = "https://user:pass@cdn.example/video.mp4")
+
+        assertNull(executable.playableDirectUrl)
+        assertNull(privateFile.externalOpenUrl)
+        assertNull(userInfo.playableDirectUrl)
+    }
+
+    @Test
     fun `plain http url is surfaced as playableDirectUrl`() {
         val url = "https://cdn.example.com/video.mp4"
         val stream = stream(url = url)

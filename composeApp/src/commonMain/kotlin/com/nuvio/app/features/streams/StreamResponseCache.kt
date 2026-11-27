@@ -46,6 +46,12 @@ internal object StreamResponseCache {
     private data class Entry(
         val cachedAtMs: Long = 0L,
         val payloads: Map<String, String> = emptyMap(),
+        /**
+         * When each payload arrived. The entry's own timestamp is rewritten every time any add-on
+         * answers, so without this an answer kept from ten minutes ago would look as fresh as the
+         * one that just arrived.
+         */
+        val payloadTimesMs: Map<String, Long> = emptyMap(),
     )
 
     @Serializable
@@ -68,6 +74,27 @@ internal object StreamResponseCache {
         episode = episode,
     )
 
+    /**
+     * The payloads young enough to answer a new request without the network.
+     *
+     * Reopening a title, or opening the player's own source panel after the sheet, used to ask
+     * every add-on again; when the previous answer is seconds old it can stand in for the request
+     * and the list is on screen immediately. A forced refresh never comes through here.
+     */
+    fun freshPayloads(
+        profileId: Int,
+        contentKey: String,
+        maxAgeMs: Long,
+        nowMs: Long = EpisodeReleaseDatePlatform.nowEpochMs(),
+    ): Map<String, String> {
+        if (contentKey.isBlank() || maxAgeMs <= 0L) return emptyMap()
+        val entry = readEntries(profileId)[contentKey] ?: return emptyMap()
+        if (entry.payloads.isEmpty()) return emptyMap()
+        return entry.payloads.filter { (addonId, payload) ->
+            isFreshPayload(entry.payloadTimesMs[addonId], nowMs, maxAgeMs) && payload.isNotBlank()
+        }
+    }
+
     fun load(profileId: Int, contentKey: String): Map<String, String> {
         if (contentKey.isBlank()) return emptyMap()
         val entry = readEntries(profileId)[contentKey] ?: return emptyMap()
@@ -87,7 +114,8 @@ internal object StreamResponseCache {
         if (payload.length > MaxAddonPayloadChars) return
 
         val entries = readEntries(profileId).toMutableMap()
-        val existing = entries[contentKey]?.payloads.orEmpty()
+        val existingEntry = entries[contentKey]
+        val existing = existingEntry?.payloads.orEmpty()
         if (addonId !in existing && existing.size >= MaxAddonsPerContent) return
         val usedChars = existing.entries.sumOf { (id, value) -> if (id == addonId) 0 else value.length }
         if (addonId !in existing && usedChars + payload.length > MaxContentChars) return
@@ -95,6 +123,7 @@ internal object StreamResponseCache {
         entries[contentKey] = Entry(
             cachedAtMs = nowMs,
             payloads = existing + (addonId to payload),
+            payloadTimesMs = existingEntry?.payloadTimesMs.orEmpty() + (addonId to nowMs),
         )
         writeEntries(profileId, trimToNewest(entries))
     }
@@ -142,6 +171,13 @@ internal object StreamResponseCache {
             .sortedByDescending { (_, entry) -> entry.cachedAtMs }
             .take(MaxContentKeys)
             .associate { (key, entry) -> key to entry }
+    }
+
+    /** Whether a payload saved at [savedAtMs] may stand in for a request at [nowMs]. */
+    internal fun isFreshPayload(savedAtMs: Long?, nowMs: Long, maxAgeMs: Long): Boolean {
+        if (savedAtMs == null || savedAtMs <= 0L || maxAgeMs <= 0L) return false
+        val age = nowMs - savedAtMs
+        return age in 0..maxAgeMs
     }
 
     private fun readEntries(profileId: Int): Map<String, Entry> {

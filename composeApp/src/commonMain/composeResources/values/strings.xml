@@ -2870,6 +2870,9 @@
     <string name="addons_directory_p2p_note">A P2P source sees the title you watch and your IP address.</string>
     <string name="addons_config_title">Configure %1$s</string>
     <string name="addons_config_description">Fill in the settings this add-on declares. The values become part of its manifest link, so the configured copy installs beside the original.</string>
+    <string name="addons_config_secret_note">Secrets are stored in this device’s secure storage and are not synced. The add-on provider still receives them in its requests.</string>
+    <string name="addons_config_secret_https_required">Secret settings require a secure HTTPS source.</string>
+    <string name="addons_config_secret_storage_unavailable">This device could not securely save the secret. The source was not installed; try again.</string>
     <string name="addons_config_required">Required</string>
     <string name="addons_config_install">Install the configured copy</string>
     <string name="addons_config_missing_required">Fill in every required field first.</string>
@@ -2928,4 +2931,8 @@
     <string name="settings_homescreen_copy_sheet_title">Copy from</string>
     <string name="settings_homescreen_copy_done">Home screen setup copied</string>
     <string name="settings_homescreen_copy_empty">That profile has no saved setup yet</string>
+    <string name="plugins_repository_health_age_hours">Updated %1$d h ago</string>
+    <string name="plugins_repository_health_age_days">Updated %1$d d ago</string>
+    <string name="plugins_repository_health_never">Not refreshed yet</string>
+    <string name="plugins_repository_health_failures">%1$d refreshes failed in a row</string>
 </resources>

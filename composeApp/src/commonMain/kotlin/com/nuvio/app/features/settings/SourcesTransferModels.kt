@@ -1,5 +1,7 @@
 package com.nuvio.app.features.settings
 
+import com.nuvio.app.features.addons.isSafeWebUrl
+import com.nuvio.app.features.addons.normalizeAddonManifestUrl
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
@@ -124,11 +126,20 @@ internal fun analyzeSourcesTransfer(
                 )
 
                 type == SOURCE_TYPE_ADDON -> {
-                    val key = normalizeSourceUrl(url)
+                    val normalizedUrl = runCatching { normalizeAddonManifestUrl(url) }.getOrNull()
+                    if (normalizedUrl == null) {
+                        invalid += SourcesTransferInvalidEntry(
+                            name = name,
+                            url = url,
+                            reason = SourcesTransferInvalidReason.INVALID_URL,
+                        )
+                        return@forEach
+                    }
+                    val key = normalizeSourceUrl(normalizedUrl)
                     if (!seenAddonUrls.add(key) || key in installed) {
                         duplicates += SourcesTransferDuplicateEntry(name = name, url = url)
                     } else {
-                        addons += entry.copy(url = url, name = name)
+                        addons += entry.copy(url = normalizedUrl, name = name)
                     }
                 }
 
@@ -159,21 +170,7 @@ internal fun analyzeSourcesTransfer(
 internal fun normalizeSourceUrl(url: String): String =
     url.trim().trimEnd('/').lowercase()
 
-internal fun isSupportedSourceUrl(url: String): Boolean {
-    val trimmed = url.trim()
-    val lower = trimmed.lowercase()
-    val withoutScheme = when {
-        lower.startsWith("https://") -> trimmed.substring("https://".length)
-        lower.startsWith("http://") -> trimmed.substring("http://".length)
-        else -> return false
-    }
-    val authority = withoutScheme
-        .substringBefore('/')
-        .substringBefore('?')
-        .substringBefore('#')
-        .substringAfterLast('@')
-    return authority.substringBefore(':').isNotBlank()
-}
+internal fun isSupportedSourceUrl(url: String): Boolean = isSafeWebUrl(url)
 
 internal data class SourcesCredentialFinding(
     val sourceName: String,

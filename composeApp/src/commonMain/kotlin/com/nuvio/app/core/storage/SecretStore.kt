@@ -12,4 +12,5 @@ package com.nuvio.app.core.storage
 internal expect object SecretStore {
     fun read(name: String): String?
     fun write(name: String, value: String?)
+    fun writeChecked(name: String, value: String?): Boolean
 }

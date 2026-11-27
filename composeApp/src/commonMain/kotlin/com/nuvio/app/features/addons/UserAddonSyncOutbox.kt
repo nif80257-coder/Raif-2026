@@ -8,6 +8,8 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.intOrNull
 
 @Serializable
 internal data class UserAddonSyncRecord(
@@ -47,9 +49,13 @@ internal class UserAddonSyncOutbox(
         val existing = read(change.accountId, change.profileId)
         val mutations = linkedMapOf<String, PendingUserAddonMutation>()
         existing?.mutations.orEmpty().forEach { mutations[it.addonId] = it }
-        change.mutations.forEach { mutations[it.addonId] = it }
-        val merged = change.copy(mutations = mutations.values.toList())
-        savePayload(change.accountId, change.profileId, json.encodeToString(merged))
+        change.mutations.mapNotNull(::sanitizePendingAddonMutation).forEach { mutations[it.addonId] = it }
+        if (mutations.isEmpty()) {
+            clearPayload(change.accountId, change.profileId)
+        } else {
+            val merged = change.copy(mutations = mutations.values.toList())
+            savePayload(change.accountId, change.profileId, json.encodeToString(merged))
+        }
     }
 
     fun pendingFor(accountId: String, profileId: Int): PendingUserAddonChange? = synchronized(lock) {
@@ -70,7 +76,13 @@ internal class UserAddonSyncOutbox(
             clearPayload(accountId, profileId)
             return null
         }
-        return change
+        val sanitized = change.copy(mutations = change.mutations.mapNotNull(::sanitizePendingAddonMutation))
+        if (sanitized.mutations.isEmpty()) {
+            clearPayload(accountId, profileId)
+            return null
+        }
+        if (sanitized != change) savePayload(accountId, profileId, json.encodeToString(sanitized))
+        return sanitized
     }
 }
 
@@ -89,13 +101,42 @@ internal object AccountUserAddonSyncOutbox {
     fun clearIfMatches(change: PendingUserAddonChange): Boolean = delegate.clearIfMatches(change)
 }
 
+/** Query credentials are never persisted in the account outbox, even in older pending payloads. */
+internal fun sanitizePendingAddonMutation(mutation: PendingUserAddonMutation): PendingUserAddonMutation? {
+    val sourceUrl = mutation.manifestUrl ?: mutation.addonId
+    val safeUrl = AddonConfigSecretStore.safeRemoteManifestUrl(sourceUrl) ?: return null
+    val safeConfig = safeAddonSyncConfig(mutation.config)
+    return if (mutation.manifestUrl == null) {
+        mutation.copy(addonId = safeUrl, config = safeConfig)
+    } else {
+        mutation.copy(addonId = safeUrl, manifestUrl = safeUrl, config = safeConfig)
+    }
+}
+
+internal fun safeAddonSyncConfig(config: JsonObject): JsonObject {
+    val sortOrder = (config["sort_order"] as? JsonPrimitive)?.intOrNull ?: return JsonObject(emptyMap())
+    return JsonObject(mapOf("sort_order" to JsonPrimitive(sortOrder)))
+}
+
+internal fun safeAddonSortOrder(config: JsonObject): Int =
+    (config["sort_order"] as? JsonPrimitive)?.intOrNull ?: Int.MAX_VALUE
+
+internal fun sanitizeUserAddonSyncRecord(record: UserAddonSyncRecord): UserAddonSyncRecord? {
+    val safeUrl = AddonConfigSecretStore.safeRemoteManifestUrl(record.manifestUrl) ?: return null
+    return record.copy(
+        addonId = safeUrl,
+        manifestUrl = safeUrl,
+        config = safeAddonSyncConfig(record.config),
+    )
+}
+
 internal fun applyPendingUserAddonMutations(
     remoteRows: List<UserAddonSyncRecord>,
     mutations: List<PendingUserAddonMutation>,
 ): List<UserAddonSyncRecord> {
     val merged = linkedMapOf<String, UserAddonSyncRecord>()
-    remoteRows.forEach { merged[it.addonId] = it }
-    mutations.forEach { mutation ->
+    remoteRows.mapNotNull(::sanitizeUserAddonSyncRecord).forEach { merged[it.addonId] = it }
+    mutations.mapNotNull(::sanitizePendingAddonMutation).forEach { mutation ->
         val url = mutation.manifestUrl
         if (url == null) {
             merged.remove(mutation.addonId)
@@ -105,7 +146,7 @@ internal fun applyPendingUserAddonMutations(
                 manifestUrl = url,
                 name = mutation.name,
                 enabled = mutation.enabled,
-                config = mutation.config,
+                config = safeAddonSyncConfig(mutation.config),
             )
         }
     }

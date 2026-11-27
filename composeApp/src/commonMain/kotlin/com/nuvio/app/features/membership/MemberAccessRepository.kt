@@ -83,7 +83,7 @@ object MemberAccessRepository {
                 }
             }
         }
-        val account = auth as AuthState.Authenticated
+        val account = auth
         val cached = loadCached(account.userId)
         _access.value = cached ?: MemberAccess.None
         warmMemberAssets(_access.value)

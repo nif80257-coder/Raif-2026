@@ -245,7 +245,7 @@ object SimklAuthRepository : TrackingAuthProvider {
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
-                log.w { "Simkl token exchange failed: ${error.message}" }
+                log.w { "Simkl token exchange failed" }
                 clearPendingAuthorization()
                 persistMetadata()
                 publish(isLoading = false, error = SimklAuthError.TOKEN_EXCHANGE_FAILED)

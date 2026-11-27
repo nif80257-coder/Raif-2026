@@ -46,18 +46,32 @@ actual object MdbListSettingsStorage {
     /** A secret belongs in the Keychain; the defaults entry a build stored before is moved here. */
     actual fun loadApiKey(): String? {
         val name = ProfileScopedKey.of(apiKey)
-        SecretStore.read(name)?.let { return it }
         val defaults = NSUserDefaults.standardUserDefaults
+        SecretStore.read(name)?.let { storedSecret ->
+            if (defaults.objectForKey(name) != null) defaults.removeObjectForKey(name)
+            return storedSecret
+        }
         val legacy = defaults.stringForKey(name) ?: return null
-        SecretStore.write(name, legacy)
-        defaults.removeObjectForKey(name)
+        if (legacy.isBlank()) {
+            defaults.removeObjectForKey(name)
+            return null
+        }
+        if (SecretStore.writeChecked(name, legacy) && SecretStore.read(name) == legacy) {
+            defaults.removeObjectForKey(name)
+        }
         return legacy
     }
 
     actual fun saveApiKey(apiKey: String) {
         val name = ProfileScopedKey.of(this.apiKey)
-        SecretStore.write(name, apiKey)
-        NSUserDefaults.standardUserDefaults.removeObjectForKey(name)
+        val defaults = NSUserDefaults.standardUserDefaults
+        if (apiKey.isBlank()) {
+            if (SecretStore.writeChecked(name, null)) defaults.removeObjectForKey(name)
+            return
+        }
+        if (SecretStore.writeChecked(name, apiKey) && SecretStore.read(name) == apiKey) {
+            defaults.removeObjectForKey(name)
+        }
     }
 
     actual fun loadUseImdb(): Boolean? = loadBoolean(useImdbKey)
@@ -143,8 +157,12 @@ actual object MdbListSettingsStorage {
     }
 
     actual fun replaceFromSyncPayload(payload: JsonObject) {
-        syncKeys.forEach { key ->
-            NSUserDefaults.standardUserDefaults.removeObjectForKey(ProfileScopedKey.of(key))
+        // Migrate or clean up a legacy value first. An omitted preference payload must not delete
+        // a credential whose Keychain read was temporarily unavailable.
+        loadApiKey()
+        val defaults = NSUserDefaults.standardUserDefaults
+        syncKeys.filterNot { key -> key == apiKey }.forEach { key ->
+            defaults.removeObjectForKey(ProfileScopedKey.of(key))
         }
 
         payload.decodeSyncBoolean(enabledKey)?.let(::saveEnabled)

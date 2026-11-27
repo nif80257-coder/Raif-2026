@@ -1,7 +1,6 @@
 package com.nuvio.app.features.addons
 
 import io.ktor.client.HttpClient
-import io.ktor.client.call.body
 import io.ktor.client.engine.darwin.Darwin
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.accept
@@ -12,11 +11,10 @@ import io.ktor.client.request.request
 import io.ktor.client.request.setBody
 import io.ktor.client.request.url
 import io.ktor.client.statement.HttpResponse
-import io.ktor.client.statement.bodyAsText
+import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
-import io.ktor.http.contentLength
 import io.ktor.http.isSuccess
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.network_empty_response_body
@@ -124,7 +122,8 @@ private fun parseEnabledStateLine(line: String): Pair<String, Boolean>? {
  * default here, and with retries a dead manifest could hold the add-on screen for minutes while
  * the sources behind it never started.
  */
-private val addonHttpClient = HttpClient(Darwin) {
+private fun createAddonHttpClient(followRedirects: Boolean): HttpClient = HttpClient(Darwin) {
+    this.followRedirects = followRedirects
     engine {
         configureSession {
             HTTPMaximumConnectionsPerHost = 8
@@ -139,6 +138,9 @@ private val addonHttpClient = HttpClient(Darwin) {
     expectSuccess = false
 }
 
+private val addonHttpClient = createAddonHttpClient(followRedirects = true)
+private val addonNoRedirectHttpClient = createAddonHttpClient(followRedirects = false)
+
 /**
  * Ceiling for a manifest, catalog or source list. A Stremio answer is JSON in the hundreds of
  * kilobytes; anything past this comes from a wrong or hostile host, and reading it whole is what
@@ -146,11 +148,10 @@ private val addonHttpClient = HttpClient(Darwin) {
  */
 private const val ADDON_RESPONSE_MAX_BYTES = 8 * 1024 * 1024
 
-private fun HttpResponse.rejectOversizedBody() {
-    val declared = contentLength()
-    if (declared != null && declared > ADDON_RESPONSE_MAX_BYTES) {
-        throw IllegalStateException("Add-on response of $declared bytes exceeds the limit")
-    }
+private suspend fun HttpResponse.boundedAddonBodyText(): String {
+    val limited = readLimitedAddonResponseBody(bodyAsChannel(), ADDON_RESPONSE_MAX_BYTES)
+    if (limited.truncated) throw IllegalStateException("Add-on response exceeded the size limit")
+    return limited.bytes.decodeToString()
 }
 
 actual suspend fun httpGetText(url: String): String =
@@ -159,8 +160,7 @@ actual suspend fun httpGetText(url: String): String =
             accept(ContentType.Application.Json)
         }
         .let { response ->
-            response.rejectOversizedBody()
-            val payload = response.bodyAsText()
+            val payload = response.boundedAddonBodyText()
             if (!response.status.isSuccess()) {
                 throw AddonHttpStatusException(
                     statusCode = response.status.value,
@@ -182,8 +182,7 @@ actual suspend fun httpPostJson(url: String, body: String): String =
             setBody(body)
         }
         .let { response ->
-            response.rejectOversizedBody()
-            val payload = response.bodyAsText()
+            val payload = response.boundedAddonBodyText()
             if (!response.status.isSuccess()) {
                 error(getString(Res.string.network_request_failed_http, response.status.value))
             }
@@ -205,8 +204,7 @@ actual suspend fun httpGetTextWithHeaders(
             }
         }
         .let { response ->
-            response.rejectOversizedBody()
-            val payload = response.bodyAsText()
+            val payload = response.boundedAddonBodyText()
             if (!response.status.isSuccess()) {
                 throw AddonHttpStatusException(
                     statusCode = response.status.value,
@@ -235,8 +233,7 @@ actual suspend fun httpPostJsonWithHeaders(
             setBody(body)
         }
         .let { response ->
-            response.rejectOversizedBody()
-            val payload = response.bodyAsText()
+            val payload = response.boundedAddonBodyText()
             if (!response.status.isSuccess()) {
                 error(getString(Res.string.network_request_failed_http, response.status.value))
             }
@@ -255,7 +252,7 @@ actual suspend fun httpRequestRaw(
     maxResponseBodyBytes: Int,
     bodyBytes: ByteArray?,
 ): RawHttpResponse =
-    addonHttpClient
+    (if (followRedirects) addonHttpClient else addonNoRedirectHttpClient)
         .request {
             url(url)
             this.method = HttpMethod.parse(method.uppercase())
@@ -267,15 +264,15 @@ actual suspend fun httpRequestRaw(
             }
         }
         .let { response ->
-            val receivedBytes = response.body<ByteArray>()
-            val limitedBytes = receivedBytes.copyOf(minOf(receivedBytes.size, maxResponseBodyBytes.coerceAtLeast(0)))
-            val decoded = limitedBytes.decodeToString()
+            val limited = readLimitedAddonResponseBody(response.bodyAsChannel(), maxResponseBodyBytes)
+            val decoded = limited.bytes.decodeToString()
             RawHttpResponse(
                 status = response.status.value,
                 statusText = response.status.description,
                 url = response.call.request.url.toString(),
-                body = if (receivedBytes.size > limitedBytes.size) "$decoded\n...[truncated]" else decoded,
-                bodyBytes = limitedBytes,
+                body = if (limited.truncated) "$decoded\n...[truncated]" else decoded,
+                bodyBytes = limited.bytes,
+                bodyTruncated = limited.truncated,
                 headers = response.headers.entries().associate { (name, values) ->
                     name.lowercase() to values.joinToString(",")
                 },

@@ -1003,18 +1003,32 @@ actual object PlayerSettingsStorage {
     /** A secret belongs in the Keychain; the defaults entry a build stored before is moved here. */
     actual fun loadIntroDbApiKey(): String? {
         val name = ProfileScopedKey.of(introDbApiKeyKey)
-        SecretStore.read(name)?.let { return it }
         val defaults = NSUserDefaults.standardUserDefaults
+        SecretStore.read(name)?.let { storedSecret ->
+            if (defaults.objectForKey(name) != null) defaults.removeObjectForKey(name)
+            return storedSecret
+        }
         val legacy = defaults.stringForKey(name) ?: return null
-        SecretStore.write(name, legacy)
-        defaults.removeObjectForKey(name)
+        if (legacy.isBlank()) {
+            defaults.removeObjectForKey(name)
+            return null
+        }
+        if (SecretStore.writeChecked(name, legacy) && SecretStore.read(name) == legacy) {
+            defaults.removeObjectForKey(name)
+        }
         return legacy
     }
 
     actual fun saveIntroDbApiKey(apiKey: String) {
         val name = ProfileScopedKey.of(introDbApiKeyKey)
-        SecretStore.write(name, apiKey)
-        NSUserDefaults.standardUserDefaults.removeObjectForKey(name)
+        val defaults = NSUserDefaults.standardUserDefaults
+        if (apiKey.isBlank()) {
+            if (SecretStore.writeChecked(name, null)) defaults.removeObjectForKey(name)
+            return
+        }
+        if (SecretStore.writeChecked(name, apiKey) && SecretStore.read(name) == apiKey) {
+            defaults.removeObjectForKey(name)
+        }
     }
 
     actual fun loadIntroSubmitEnabled(): Boolean? {

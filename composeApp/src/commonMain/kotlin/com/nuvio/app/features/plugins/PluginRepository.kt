@@ -2,6 +2,15 @@ package com.nuvio.app.features.plugins
 
 import kotlinx.coroutines.flow.StateFlow
 
+/**
+ * How long one provider may run before the app stops waiting for it.
+ *
+ * A settings test can afford a minute. A stream search passes its own shorter budget: a provider
+ * still working after ten seconds holds a fetch slot the next one is waiting for, and the list it
+ * would fill is already on screen.
+ */
+internal const val DefaultPluginTimeoutMs = 60_000L
+
 expect object PluginRepository {
     val uiState: StateFlow<PluginsUiState>
 
@@ -39,5 +48,6 @@ expect object PluginRepository {
         mediaType: String,
         season: Int?,
         episode: Int?,
+        timeoutMs: Long = DefaultPluginTimeoutMs,
     ): Result<List<PluginRuntimeResult>>
 }

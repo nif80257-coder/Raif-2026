@@ -3,6 +3,10 @@ package com.nuvio.app.features.downloads
 import com.nuvio.app.features.player.SubtitleRequestExtras
 import com.nuvio.app.features.player.addonSubtitleRequests
 import com.nuvio.app.features.streams.StreamItem
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -26,6 +30,20 @@ object DownloadsRepository {
     private var hasLoaded = false
     private var nextDownloadOrdinal = 0L
 
+    /**
+     * How often progress reaches storage and the Live Activity.
+     *
+     * The platform reports progress per chunk, so persisting inside the callback would rewrite the
+     * whole downloads payload — every item, encoded to JSON, into `NSUserDefaults` — thousands of
+     * times for one film. The in-memory state still follows every chunk, so the screen is honest;
+     * only the writes are paced. A terminal state always writes.
+     */
+    private const val ProgressPersistIntervalMs = 2_000L
+    private val lastProgressPersistAtMs = mutableMapOf<String, Long>()
+
+    /** A retry asks the source for a new link, which is network work and never runs on the caller. */
+    private val retryScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
     fun ensureLoaded() {
         if (hasLoaded) return
         loadFromDisk()
@@ -42,6 +60,7 @@ object DownloadsRepository {
     fun clearLocalState() {
         activeHandles.values.forEach(DownloadsTaskHandle::cancel)
         activeHandles.clear()
+        lastProgressPersistAtMs.clear()
         hasLoaded = false
         _hasUnseenCompleted.value = false
         _uiState.value = DownloadsUiState()
@@ -223,6 +242,9 @@ object DownloadsRepository {
         mutateItem(downloadId) { current ->
             current.copy(
                 status = DownloadStatus.Paused,
+                // This is the pause the viewer asked for, so coming back to the foreground must
+                // not undo it.
+                pausedByBackground = false,
                 updatedAtEpochMs = DownloadsClock.nowEpochMs(),
                 errorMessage = null,
             )
@@ -237,6 +259,50 @@ object DownloadsRepository {
             .forEach(::pauseDownload)
     }
 
+    /**
+     * The app is about to be suspended, so the current transfers stop — but they are remembered
+     * apart from a pause the viewer asked for. A plain [pauseActiveDownloads] used to leave them in
+     * that state forever: the next launch showed paused downloads that nobody had paused.
+     *
+     * The row is written as paused before its handle is cancelled, so the platform's own `onPaused`
+     * callback sees a row that is no longer downloading and leaves the flag alone.
+     */
+    fun pauseActiveDownloadsForBackground() {
+        ensureLoaded()
+        val downloadingIds = _uiState.value.items
+            .filter { it.status == DownloadStatus.Downloading }
+            .map { it.id }
+        downloadingIds.forEach { downloadId ->
+            mutateItem(downloadId) { current ->
+                if (current.status != DownloadStatus.Downloading) {
+                    current
+                } else {
+                    current.copy(
+                        status = DownloadStatus.Paused,
+                        pausedByBackground = true,
+                        updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+                        errorMessage = null,
+                    )
+                }
+            }
+            activeHandles.remove(downloadId)?.cancel()
+        }
+    }
+
+    /**
+     * Called when the app is active again: only the rows a background transition paused resume.
+     *
+     * The flag travels with the row, so this also catches a row that was paused by a transition in
+     * a previous run of the app — the case iOS leaves behind when it kills a backgrounded app.
+     */
+    fun resumeAutoPausedByBackground() {
+        ensureLoaded()
+        val pausedIds = _uiState.value.items
+            .filter { item -> item.status == DownloadStatus.Paused && item.pausedByBackground }
+            .map { item -> item.id }
+        pausedIds.forEach(::resumeDownload)
+    }
+
     fun resumeDownload(downloadId: String) {
         ensureLoaded()
         val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
@@ -244,6 +310,7 @@ object DownloadsRepository {
 
         val reset = item.copy(
             status = DownloadStatus.Downloading,
+            pausedByBackground = false,
             errorMessage = null,
             localFileUri = null,
             updatedAtEpochMs = DownloadsClock.nowEpochMs(),
@@ -254,8 +321,49 @@ object DownloadsRepository {
         startDownload(reset)
     }
 
+    /**
+     * Restarts a failed download on a **fresh** link.
+     *
+     * A signed source address dies on its own schedule, and retrying the stored one only repeats the
+     * 403: the source is asked again for this title and the row that carried the same name is taken,
+     * falling back to its first playable link. A paused download keeps its address and resumes where
+     * it stopped, which is what the platform downloader does with the `.part` file and a `Range`
+     * request.
+     *
+     * When the address does change, the partial file is dropped: bytes of one mirror followed by
+     * bytes of another do not make a playable file, and the progress starts from zero to say so.
+     */
     fun retryDownload(downloadId: String) {
-        resumeDownload(downloadId)
+        ensureLoaded()
+        val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
+        if (item.status == DownloadStatus.Paused || item.status == DownloadStatus.Downloading) {
+            resumeDownload(downloadId)
+            return
+        }
+        if (item.status != DownloadStatus.Failed) return
+
+        retryScope.launch {
+            val freshUrl = resolveFreshDownloadUrl(item)?.takeIf { it.isNotBlank() }
+            val addressChanged = freshUrl != null && freshUrl != item.sourceUrl
+            if (addressChanged) {
+                DownloadsPlatformDownloader.removePartialFile(item.fileName)
+                lastProgressPersistAtMs.remove(item.id)
+            }
+
+            val next = item.copy(
+                sourceUrl = freshUrl ?: item.sourceUrl,
+                status = DownloadStatus.Downloading,
+                pausedByBackground = false,
+                localFileUri = null,
+                downloadedBytes = if (addressChanged) 0L else item.downloadedBytes,
+                totalBytes = if (addressChanged) null else item.totalBytes,
+                errorMessage = null,
+                updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+            )
+            replaceItem(next)
+            persist()
+            startDownload(next)
+        }
     }
 
     internal fun reattachBackgroundDownload(downloadId: String) {
@@ -273,6 +381,7 @@ object DownloadsRepository {
         val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
 
         activeHandles.remove(downloadId)?.cancel()
+        lastProgressPersistAtMs.remove(downloadId)
         DownloadsPlatformDownloader.removeFile(playableLocalFileUri(item) ?: item.localFileUri)
         DownloadsPlatformDownloader.removePartialFile(item.fileName)
 
@@ -317,7 +426,11 @@ object DownloadsRepository {
         val handle = DownloadsPlatformDownloader.start(
             request = request,
             onProgress = { downloadedBytes, totalBytes ->
-                mutateItem(item.id) { current ->
+                val now = DownloadsClock.nowEpochMs()
+                val shouldWrite =
+                    now - (lastProgressPersistAtMs[item.id] ?: 0L) >= ProgressPersistIntervalMs
+                if (shouldWrite) lastProgressPersistAtMs[item.id] = now
+                mutateItem(item.id, persist = shouldWrite) { current ->
                     if (current.status != DownloadStatus.Downloading) {
                         current
                     } else {
@@ -374,7 +487,11 @@ object DownloadsRepository {
         activeHandles[item.id] = handle
     }
 
-    private fun mutateItem(downloadId: String, transform: (DownloadItem) -> DownloadItem) {
+    private fun mutateItem(
+        downloadId: String,
+        persist: Boolean = true,
+        transform: (DownloadItem) -> DownloadItem,
+    ) {
         var changed = false
         val updated = _uiState.value.items.map { item ->
             if (item.id == downloadId) {
@@ -386,8 +503,8 @@ object DownloadsRepository {
         }
 
         if (changed) {
-            publish(updated)
-            persist()
+            publish(updated, notifyPlatform = persist)
+            if (persist) persist()
         }
     }
 
@@ -398,7 +515,7 @@ object DownloadsRepository {
         publish(updated)
     }
 
-    private fun publish(items: List<DownloadItem>) {
+    private fun publish(items: List<DownloadItem>, notifyPlatform: Boolean = true) {
         val previousStatuses = _uiState.value.items.associate { it.id to it.status }
         if (items.any { it.status == DownloadStatus.Completed && previousStatuses[it.id].let { status -> status != null && status != DownloadStatus.Completed } }) {
             _hasUnseenCompleted.value = true
@@ -406,7 +523,7 @@ object DownloadsRepository {
         _uiState.value = DownloadsUiState(
             items = items,
         )
-        notifyLiveStatusPlatform()
+        if (notifyPlatform) notifyLiveStatusPlatform()
     }
 
     private fun notifyLiveStatusPlatform() {

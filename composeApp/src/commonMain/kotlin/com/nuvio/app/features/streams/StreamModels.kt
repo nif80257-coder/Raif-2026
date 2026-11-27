@@ -3,6 +3,7 @@ package com.nuvio.app.features.streams
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.servers.ServerPlaybackTarget
+import io.ktor.http.Url
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -42,7 +43,9 @@ data class StreamItem(
         get() = description
 
     val directPlaybackUrl: String?
-        get() = url?.trim()?.takeIf { it.isNotEmpty() }
+        get() = url?.trim()?.takeIf { value ->
+            value.isNotEmpty() && (value.isMagnetLink() || value.isTorrentSchemeUrl() || value.isSafeStreamHttpUrl())
+        }
 
     /**
      * First URL that can be handed directly to a player or HTTP consumer.
@@ -61,10 +64,7 @@ data class StreamItem(
      * app must not open a scheme it has not verified.
      */
     val externalOpenUrl: String?
-        get() = externalUrl
-            ?.trim()
-            ?.takeIf { it.isNotEmpty() && !it.isMagnetLink() && !it.isTorrentSchemeUrl() }
-            ?.takeIf { it.isWebUrl() }
+        get() = externalUrl?.takeIf { it.isSafeStreamHttpUrl() }
 
     /** The destination's host, shown before the app hands the user to another service. */
     val externalOpenHost: String?
@@ -180,9 +180,45 @@ private fun String?.isTorrentSchemeUrl(): Boolean =
  * a web page is accepted. Both schemes the protocol allows (`https` and plain `http`) count, and
  * anything else is dropped rather than opened on trust.
  */
-internal fun String?.isWebUrl(): Boolean {
-    val value = this?.trimStart()?.lowercase() ?: return false
-    return value.startsWith("https://") || value.startsWith("http://")
+internal fun String?.isWebUrl(): Boolean = isSafeStreamHttpUrl()
+
+internal fun String?.isSafeStreamHttpUrl(): Boolean {
+    val candidate = this?.trim() ?: return false
+    if (candidate.isEmpty() || candidate.length > 8_192) return false
+    if (candidate.any { it.isWhitespace() || it.isISOControl() } || '\\' in candidate) return false
+    val parsed = runCatching { Url(candidate) }.getOrNull() ?: return false
+    if (parsed.protocol.name.lowercase() !in setOf("http", "https")) return false
+    val authority = candidate.substringAfter("://", "").substringBeforeAny('/', '?', '#')
+    if (authority.isBlank() || '@' in authority || parsed.host.isBlank()) return false
+    return hasValidStreamAuthorityPort(authority)
+}
+
+internal fun String?.isValidStreamSourceUrl(): Boolean {
+    val value = this?.trim() ?: return false
+    return value.isMagnetLink() || value.isTorrentSchemeUrl() || value.isSafeStreamHttpUrl()
+}
+
+private fun hasValidStreamAuthorityPort(authority: String): Boolean {
+    val portText = when {
+        authority.startsWith("[") -> {
+            val closingBracket = authority.indexOf(']')
+            if (closingBracket <= 1) return false
+            val remainder = authority.substring(closingBracket + 1)
+            if (remainder.isEmpty()) return true
+            if (!remainder.startsWith(':')) return false
+            remainder.substring(1)
+        }
+        authority.count { it == ':' } == 0 -> return true
+        authority.count { it == ':' } == 1 -> authority.substringAfterLast(':')
+        else -> return false
+    }
+    if (portText.isEmpty() || !portText.all(Char::isDigit)) return false
+    return portText.toIntOrNull()?.let { it in 1..65_535 } == true
+}
+
+private fun String.substringBeforeAny(vararg delimiters: Char): String {
+    val end = indexOfAny(delimiters).takeIf { it >= 0 } ?: length
+    return substring(0, end)
 }
 
 private fun String?.extractTorrentSchemeInfoHash(): String? {

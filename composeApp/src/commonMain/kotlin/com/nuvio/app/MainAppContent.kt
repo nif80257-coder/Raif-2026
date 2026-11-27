@@ -670,6 +670,9 @@ internal fun MainAppContent(
                         NetworkStatusRepository.requestForegroundRefresh()
                         DeviceSessionRegistration.registerIfAuthenticated()
                         MemberAccessRepository.refreshIfStale()
+                        // The background transition stops transfers, and that is not a pause the
+                        // viewer asked for: coming back puts those rows back to downloading.
+                        DownloadsRepository.resumeAutoPausedByBackground()
                         if (syncProfileId != null) {
                             SyncManager.startPeriodicNuvioSyncPull(syncProfileId)
                             SyncManager.requestForegroundPull(syncProfileId)

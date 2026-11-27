@@ -94,8 +94,46 @@ object AddonRepository {
 
         pruneRetiredDefaultAddons(currentProfileId)
 
-        val storedUrls = dedupeManifestUrls(AddonStorage.loadInstalledAddonUrls(currentProfileId))
-        val enabledByUrl = loadLocalEnabledStates()
+        val rawStoredUrls = dedupeManifestUrls(AddonStorage.loadInstalledAddonUrls(currentProfileId))
+        val cachedBeforeMigration = CachedManifestStore.load(currentProfileId)
+        val rawEnabledStates = AddonStorage.loadAddonEnabledStates(currentProfileId)
+        val migratedUrls = linkedMapOf<String, String>()
+        rawStoredUrls.forEach { rawUrl ->
+            val normalized = runCatching { normalizeAddonManifestUrl(rawUrl) }.getOrNull()
+                ?: return@forEach
+            val cachedManifest = cachedBeforeMigration[rawUrl]?.manifest
+                ?: cachedBeforeMigration[normalized]?.manifest
+            val split = splitSecretAddonConfigUrl(normalized, cachedManifest?.configFields.orEmpty())
+            var persistedUrl = split.safeManifestUrl
+            if (split.secretQueryPairs.isNotEmpty() || split.secretPath != null) {
+                val saved = runCatching {
+                    AddonConfigSecretStore.storeSecretQueryPairs(
+                        profileId = currentProfileId,
+                        safeManifestUrl = split.safeManifestUrl,
+                        queryPairs = split.secretQueryPairs,
+                        secretPath = split.secretPath,
+                    )
+                }.getOrDefault(false)
+                if (!saved) {
+                    // Keep the working legacy URL until protected storage is available; the next
+                    // launch will retry the migration instead of silently breaking this source.
+                    persistedUrl = normalized
+                    log.w { "A legacy add-on credential could not be migrated to secure storage" }
+                }
+            }
+            if (isSafePublicWebUrl(persistedUrl)) {
+                migratedUrls[rawUrl] = persistedUrl
+            }
+        }
+        val storedUrls = migratedUrls.values.distinct()
+        val enabledByUrl = migratedUrls.entries.associate { (oldUrl, safeUrl) ->
+            safeUrl to (rawEnabledStates[oldUrl] ?: rawEnabledStates[safeUrl] ?: true)
+        }
+        if (storedUrls != rawStoredUrls) {
+            AddonStorage.saveInstalledAddonUrls(currentProfileId, storedUrls)
+            AddonStorage.saveAddonEnabledStates(currentProfileId, enabledByUrl)
+            CachedManifestStore.rekey(currentProfileId, migratedUrls)
+        }
         log.d { "initialize() — local addon count: ${storedUrls.size}" }
         if (storedUrls.isEmpty()) {
             seedDefaultAddonsIfNeeded(currentProfileId)
@@ -192,12 +230,11 @@ object AddonRepository {
             if (!isCurrentSupabaseAccount(userId) || currentProfileId != syncProfileId) return
 
             val rowsByUrl = linkedMapOf<String, AddonRow>()
-            rows.sortedBy { row -> row.config["sort_order"]?.jsonPrimitive?.intOrNull ?: Int.MAX_VALUE }
+            rows.mapNotNull(::sanitizeUserAddonSyncRecord)
+                .sortedBy { row -> safeAddonSortOrder(row.config) }
                 .forEach { row ->
-                    val manifestUrl = ensureManifestSuffix(row.manifestUrl)
-                    val addonId = ensureManifestSuffix(row.addonId)
-                    if (!rowsByUrl.containsKey(manifestUrl)) {
-                        rowsByUrl[manifestUrl] = row.copy(addonId = addonId, manifestUrl = manifestUrl)
+                    if (!rowsByUrl.containsKey(row.manifestUrl)) {
+                        rowsByUrl[row.manifestUrl] = row
                     }
                 }
 
@@ -208,12 +245,15 @@ object AddonRepository {
                 .mapKeys { (url, _) -> ensureManifestSuffix(url) }
             val currentByUrl = _uiState.value.addons.associateBy(ManagedAddon::manifestUrl)
             val localOnly = storedUrls.mapIndexedNotNull { index, url ->
-                val addonId = ensureManifestSuffix(url)
-                if (url in rowsByUrl || addonId in pendingIds) return@mapIndexedNotNull null
                 val addon = currentByUrl[url]
+                val addonId = AddonConfigSecretStore.safeRemoteManifestUrl(
+                    url,
+                    addon?.manifest?.configFields.orEmpty(),
+                ) ?: return@mapIndexedNotNull null
+                if (addonId in rowsByUrl || addonId in pendingIds) return@mapIndexedNotNull null
                 PendingUserAddonMutation(
                     addonId = addonId,
-                    manifestUrl = url,
+                    manifestUrl = addonId,
                     name = addon?.userSetName?.takeIf(String::isNotBlank)
                         ?: addon?.manifest?.name?.takeIf(String::isNotBlank),
                     enabled = enabledByUrl[url] ?: addon?.enabled ?: true,
@@ -288,18 +328,26 @@ object AddonRepository {
         }
     }
 
-    suspend fun addAddon(rawUrl: String): AddAddonResult {
+    suspend fun addAddon(
+        rawUrl: String,
+        configFields: List<AddonConfigField> = emptyList(),
+        replacingManifestUrl: String? = null,
+    ): AddAddonResult {
         if (isUsingPrimaryAddonsFromSecondaryProfile()) {
             return AddAddonResult.Error(getString(Res.string.profile_primary_addons_required))
         }
         log.i { "addAddon() — validating manifest URL" }
-        val manifestUrl = try {
-            normalizeManifestUrl(rawUrl)
-        } catch (error: IllegalArgumentException) {
-            return AddAddonResult.Error(error.message ?: getString(Res.string.addon_invalid_url))
+        val manifestUrl = runCatching { normalizeAddonManifestUrl(rawUrl) }.getOrNull()
+            ?: return AddAddonResult.Error(getString(Res.string.addon_invalid_url))
+        val split = splitSecretAddonConfigUrl(manifestUrl, configFields)
+        val safeManifestUrl = split.safeManifestUrl
+        val hasSecrets = split.secretQueryPairs.isNotEmpty() || split.secretPath != null
+        if (hasSecrets && !manifestUrl.startsWith("https://", ignoreCase = true)) {
+            return AddAddonResult.Error(getString(Res.string.addons_config_secret_https_required))
         }
 
-        if (_uiState.value.addons.any { it.manifestUrl == manifestUrl }) {
+        val existingAddon = _uiState.value.addons.firstOrNull { it.manifestUrl == safeManifestUrl }
+        if (existingAddon != null && replacingManifestUrl != safeManifestUrl) {
             return AddAddonResult.Error(getString(Res.string.addon_already_installed))
         }
 
@@ -307,29 +355,53 @@ object AddonRepository {
             withContext(Dispatchers.Default) {
                 val payload = fetchAddonResponseText(manifestUrl)
                 val parsed = AddonManifestParser.parse(
-                    manifestUrl = manifestUrl,
+                    manifestUrl = safeManifestUrl,
                     payload = payload,
                 )
+                if (hasSecrets && !AddonConfigSecretStore.storeSecretQueryPairs(
+                        profileId = currentProfileId,
+                        safeManifestUrl = safeManifestUrl,
+                        queryPairs = split.secretQueryPairs,
+                        secretPath = split.secretPath,
+                    )
+                ) {
+                    throw AddonSecretStorageUnavailableException()
+                }
                 CachedManifestStore.save(
                     profileId = currentProfileId,
-                    manifestUrl = manifestUrl,
+                    manifestUrl = safeManifestUrl,
                     payload = payload,
                 )
                 parsed
             }
         } catch (error: Throwable) {
             if (error is CancellationException) throw error
-            // The exception's own text is a transport diagnostic — an NSURLErrorDomain dump with the
-            // failing URL inside when there is no connection at all — and it was being read as the
-            // answer on screen. It goes to the log; the card says what a person can act on.
-            log.w(error) { "addAddon() — the manifest did not load" }
+            if (error is AddonSecretStorageUnavailableException) {
+                return AddAddonResult.Error(getString(Res.string.addons_config_secret_storage_unavailable))
+            }
+            // Transport exceptions may include the full URL, so only the generic localized message is
+            // returned to the screen; diagnostic detail stays in the local log.
+            log.w { "addAddon() — the manifest did not load" }
             return AddAddonResult.Error(getString(Res.string.addon_source_unreachable))
+        }
+
+        if (existingAddon != null) {
+            _uiState.update { current ->
+                current.copy(addons = current.addons.map { addon ->
+                    if (addon.manifestUrl == safeManifestUrl) {
+                        addon.copy(manifest = manifest, isRefreshing = false, errorMessage = null)
+                    } else {
+                        addon
+                    }
+                })
+            }
+            return AddAddonResult.Success(manifest)
         }
 
         _uiState.update { current ->
             current.copy(
                 addons = current.addons + ManagedAddon(
-                    manifestUrl = manifestUrl,
+                    manifestUrl = safeManifestUrl,
                     manifest = manifest,
                     isRefreshing = false,
                     errorMessage = null,
@@ -337,7 +409,7 @@ object AddonRepository {
             )
         }
         persist()
-        queueAddonChanges(changedManifestUrls = setOf(manifestUrl))
+        queueAddonChanges(changedManifestUrls = setOf(safeManifestUrl))
         pushToServer()
         return AddAddonResult.Success(manifest)
     }
@@ -349,15 +421,23 @@ object AddonRepository {
      * source's name and enabled state, so a token or a filter can be changed from the app without
      * the list growing a near-identical twin.
      */
-    suspend fun replaceAddon(currentManifestUrl: String, rawNewUrl: String): AddAddonResult {
+    suspend fun replaceAddon(
+        currentManifestUrl: String,
+        rawNewUrl: String,
+        configFields: List<AddonConfigField> = emptyList(),
+    ): AddAddonResult {
         if (isUsingPrimaryAddonsFromSecondaryProfile()) {
             return AddAddonResult.Error(getString(Res.string.profile_primary_addons_required))
         }
         val before = _uiState.value.addons
         val oldIndex = before.indexOfFirst { addon -> addon.manifestUrl == currentManifestUrl }
-        val oldAddon = before.getOrNull(oldIndex) ?: return addAddon(rawNewUrl)
+        val oldAddon = before.getOrNull(oldIndex) ?: return addAddon(rawNewUrl, configFields)
 
-        val added = addAddon(rawNewUrl)
+        val added = addAddon(
+            rawUrl = rawNewUrl,
+            configFields = configFields,
+            replacingManifestUrl = currentManifestUrl,
+        )
         if (added !is AddAddonResult.Success) return added
         val newUrl = added.manifest.transportUrl
         if (newUrl == currentManifestUrl) return added
@@ -377,6 +457,7 @@ object AddonRepository {
             current.copy(addons = others.toMutableList().apply { add(insertAt, edited) })
         }
         CachedManifestStore.remove(currentProfileId, currentManifestUrl)
+        AddonConfigSecretStore.remove(currentProfileId, currentManifestUrl)
         persist()
         queueAddonChanges(
             changedManifestUrls = setOf(newUrl),
@@ -397,6 +478,7 @@ object AddonRepository {
         }
         if (!changed) return
         CachedManifestStore.remove(currentProfileId, manifestUrl)
+        AddonConfigSecretStore.remove(currentProfileId, manifestUrl)
         persist()
         queueAddonChanges(deletedManifestUrls = setOf(manifestUrl))
         pushToServer()
@@ -539,7 +621,7 @@ object AddonRepository {
                                         )
                                     },
                                     onFailure = { error ->
-                                        log.w(error) { "refreshAddon() — the manifest did not load" }
+                                        log.w { "refreshAddon() — the manifest did not load" }
                                         addon.copy(
                                             isRefreshing = false,
                                             // Never the exception's own text: that is how a raw
@@ -577,14 +659,22 @@ object AddonRepository {
             .mapIndexedNotNull { index, addon ->
                 val manifestUrl = ensureManifestSuffix(addon.manifestUrl)
                 if (manifestUrl !in changedUrls) return@mapIndexedNotNull null
+                val safeUrl = AddonConfigSecretStore.safeRemoteManifestUrl(
+                    manifestUrl,
+                    addon.manifest?.configFields.orEmpty(),
+                ) ?: return@mapIndexedNotNull null
                 PendingUserAddonMutation(
-                    addonId = manifestUrl,
-                    manifestUrl = manifestUrl,
+                    addonId = safeUrl,
+                    manifestUrl = safeUrl,
                     name = addon.userSetName?.takeIf(String::isNotBlank) ?: addon.manifest?.name,
                     enabled = addon.enabled,
                     config = JsonObject(mapOf("sort_order" to JsonPrimitive(index))),
                 )
-            } + deletedUrls.map { addonId -> PendingUserAddonMutation(addonId = addonId) }
+            } + deletedUrls.mapNotNull { manifestUrl ->
+                AddonConfigSecretStore.safeRemoteManifestUrl(manifestUrl)?.let { safeUrl ->
+                    PendingUserAddonMutation(addonId = safeUrl)
+                }
+            }
         if (mutations.isEmpty()) return
         AccountUserAddonSyncOutbox.record(
             PendingUserAddonChange(accountId = userId, profileId = profileId, mutations = mutations),
@@ -621,7 +711,13 @@ object AddonRepository {
     private suspend fun flushPendingToServer(userId: String, profileId: Int) {
         if (currentProfileId != profileId || !isCurrentSupabaseAccount(userId)) return
         val pending = AccountUserAddonSyncOutbox.pendingFor(userId, profileId) ?: return
-        val upserts = pending.mutations.mapNotNull { mutation ->
+        val safeMutations = pending.mutations.mapNotNull(::sanitizePendingAddonMutation)
+        if (safeMutations.isEmpty()) {
+            AccountUserAddonSyncOutbox.clearIfMatches(pending)
+            return
+        }
+        val safePending = pending.copy(mutations = safeMutations)
+        val upserts = safePending.mutations.mapNotNull { mutation ->
             val manifestUrl = mutation.manifestUrl ?: return@mapNotNull null
             AddonWriteRow(
                 userId = userId,
@@ -629,14 +725,14 @@ object AddonRepository {
                 manifestUrl = manifestUrl,
                 name = mutation.name,
                 enabled = mutation.enabled,
-                config = mutation.config,
+                config = safeAddonSyncConfig(mutation.config),
             )
         }
         if (upserts.isNotEmpty()) {
             SupabaseProvider.client.postgrest.from("user_addons")
                 .upsert(upserts) { onConflict = "user_id,addon_id" }
         }
-        pending.mutations.filter { it.manifestUrl == null }.forEach { mutation ->
+        safePending.mutations.filter { it.manifestUrl == null }.forEach { mutation ->
             if (currentProfileId != profileId || !isCurrentSupabaseAccount(userId)) return
             SupabaseProvider.client.postgrest.from("user_addons").delete {
                 filter {
@@ -646,8 +742,8 @@ object AddonRepository {
             }
         }
         if (currentProfileId != profileId || !isCurrentSupabaseAccount(userId)) return
-        AccountUserAddonSyncOutbox.clearIfMatches(pending)
-        log.d { "flushPendingToServer() — synced ${pending.mutations.size} add-on changes" }
+        AccountUserAddonSyncOutbox.clearIfMatches(safePending)
+        log.d { "flushPendingToServer() — synced ${safePending.mutations.size} add-on changes" }
     }
 
     private fun markRefreshing(manifestUrl: String) {
