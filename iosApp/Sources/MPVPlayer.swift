@@ -39,7 +39,12 @@ final class MPVViewController: UIViewController {
         view.backgroundColor = .black
         view.layer.masksToBounds = true
         metalLayer.frame = view.bounds
-        metalLayer.contentsScale = UIScreen.main.nativeScale
+        // The real scale is set again when the layer is laid out, from the
+        // window's own screen; this first value only keeps the first frame sharp
+        // and never asks a single-main-screen assumption for it.
+        metalLayer.contentsScale = traitCollection.displayScale > 0
+            ? traitCollection.displayScale
+            : 2
         view.layer.addSublayer(metalLayer)
         setupMPV()
         installLifecycleObservers()
@@ -78,7 +83,10 @@ final class MPVViewController: UIViewController {
     private func updateSurfaceSize() {
         let bounds = view.bounds
         guard bounds.width > 1, bounds.height > 1 else { return }
-        let scale = view.window?.screen.nativeScale ?? UIScreen.main.nativeScale
+        let scale = max(
+            1,
+            (view.window?.screen ?? CinemaWindow.screen)?.nativeScale ?? traitCollection.displayScale
+        )
         let target = pictureRect(in: bounds)
         let drawable = CGSize(
             width: (target.width * scale).rounded(),
@@ -519,6 +527,11 @@ final class MPVViewController: UIViewController {
         view.addGestureRecognizer(pan)
     }
 
+    /// The screen this player is drawn on, never the deprecated main screen.
+    private var playerScreen: UIScreen? {
+        view.window?.screen ?? CinemaWindow.screen
+    }
+
     @objc private func handleSingleTap(_ recognizer: UITapGestureRecognizer) {
         gestureListener?.onTap()
     }
@@ -550,7 +563,7 @@ final class MPVViewController: UIViewController {
             } else if location.x >= view.bounds.width / 2 {
                 panStartVolume = getDouble(mpv, "volume")
             } else {
-                panStartBrightness = UIScreen.main.brightness
+                panStartBrightness = playerScreen?.brightness ?? 0.5
             }
         case .changed:
             if isScrubbing {
@@ -566,7 +579,7 @@ final class MPVViewController: UIViewController {
             } else {
                 let delta = (-translation.y) / view.bounds.height
                 let value = max(0.0, min(1.0, panStartBrightness + delta))
-                UIScreen.main.brightness = value
+                playerScreen?.brightness = value
                 gestureListener?.onBrightness(percent: Int32(value * 100))
             }
         case .ended, .cancelled, .failed:

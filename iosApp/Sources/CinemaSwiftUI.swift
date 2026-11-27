@@ -76,6 +76,22 @@ enum SubtitlePalette {
     }
 }
 
+/// The screen the app is really drawn on. `UIScreen.main` is deprecated from
+/// iOS 26 and assumes a single display, while an app on iPad, Stage Manager or
+/// a foldable has more than one; the window's own screen is the one to ask.
+enum CinemaWindow {
+    static var screen: UIScreen? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let active = scenes.first { $0.activationState == .foregroundActive }
+        return (active ?? scenes.first)?.screen
+    }
+
+    static var size: CGSize { screen?.bounds.size ?? CGSize(width: 390, height: 844) }
+    static var width: CGFloat { size.width }
+    static var height: CGFloat { size.height }
+    static var scale: CGFloat { screen?.nativeScale ?? 3 }
+}
+
 /// The house palette: Hype's near-black violet field, a raised sheet, a coral
 /// accent and a gold star. The accent and the canvas still come from settings, so
 /// a viewer can recolour the app or go OLED-deep.
@@ -266,11 +282,21 @@ enum StreamLanguage {
 
     static let unknown = "unknown"
 
-    /// Every language this link claims.
+    /// Every language this link claims. A word is matched whole for Latin
+    /// text, so a film actually named «Hindi Medium» does not turn every row
+    /// into a Hindi source; Arabic words are matched as they appear, because
+    /// an Arabic title rarely carries one by accident.
     static func codes(for stream: StreamChoice) -> Set<String> {
         let text = (stream.title + " " + stream.addon).lowercased()
+        let tokens = Set(
+            text.split { !$0.isLetter && !$0.isNumber }.map(String.init)
+        )
         var found = Set<String>()
-        for entry in entries where entry.words.contains(where: { text.contains($0) }) {
+        for entry in entries where entry.words.contains(where: { word in
+            word.unicodeScalars.contains { $0.value > 0x600 }
+                ? text.contains(word)
+                : tokens.contains(word)
+        }) {
             found.insert(entry.id)
         }
         return found
@@ -2415,7 +2441,7 @@ struct CinematicHomeView: View {
 
     private var skeleton: some View {
         VStack(alignment: .leading, spacing: 16) {
-            ShimmerBlock(height: 400, width: UIScreen.main.bounds.width - 32)
+            ShimmerBlock(height: 400, width: CinemaWindow.width - 32)
                 .padding(.horizontal, 16)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
@@ -2804,8 +2830,12 @@ struct PlayerScreen: View {
 
     /// True once a held skip button has already jumped three steps, so the
     /// release that follows does not jump a fourth time: a long press used to
-    /// give 3× and then 1× again, which overshot by a whole step.
-    @State private var skipHeld = false
+    /// give 3× and then 1× again, which overshot by a whole step. The moment it
+    /// happened is kept instead of a bare flag, so a hold that ended off the
+    /// button expires rather than eating the next tap.
+    @State private var skipHeldAt = Date.distantPast
+    /// The picture's own width, measured where it is drawn, for the double tap.
+    @State private var surfaceWidth: CGFloat = 0
     @State private var locked = false
     @State private var bufferTicks = 0
     /// Counts the half seconds between two resume points written while playing.
@@ -2950,11 +2980,31 @@ struct PlayerScreen: View {
     }
 
     /// Everything the options panel needs, loaded once before it opens. The
-    /// buttons that call it already give their own tap, so it adds none.
+    /// buttons that call it already give their own tap, so it adds none. The
+    /// preferences are re-read here, because a colour or a size changed in
+    /// settings while the film runs must reach the film the moment it opens.
     private func openOptions() {
+        let defaults = UserDefaults.standard
+        subtitleSize = defaults.string(forKey: "cinemax.subtitleSize") ?? "medium"
+        subtitleColor = defaults.string(forKey: "cinemax.subColor") ?? SubtitlePalette.fallback
+        subtitlePosition = (defaults.object(forKey: "cinemax.subPos") as? Double) ?? 100
+        volume = (defaults.object(forKey: "cinemax.volume") as? Double) ?? 100
+        player?.setSubtitleColor(SubtitlePalette.libmpvValue(subtitleColor))
+        player?.setSubtitleFontSize(subtitleFontPoints(subtitleSize))
+        player?.setSubtitlePosition(subtitlePosition)
+        player?.setVolumeLevel(volume)
         loadTracks()
         if addonSubtitles.isEmpty { loadAddonSubtitles() }
         showOptions = true
+    }
+
+    /// The point size libmpv draws for each of the three steps.
+    private func subtitleFontPoints(_ size: String) -> Int {
+        switch size {
+        case "small": return 42
+        case "large": return 66
+        default: return 54
+        }
     }
 
     /// What is playing and with which engine, under the title.
@@ -3060,10 +3110,11 @@ struct PlayerScreen: View {
     /// that takes three of them.
     private func skipButton(backward: Bool) -> some View {
         Button {
-            // A hold has already jumped three steps: the release is the same
-            // press, not a second one.
-            if skipHeld {
-                skipHeld = false
+            // A hold has just jumped three steps: this release is the same
+            // press, not a second one. An older hold expires, so a press that
+            // ended off the button never swallows the next tap.
+            if Date().timeIntervalSince(skipHeldAt) < 0.8 {
+                skipHeldAt = .distantPast
                 return
             }
             Haptics.tap()
@@ -3078,7 +3129,7 @@ struct PlayerScreen: View {
         .buttonStyle(CinemaPressStyle())
         .simultaneousGesture(
             LongPressGesture(minimumDuration: 0.45).onEnded { _ in
-                skipHeld = true
+                skipHeldAt = Date()
                 Haptics.tap()
                 seek(by: backward ? -seekStep * 3 : seekStep * 3)
             }
@@ -3345,12 +3396,24 @@ struct PlayerScreen: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .ignoresSafeArea()
                     .clipped()
+                    // The picture fills the window, so its own width is the
+                    // width the double tap is measured against: the main
+                    // screen is deprecated and wrong on a foldable.
+                    .background(
+                        GeometryReader { geo in
+                            Color.clear
+                                .onAppear { surfaceWidth = geo.size.width }
+                                .onChange(of: geo.size.width) { value in
+                                    surfaceWidth = value
+                                }
+                        }
+                    )
                     .contentShape(Rectangle())
                     .highPriorityGesture(
                         SpatialTapGesture(count: 2)
                             .onEnded { value in
                                 guard !locked else { return }
-                                let width = UIScreen.main.bounds.width
+                                let width = max(1, surfaceWidth)
                                 lastDoubleTap = Date()
                                 if value.location.x < width * 0.33 {
                                     seek(by: -seekStep * 2)
@@ -3556,18 +3619,19 @@ struct PlayerScreen: View {
                 }
                 .padding(22)
                 .frame(maxWidth: 330)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .background(Color.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .strokeBorder(CinemaTheme.hairline, lineWidth: 1)
+                        .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
                 )
             }
             if locked {
                 VStack {
                     HStack {
                         Spacer()
-                        CircleButton(system: "lock.open.fill") {
-                            Haptics.select()
+                        // The same flat button as the rest of the player, so the
+                        // locked screen does not fall back to the old glass.
+                        PlayerTopButton(system: "lock.open.fill") {
                             locked = false
                             withAnimation(.easeInOut(duration: 0.2)) { controlsVisible = true }
                         }
@@ -3640,10 +3704,10 @@ struct PlayerScreen: View {
                 }
                 .padding(20)
                 .frame(maxWidth: 320)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .background(Color.black.opacity(0.75), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .strokeBorder(CinemaTheme.hairline, lineWidth: 1)
+                        .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
                 )
             }
             Color.clear
@@ -3702,8 +3766,7 @@ struct PlayerScreen: View {
                     onSubtitleSize: { value in
                         subtitleSize = value
                         UserDefaults.standard.set(value, forKey: "cinemax.subtitleSize")
-                        let points = value == "small" ? 42 : (value == "large" ? 66 : 54)
-                        player?.setSubtitleFontSize(points)
+                        player?.setSubtitleFontSize(subtitleFontPoints(value))
                         Haptics.select()
                     },
                     onSubtitleColor: { value in
@@ -3979,12 +4042,7 @@ struct PlayerScreen: View {
         let size = defaults.string(forKey: "cinemax.subtitleSize") ?? "medium"
         let auto = (defaults.object(forKey: "cinemax.subtitleAuto") as? Bool) ?? true
 
-        let fontSize: Int
-        switch size {
-        case "small": fontSize = 42
-        case "large": fontSize = 66
-        default: fontSize = 54
-        }
+        let fontSize = subtitleFontPoints(size)
         player.setSubtitleFontSize(fontSize)
         // The colour comes from the same place as the size, so a film opened in
         // the classic screen looks the way the panel says it should.
@@ -4079,13 +4137,12 @@ struct PlayerScreen: View {
     }
 
     private var screenBrightness: Double {
-        guard let screen = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen else { return 0.6 }
-        return Double(screen.brightness)
+        Double(CinemaWindow.screen?.brightness ?? 0.6)
     }
 
     /// Dims the whole screen for a dark room, and puts it back when the player closes.
     private func applyBrightness(_ value: Double) {
-        (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen.brightness = CGFloat(value)
+        CinemaWindow.screen?.brightness = CGFloat(value)
     }
 
     private func startTicker() {
@@ -5808,7 +5865,7 @@ struct PlayerOptionsPanel: View {
                 }
                 .padding(20)
             }
-            .frame(maxHeight: min(460, UIScreen.main.bounds.height * 0.82))
+            .frame(maxHeight: min(460, CinemaWindow.height * 0.82))
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 26, style: .continuous)
@@ -12362,8 +12419,8 @@ struct SelfTestView: View {
             )
             return
         }
-        let size = UIScreen.main.bounds.size
-        let scale = UIScreen.main.scale
+        let size = CinemaWindow.size
+        let scale = CinemaWindow.scale
         finish(
             "display",
             passed: true,
