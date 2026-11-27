@@ -2483,6 +2483,13 @@ struct PlayerScreen: View {
     /// True once this screen has started, so a return from the background never
     /// starts the film again.
     @State private var started = false
+    /// The seconds left before the next episode rolls in, or nil when it is not
+    /// offered. The screen asks instead of taking the film away while it is being
+    /// watched, which is what an unannounced roll-over felt like.
+    @State private var upNextCountdown: Int?
+    /// True once the viewer said not now, so the end of the file closes the
+    /// screen instead of rolling into the next episode.
+    @State private var autoplayCancelled = false
     @State private var autoTries = 0
     @State private var loadTicks = 0
     @State private var playerError: String?
@@ -2956,6 +2963,69 @@ struct PlayerScreen: View {
             .padding(.bottom, 12)
             .opacity(controlsVisible ? 1 : 0)
             .allowsHitTesting(controlsVisible)
+            if let countdown = upNextCountdown, let next = upNext, controlsVisible {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        HStack(spacing: 10) {
+                            RemoteImage(url: next.posterURL)
+                                .frame(width: 34, height: 50)
+                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("الحلقة التالية")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(CinemaTheme.accent)
+                                Text(next.name)
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .lineLimit(1)
+                                Text(countdown > 0 ? "تبدأ خلال \(countdown) ث" : "تبدأ الآن…")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(CinemaTheme.muted)
+                                    .monospacedDigit()
+                            }
+                            Button {
+                                Haptics.tap()
+                                upNextCountdown = nil
+                                playNext()
+                            } label: {
+                                Text("شغّل الآن")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundStyle(.black)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 7)
+                                    .background(.white, in: Capsule())
+                            }
+                            .buttonStyle(CinemaPressStyle())
+                            Button {
+                                Haptics.select()
+                                autoplayCancelled = true
+                                upNextCountdown = nil
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundStyle(CinemaTheme.muted)
+                                    .frame(width: 26, height: 26)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(10)
+                        .background(
+                            .ultraThinMaterial,
+                            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .strokeBorder(CinemaTheme.hairline, lineWidth: 1)
+                        )
+                        .shadow(color: .black.opacity(0.3), radius: 16, y: 8)
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.bottom, 132)
+                }
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
             if let message = playerError, duration <= 1 {
                 VStack(spacing: 14) {
                     Image(systemName: "exclamationmark.triangle.fill")
@@ -3464,6 +3534,8 @@ struct PlayerScreen: View {
             position = 0
             duration = 0
             startMs = 0
+            upNextCountdown = nil
+            autoplayCancelled = false
             currentVideoId = next.id
             currentVideoLabel = next.name
             currentTitle = next.name
@@ -3577,8 +3649,16 @@ struct PlayerScreen: View {
                 }
                 if player.ended {
                     saveProgress()
-                    if autoplayNext, playNext() { return }
+                    if autoplayNext, !autoplayCancelled, playNext() { return }
                     dismiss()
+                }
+                // The next episode is offered before this one ends, with a count
+                // the viewer can stop: a roll-over that happens while they are
+                // still watching must ask, never take the picture.
+                if upNext != nil, duration > 60, position > duration - 32, !autoplayCancelled {
+                    upNextCountdown = min(20, max(0, Int((duration - position).rounded())))
+                } else if upNextCountdown != nil {
+                    upNextCountdown = nil
                 }
             }
         }
@@ -3631,6 +3711,8 @@ struct PlayerScreen: View {
         startMs = position > 5 ? Int64((position - 1) * 1000) : 0
         position = 0
         duration = 0
+        upNextCountdown = nil
+        autoplayCancelled = false
         currentURL = pool[poolIndex].url
         currentHeaders = pool[poolIndex].headers ?? [:]
         playToken += 1
@@ -3699,6 +3781,69 @@ struct PlayerScreen: View {
         return hours > 0
             ? String(format: "%d:%02d:%02d", hours, minutes, secs)
             : String(format: "%d:%02d", minutes, secs)
+    }
+}
+
+/// Picture in Picture for the system player. Apple's own control bar is turned
+/// off, so the button that starts it belongs to the app, and it is built from an
+/// invisible layer of the very same player: that is what gives the promised PiP
+/// back without bringing back the bar that covered the title.
+@MainActor
+final class CinemaxPictureInPicture: NSObject, AVPictureInPictureControllerDelegate {
+    static let shared = CinemaxPictureInPicture()
+
+    private var controller: AVPictureInPictureController?
+    private var layer: AVPlayerLayer?
+
+    var isPossible: Bool { controller?.isPictureInPicturePossible ?? false }
+
+    /// Attaches a layer of this player to the tree, which is what PiP draws from.
+    func attach(_ player: AVPlayer) {
+        guard AVPictureInPictureController.isPictureInPictureSupported() else { return }
+        let layer = AVPlayerLayer(player: player)
+        layer.frame = CGRect(x: 0, y: 0, width: 2, height: 2)
+        layer.opacity = 0
+        self.layer = layer
+        let pip = AVPictureInPictureController(playerLayer: layer)
+        pip?.delegate = self
+        pip?.canStartPictureInPictureAutomaticallyFromInline = true
+        controller = pip
+        // The layer lives in the key window, far from the controls but in a view
+        // that is on screen, since PiP ignores a layer outside a window.
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive }?
+            .keyWindow?
+            .addSubview(Self.host(layer))
+    }
+
+    /// Puts the layer into a view so it is a visible part of the window.
+    private static func host(_ layer: AVPlayerLayer) -> UIView {
+        let holder = UIView(frame: CGRect(x: 0, y: 0, width: 2, height: 2))
+        holder.isUserInteractionEnabled = false
+        holder.addSubview(layerView(layer))
+        return holder
+    }
+
+    private static func layerView(_ layer: AVPlayerLayer) -> UIView {
+        let view = UIView(frame: layer.frame)
+        view.layer.addSublayer(layer)
+        return view
+    }
+
+    /// Starts PiP, only when the viewer asked for it and it is possible now.
+    func start() {
+        guard let controller, controller.isPictureInPicturePossible else { return }
+        controller.startPictureInPicture()
+    }
+
+    func pictureInPictureController(
+        _ pictureInPictureController: AVPictureInPictureController,
+        restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void
+    ) {
+        // The player is still on screen underneath, so the restore finishes at
+        // once instead of leaving the system animation waiting.
+        completionHandler(true)
     }
 }
 
@@ -3821,6 +3966,14 @@ struct SystemPlayerScreen: View {
                             .foregroundStyle(CinemaTheme.muted)
                     }
                     Spacer()
+                    if AVPictureInPictureController.isPictureInPictureSupported() {
+                        // Apple's own bar is turned off, so Picture in Picture
+                        // starts from this button on a layer of the same player.
+                        CircleButton(system: "pip.enter") {
+                            Haptics.tap()
+                            CinemaxPictureInPicture.shared.start()
+                        }
+                    }
                     Button {
                         Haptics.tap()
                         showOptions = true
@@ -4256,6 +4409,10 @@ struct SystemPlayerScreen: View {
             fresh.audiovisualBackgroundPlaybackPolicy = .continuesIfPossible
         }
         player = fresh
+        // Picture in Picture draws from a layer of this very player, and Apple's
+        // own bar is turned off here, so the layer is kept ready for the app's
+        // button: without it the promised PiP had nothing to start from.
+        CinemaxPictureInPicture.shared.attach(fresh)
         if startMs > 0 {
             fresh.seek(to: CMTime(value: startMs, timescale: 1000))
         }
