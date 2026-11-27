@@ -2405,10 +2405,166 @@ struct CircleButton: View {
         case "square.and.arrow.up": return "مشاركة"
         case "heart", "heart.fill": return "الحفظ"
         case "textformat": return "نسخ الاسم"
+        case "slider.horizontal.3": return "خيارات التشغيل"
+        case "ellipsis": return "المزيد"
+        case "pip.enter": return "نافذة عائمة"
+        case "lock.fill": return "قفل الأدوات"
+        case "antenna.radiowaves.left.and.right": return "المصادر"
         case "rectangle.landscape.rotate": return "أفقي"
         case "rectangle.portrait.rotate": return "رأسي"
         default: return system
         }
+    }
+}
+
+// MARK: - Player controls
+
+/// One button of the player's top row: a bare glyph on a faint disc, with no
+/// material and no border, so the film stays the brightest thing on screen.
+struct PlayerTopButton: View {
+    let system: String
+    var size: CGFloat = 17
+    var tint: Color = .white
+    let action: () -> Void
+
+    var body: some View {
+        Button {
+            Haptics.tap()
+            action()
+        } label: {
+            Image(systemName: system)
+                .font(.system(size: size, weight: .medium))
+                .foregroundStyle(tint)
+                .frame(width: 38, height: 38)
+                .background(Color.black.opacity(0.32), in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(CinemaPressStyle())
+        .accessibilityLabel(Text(CircleButton.label(for: system)))
+    }
+}
+
+/// One action under the timeline: the glyph and the Arabic word that names it.
+/// Words matter here — a caption bubble and a waveform do not say "ترجمة" and
+/// "صوت" to everyone, and the row is the main way into the player's settings.
+struct PlayerActionButton: View {
+    let system: String
+    let title: String
+    var highlighted = false
+    let action: () -> Void
+
+    var body: some View {
+        Button {
+            Haptics.tap()
+            action()
+        } label: {
+            VStack(spacing: 5) {
+                Image(systemName: system)
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(highlighted ? CinemaTheme.accent : .white)
+                    .frame(height: 20)
+                Text(title)
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(highlighted ? CinemaTheme.accent : .white.opacity(0.6))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 46)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(CinemaPressStyle())
+        .accessibilityLabel(Text(title))
+    }
+}
+
+/// The timeline the player draws itself: a thin track that thickens under the
+/// finger, an accent fill and no thumb at all, so nothing round sits on top of
+/// the picture. It is laid out left to right even in Arabic, because time only
+/// runs one way and a scrubber that mirrors itself feels broken under the thumb.
+struct CinemaScrubber: View {
+    let value: Double
+    let duration: Double
+    let onSeek: (Double) -> Void
+    var onEditingChanged: (Bool) -> Void = { _ in }
+    /// Called with the place under the finger while it is still down, so the
+    /// time label can follow the drag.
+    var onPreview: (Double) -> Void = { _ in }
+
+    @State private var dragging = false
+    @State private var dragValue: Double = 0
+
+    private var shown: Double { dragging ? dragValue : value }
+
+    private var fraction: Double {
+        guard duration > 1 else { return 0 }
+        return max(0, min(1, shown / duration))
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            let width = max(1, geometry.size.width)
+            let thickness: CGFloat = dragging ? 10 : 6
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(Color.white.opacity(0.22))
+                    .frame(height: thickness)
+                Capsule()
+                    .fill(CinemaTheme.accent)
+                    .frame(width: max(0, width * fraction), height: thickness)
+            }
+            .frame(width: width, height: geometry.size.height, alignment: .leading)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { gesture in
+                        guard duration > 1 else { return }
+                        if !dragging {
+                            dragging = true
+                            dragValue = value
+                            Haptics.select()
+                            onEditingChanged(true)
+                        }
+                        dragValue = target(gesture.location.x, width: width)
+                        onPreview(dragValue)
+                    }
+                    .onEnded { gesture in
+                        guard duration > 1 else { return }
+                        let landed = target(gesture.location.x, width: width)
+                        dragValue = landed
+                        dragging = false
+                        onEditingChanged(false)
+                        onSeek(landed)
+                    }
+            )
+            .animation(.easeOut(duration: 0.16), value: dragging)
+        }
+        .frame(height: 30)
+        .environment(\.layoutDirection, .leftToRight)
+        .accessibilityElement()
+        .accessibilityLabel(Text("شريط التقدم"))
+        .accessibilityValue(Text(Self.clock(value)))
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: onSeek(min(duration, value + 10))
+            case .decrement: onSeek(max(0, value - 10))
+            default: break
+            }
+        }
+    }
+
+    private func target(_ x: CGFloat, width: CGFloat) -> Double {
+        let ratio = max(0, min(1, x / width))
+        return ratio * duration
+    }
+
+    static func clock(_ seconds: Double) -> String {
+        let total = Int(max(0, seconds.rounded()))
+        let hours = total / 3600
+        let minutes = (total % 3600) / 60
+        let rest = total % 60
+        if hours > 0 { return String(format: "%d:%02d:%02d", hours, minutes, rest) }
+        return String(format: "%d:%02d", minutes, rest)
     }
 }
 
@@ -2614,49 +2770,51 @@ struct PlayerScreen: View {
 
     // MARK: - Controls
 
-    /// The top row: the way out, what is playing, and the four actions a viewer
-    /// reaches for while watching. Everything else folds into the ⋯ menu, so the
-    /// row holds five targets instead of ten cramped ones.
+    /// The top row: the way out, what is playing, and the actions a viewer
+    /// reaches for while watching. Everything else folds into the ⋯ menu.
     private var topControls: some View {
-        HStack(spacing: 10) {
-            CircleButton(system: "xmark") { dismiss() }
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(spacing: 12) {
+            PlayerTopButton(system: "xmark") { dismiss() }
+            VStack(alignment: .leading, spacing: 3) {
                 Text(currentTitle.isEmpty ? title : currentTitle)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 Text(playbackCaption)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(CinemaTheme.muted)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.6))
                     .lineLimit(1)
             }
-            Spacer(minLength: 8)
+            Spacer(minLength: 10)
             if switching {
-                ProgressView().tint(CinemaTheme.accent)
+                ProgressView().tint(.white).scaleEffect(0.85)
             }
             if episodes.count > 1 {
-                CircleButton(system: "rectangle.stack") {
-                    Haptics.tap()
+                PlayerTopButton(system: "rectangle.stack") {
                     showEpisodes = true
                 }
             }
-            CircleButton(system: "slider.horizontal.3") {
-                Haptics.tap()
-                loadTracks()
-                if addonSubtitles.isEmpty { loadAddonSubtitles() }
-                showOptions = true
-            }
+            PlayerTopButton(system: "slider.horizontal.3") { openOptions() }
             Menu {
                 moreActions
             } label: {
                 Image(systemName: "ellipsis")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 17, weight: .medium))
                     .foregroundStyle(.white)
                     .frame(width: 38, height: 38)
-                    .background(.ultraThinMaterial, in: Circle())
-                    .overlay(Circle().strokeBorder(CinemaTheme.hairline, lineWidth: 1))
+                    .background(Color.black.opacity(0.32), in: Circle())
+                    .contentShape(Circle())
             }
+            .accessibilityLabel(Text("المزيد"))
         }
+    }
+
+    /// Everything the options panel needs, loaded once before it opens.
+    private func openOptions() {
+        Haptics.tap()
+        loadTracks()
+        if addonSubtitles.isEmpty { loadAddonSubtitles() }
+        showOptions = true
     }
 
     /// What is playing and with which engine, under the title.
@@ -2728,65 +2886,121 @@ struct PlayerScreen: View {
         }
     }
 
-    /// The transport in the middle of the picture, where a thumb reaches it:
-    /// one white control and two glass ones around it.
+    /// The transport in the middle of the picture: bare glyphs with no discs,
+    /// the way the native players draw them. The spinner takes the play button's
+    /// place while the link catches up, so the centre never says two things.
     private var transportControls: some View {
-        HStack(spacing: 26) {
-            transportButton(system: "gobackward.\(CinemaxPrefs.seekSeconds)", size: 22) {
-                seek(by: -seekStep)
+        HStack(spacing: 34) {
+            skipButton(backward: true)
+            if buffering, duration > 1, playerError == nil {
+                ProgressView()
+                    .tint(.white)
+                    .scaleEffect(1.25)
+                    .frame(width: 74, height: 74)
+            } else {
+                Button {
+                    Haptics.tap()
+                    playing.toggle()
+                    if playing { player?.playPlayback() } else { player?.pausePlayback() }
+                } label: {
+                    Image(systemName: playing ? "pause.fill" : "play.fill")
+                        .font(.system(size: 34, weight: .medium))
+                        .foregroundStyle(.white)
+                        .frame(width: 74, height: 74)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(CinemaPressStyle())
+                .accessibilityLabel(Text(playing ? "إيقاف مؤقت" : "تشغيل"))
             }
-            Button {
-                Haptics.tap()
-                playing.toggle()
-                if playing { player?.playPlayback() } else { player?.pausePlayback() }
-            } label: {
-                Image(systemName: playing ? "pause.fill" : "play.fill")
-                    .font(.system(size: 26, weight: .semibold))
-                    .foregroundStyle(.black)
-                    .frame(width: 66, height: 66)
-                    .background(.white, in: Circle())
-                    .shadow(color: .black.opacity(0.35), radius: 14, y: 6)
-            }
-            .buttonStyle(CinemaPressStyle())
-            transportButton(system: "goforward.\(CinemaxPrefs.seekSeconds)", size: 22) {
-                seek(by: seekStep)
-            }
+            skipButton(backward: false)
         }
     }
 
-    private func transportButton(
-        system: String,
-        size: CGFloat,
-        action: @escaping () -> Void
-    ) -> some View {
+    /// A jump of the length set in Settings → التشغيل, and a press and hold
+    /// that takes three of them.
+    private func skipButton(backward: Bool) -> some View {
         Button {
             Haptics.tap()
-            action()
+            seek(by: backward ? -seekStep : seekStep)
         } label: {
-            Image(systemName: system)
-                .font(.system(size: size, weight: .semibold))
+            Image(systemName: "\(backward ? "gobackward" : "goforward").\(CinemaxPrefs.seekSeconds)")
+                .font(.system(size: 28, weight: .regular))
                 .foregroundStyle(.white)
-                .frame(width: 52, height: 52)
-                .background(.ultraThinMaterial, in: Circle())
-                .overlay(Circle().strokeBorder(CinemaTheme.hairline, lineWidth: 1))
+                .frame(width: 62, height: 62)
+                .contentShape(Circle())
         }
         .buttonStyle(CinemaPressStyle())
         .simultaneousGesture(
             LongPressGesture(minimumDuration: 0.45).onEnded { _ in
-                seek(by: system.contains("backward") ? -seekStep * 3 : seekStep * 3)
+                seek(by: backward ? -seekStep * 3 : seekStep * 3)
             }
         )
+        .accessibilityLabel(Text(backward ? "تأخير" : "تقديم"))
     }
 
-    /// The timeline and the chips that belong to it, in one glass card.
+    /// True while one of the moment chips has something to say, so the row above
+    /// the timeline never leaves an empty gap behind.
+    private var showsMomentChips: Bool {
+        if startMs > 30_000, position < 120 { return true }
+        if skipIntroEnabled, duration > 300, position > 5, position < 90 { return true }
+        if upNext != nil, duration > 0, position > duration - 60 { return true }
+        return false
+    }
+
+    /// The timeline and the actions that belong to it, drawn straight on the
+    /// bottom scrim instead of inside a card, so the film keeps the frame.
     private var timelineControls: some View {
         VStack(spacing: 12) {
-            HStack(spacing: 8) {
-                Text(clock(scrubbing ? scrubValue : position))
+            if showsMomentChips {
+                HStack(spacing: 8) {
+                    if startMs > 30_000, position < 120 {
+                        chip("من البداية", system: "backward.end.fill") {
+                            Haptics.tap()
+                            position = 0
+                            player?.seekTo(0)
+                        }
+                    }
+                    if skipIntroEnabled, duration > 300, position > 5, position < 90 {
+                        chip("تخطي المقدمة", system: "forward.fill") {
+                            Haptics.tap()
+                            seek(by: 85)
+                        }
+                    }
+                    if upNext != nil, duration > 0, position > duration - 60 {
+                        chip("الحلقة التالية", system: "forward.end.fill") {
+                            Haptics.tap()
+                            playNext()
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+            CinemaScrubber(
+                value: position,
+                duration: max(1, duration),
+                onSeek: { target in
+                    position = target
+                    player?.seekTo(Int64(target * 1000))
+                },
+                onEditingChanged: { editing in
+                    scrubbing = editing
+                    if !editing {
+                        // Held a moment longer while libmpv catches up.
+                        Task {
+                            try? await Task.sleep(nanoseconds: 700_000_000)
+                            scrubbing = false
+                        }
+                    }
+                },
+                onPreview: { target in
+                    scrubValue = target
+                }
+            )
+            HStack(spacing: 10) {
+                Text(CinemaScrubber.clock(scrubbing ? scrubValue : position))
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white)
                     .monospacedDigit()
-                Spacer()
                 if let shotNote {
                     Text(shotNote)
                         .font(.system(size: 10, weight: .semibold))
@@ -2798,80 +3012,75 @@ struct PlayerScreen: View {
                         }
                 }
                 if sleepDeadline != nil {
-                    Label(clock(Double(sleepRemaining)), systemImage: "moon.zzz.fill")
+                    Label(CinemaScrubber.clock(Double(sleepRemaining)), systemImage: "moon.zzz.fill")
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(CinemaTheme.accent)
                         .monospacedDigit()
                 }
-                Text(
-                    showRemaining
-                        ? "−\(clock(max(0, duration - position)))"
-                        : clock(duration)
-                )
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(CinemaTheme.muted)
-                .monospacedDigit()
-            }
-            Slider(
-                value: Binding(
-                    get: { scrubbing ? scrubValue : position },
-                    set: { scrubValue = $0 }
-                ),
-                in: 0...max(1, duration),
-                onEditingChanged: { editing in
-                    if editing {
-                        scrubValue = position
-                        scrubbing = true
-                    } else {
-                        position = scrubValue
-                        player?.seekTo(Int64(scrubValue * 1000))
-                        // Held a moment longer while libmpv catches up.
-                        Task {
-                            try? await Task.sleep(nanoseconds: 700_000_000)
-                            scrubbing = false
-                        }
-                    }
-                }
-            )
-            .tint(CinemaTheme.accent)
-            HStack(spacing: 8) {
-                if startMs > 30_000, position < 120 {
-                    chip("من البداية", system: "backward.end.fill") {
-                        Haptics.tap()
-                        position = 0
-                        player?.seekTo(0)
-                    }
-                }
-                if skipIntroEnabled, duration > 300, position > 5, position < 90 {
-                    chip("تخطي المقدمة", system: "forward.fill") {
-                        Haptics.tap()
-                        seek(by: 85)
-                    }
-                }
-                if upNext != nil, duration > 0, position > duration - 60 {
-                    chip("الحلقة التالية", system: "forward.end.fill") {
-                        Haptics.tap()
-                        playNext()
-                    }
-                }
-                Spacer(minLength: 0)
+                Spacer(minLength: 8)
+                // The right-hand time is the one a viewer reads while a film
+                // runs, so a tap swaps it between what is left and what is whole.
                 Button {
                     Haptics.select()
                     showRemaining.toggle()
                 } label: {
-                    Text(showRemaining ? "الوقت الكامل" : "الوقت المتبقي")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(CinemaTheme.muted)
+                    Text(
+                        showRemaining
+                            ? "−" + CinemaScrubber.clock(max(0, duration - position))
+                            : CinemaScrubber.clock(duration)
+                    )
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.55))
+                    .monospacedDigit()
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(Text("الوقت المتبقي أو الكامل"))
+            }
+            // The times follow the track, which runs left to right, so the
+            // elapsed time sits at the end the film starts from.
+            .environment(\.layoutDirection, .leftToRight)
+            HStack(spacing: 2) {
+                PlayerActionButton(system: "captions.bubble", title: "ترجمة وصوت") {
+                    openOptions()
+                }
+                PlayerActionButton(
+                    system: "speedometer",
+                    title: speed == 1 ? "السرعة" : String(format: "%g×", speed),
+                    highlighted: speed != 1
+                ) {
+                    openOptions()
+                }
+                PlayerActionButton(system: "antenna.radiowaves.left.and.right", title: "المصادر") {
+                    playNextSource()
+                }
+                if episodes.count > 1 {
+                    PlayerActionButton(system: "rectangle.stack", title: "الحلقات") {
+                        showEpisodes = true
+                    }
+                }
+                PlayerActionButton(system: "lock.fill", title: "قفل") {
+                    locked = true
+                    withAnimation(.easeInOut(duration: 0.2)) { controlsVisible = false }
+                }
+                Menu {
+                    moreActions
+                } label: {
+                    VStack(spacing: 5) {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundStyle(.white)
+                            .frame(height: 20)
+                        Text("المزيد")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.6))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 46)
+                    .contentShape(Rectangle())
+                }
+                .accessibilityLabel(Text("المزيد"))
             }
         }
-        .padding(16)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .strokeBorder(CinemaTheme.hairline, lineWidth: 1)
-        )
     }
 
     /// Three taps of one button: point A, point B, then off again.
@@ -2984,23 +3193,31 @@ struct PlayerScreen: View {
             } else {
                 ProgressView().tint(CinemaTheme.accent)
             }
+            // The picture steps back a little while the controls are up, the way
+            // the native players do it, so a white glyph never fights a bright
+            // scene and the film is still the subject behind it.
+            Color.black
+                .opacity(controlsVisible && !locked ? 0.3 : 0)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+                .animation(.easeInOut(duration: 0.25), value: controlsVisible)
             // A quiet scrim over the picture instead of a hard edge, so the
             // top row and the timeline sit on the film rather than on the black.
             VStack(spacing: 0) {
                 LinearGradient(
-                    colors: [.black.opacity(0.62), .black.opacity(0)],
+                    colors: [.black.opacity(0.72), .black.opacity(0)],
                     startPoint: .top,
                     endPoint: .bottom
                 )
-                .frame(height: 150)
+                .frame(height: 170)
                 .allowsHitTesting(false)
                 Spacer(minLength: 0)
                 LinearGradient(
-                    colors: [.black.opacity(0), .black.opacity(0.72)],
+                    colors: [.black.opacity(0), .black.opacity(0.88)],
                     startPoint: .top,
                     endPoint: .bottom
                 )
-                .frame(height: 230)
+                .frame(height: 280)
                 .allowsHitTesting(false)
             }
             .ignoresSafeArea()
@@ -3012,11 +3229,12 @@ struct PlayerScreen: View {
                 Spacer(minLength: 0)
                 timelineControls
             }
-            .padding(.horizontal, 18)
-            .padding(.top, 6)
-            .padding(.bottom, 12)
+            .padding(.horizontal, 20)
+            .padding(.top, 4)
+            .padding(.bottom, 8)
             .opacity(controlsVisible ? 1 : 0)
             .allowsHitTesting(controlsVisible)
+            .animation(.easeInOut(duration: 0.22), value: controlsVisible)
             if let countdown = upNextCountdown, let next = upNext, controlsVisible {
                 VStack {
                     Spacer()
@@ -3075,8 +3293,8 @@ struct PlayerScreen: View {
                         )
                         .shadow(color: .black.opacity(0.3), radius: 16, y: 8)
                     }
-                    .padding(.horizontal, 18)
-                    .padding(.bottom, 132)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 170)
                 }
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             }
@@ -3621,18 +3839,17 @@ struct PlayerScreen: View {
         return true
     }
 
-    /// The small action chips that float above the controls.
+    /// The small action chips that float above the timeline.
     private func chip(_ title: String, system: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Label(title, systemImage: system)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.white)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 9)
-                .background(.ultraThinMaterial, in: Capsule())
-                .overlay(Capsule().strokeBorder(CinemaTheme.hairline, lineWidth: 1))
+                .padding(.horizontal, 13)
+                .padding(.vertical, 8)
+                .background(Color.black.opacity(0.42), in: Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(CinemaPressStyle())
         .transition(.opacity)
     }
 
@@ -4031,6 +4248,10 @@ struct SystemPlayerScreen: View {
     @State private var scrubValue: Double = 0
     /// True once this link's own record has been written for the screen open.
     @State private var healthRecorded = false
+    /// The tools step aside by themselves, the way they do in the libmpv player.
+    @State private var controlsVisible = true
+    /// Whether the right-hand time reads what is left or what is whole.
+    @State private var showRemaining = false
 
     private enum SystemSheet: Identifiable {
         case episodes
@@ -4044,6 +4265,14 @@ struct SystemPlayerScreen: View {
         }
     }
 
+    /// Jumps along the film, clamped to what it actually holds.
+    private func jump(by seconds: Double) {
+        var goal = max(0, position + seconds)
+        if duration > 1 { goal = min(goal, duration) }
+        position = goal
+        player.seek(to: CMTime(value: CMTimeValue(goal * 1000), timescale: 1000))
+    }
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
@@ -4052,71 +4281,80 @@ struct SystemPlayerScreen: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .ignoresSafeArea()
                     .clipped()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        withAnimation(.easeInOut(duration: 0.22)) {
+                            controlsVisible.toggle()
+                            if !controlsVisible { showOptions = false }
+                        }
+                    }
             } else {
                 ProgressView().tint(CinemaTheme.accent)
             }
+            // The picture steps back while the tools are up, so a white glyph
+            // stays readable over a bright scene.
+            Color.black
+                .opacity(controlsVisible ? 0.3 : 0)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+                .animation(.easeInOut(duration: 0.25), value: controlsVisible)
+            VStack(spacing: 0) {
+                LinearGradient(
+                    colors: [.black.opacity(0.72), .black.opacity(0)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 170)
+                .allowsHitTesting(false)
+                Spacer(minLength: 0)
+                LinearGradient(
+                    colors: [.black.opacity(0), .black.opacity(0.88)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 250)
+                .allowsHitTesting(false)
+            }
+            .ignoresSafeArea()
+            .opacity(controlsVisible ? 1 : 0)
 
             VStack {
                 HStack(spacing: 12) {
-                    CircleButton(system: "xmark") { dismiss() }
-                    VStack(alignment: .leading, spacing: 1) {
+                    PlayerTopButton(system: "xmark") { dismiss() }
+                    VStack(alignment: .leading, spacing: 3) {
                         Text(stageTitle.isEmpty ? title : stageTitle)
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: 17, weight: .semibold))
                             .foregroundStyle(.white)
                             .lineLimit(1)
                         Text(attempts.isEmpty
                              ? "مشغل النظام · PiP وAirPlay"
                              : "مشغل النظام · المحاولة \(attempts.count)")
-                            .font(.system(size: 10))
-                            .foregroundStyle(CinemaTheme.muted)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.6))
+                            .lineLimit(1)
                     }
-                    Spacer()
+                    Spacer(minLength: 10)
                     if AVPictureInPictureController.isPictureInPictureSupported() {
                         // Apple's own bar is turned off, so Picture in Picture
                         // starts from this button on a layer of the same player.
-                        CircleButton(system: "pip.enter") {
-                            Haptics.tap()
+                        PlayerTopButton(system: "pip.enter") {
                             CinemaxPictureInPicture.shared.start()
                         }
                     }
-                    Button {
-                        Haptics.tap()
+                    PlayerTopButton(system: "slider.horizontal.3") {
                         showOptions = true
-                    } label: {
-                        Image(systemName: "slider.horizontal.3")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .frame(width: 36, height: 36)
-                            .background(.ultraThinMaterial, in: Circle())
                     }
-                    .buttonStyle(.plain)
                     if !episodes.isEmpty {
-                        CircleButton(system: "list.bullet") {
-                            Haptics.tap()
+                        PlayerTopButton(system: "list.bullet") {
                             sheet = .episodes
                         }
                     }
-                    if let next = upNext {
-                        Button {
-                            Haptics.tap()
-                            roll(to: next)
-                        } label: {
-                            HStack(spacing: 5) {
-                                Image(systemName: "forward.end.fill")
-                                    .font(.system(size: 10, weight: .bold))
-                                Text("التالي")
-                                    .font(.system(size: 11, weight: .bold))
-                            }
-                            .foregroundStyle(.black)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 7)
-                            .background(CinemaTheme.accent, in: Capsule())
-                        }
-                        .buttonStyle(.plain)
-                    }
                 }
                 .padding(.horizontal, 20)
-                .padding(.top, 8)
+                .padding(.top, 4)
+                .opacity(controlsVisible ? 1 : 0)
+                .allowsHitTesting(controlsVisible)
+                .animation(.easeInOut(duration: 0.22), value: controlsVisible)
                 Spacer()
                 if let nextNote {
                     Text(nextNote)
@@ -4124,8 +4362,8 @@ struct SystemPlayerScreen: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 8)
-                        .background(.ultraThinMaterial, in: Capsule())
-                        .padding(.bottom, 76)
+                        .background(Color.black.opacity(0.42), in: Capsule())
+                        .padding(.bottom, 176)
                 }
                 if let errorText {
                     VStack(spacing: 10) {
@@ -4167,82 +4405,151 @@ struct SystemPlayerScreen: View {
                     }
                     .padding(20)
                     .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                    .padding(.bottom, 60)
+                    .padding(.bottom, 40)
                 }
             }
-            // The transport and the timeline, in one glass card: Apple's own bar
-            // is turned off, so these are the controls the screen has.
-            VStack(spacing: 14) {
-                Button {
-                    Haptics.tap()
-                    if player.rate > 0 {
-                        player.pause()
-                    } else {
-                        player.play()
+            // The transport in the middle, then the timeline on the bottom scrim,
+            // drawn the way the libmpv player draws them, so the two screens
+            // read as one app rather than two.
+            VStack {
+                Spacer(minLength: 0)
+                HStack(spacing: 34) {
+                    Button {
+                        Haptics.tap()
+                        jump(by: -Double(CinemaxPrefs.seekSeconds))
+                    } label: {
+                        Image(systemName: "gobackward.\(CinemaxPrefs.seekSeconds)")
+                            .font(.system(size: 28, weight: .regular))
+                            .foregroundStyle(.white)
+                            .frame(width: 62, height: 62)
+                            .contentShape(Circle())
                     }
-                } label: {
-                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 26, weight: .semibold))
-                        .foregroundStyle(.black)
-                        .frame(width: 66, height: 66)
-                        .background(.white, in: Circle())
-                        .shadow(color: .black.opacity(0.35), radius: 14, y: 6)
-                }
-                .buttonStyle(CinemaPressStyle())
-
-                Slider(
-                    value: Binding(
-                        get: { scrubbing ? scrubValue : position },
-                        set: { scrubValue = $0 }
-                    ),
-                    in: 0...max(1, duration),
-                    onEditingChanged: { editing in
-                        if editing {
-                            scrubValue = position
-                            scrubbing = true
+                    .buttonStyle(CinemaPressStyle())
+                    .accessibilityLabel(Text("تأخير"))
+                    Button {
+                        Haptics.tap()
+                        if player.rate > 0 {
+                            player.pause()
                         } else {
-                            position = scrubValue
-                            player.seek(
-                                to: CMTime(
-                                    value: CMTimeValue(scrubValue * 1000),
-                                    timescale: 1000
-                                )
+                            player.play()
+                        }
+                    } label: {
+                        Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 34, weight: .medium))
+                            .foregroundStyle(.white)
+                            .frame(width: 74, height: 74)
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(CinemaPressStyle())
+                    .accessibilityLabel(Text(isPlaying ? "إيقاف مؤقت" : "تشغيل"))
+                    Button {
+                        Haptics.tap()
+                        jump(by: Double(CinemaxPrefs.seekSeconds))
+                    } label: {
+                        Image(systemName: "goforward.\(CinemaxPrefs.seekSeconds)")
+                            .font(.system(size: 28, weight: .regular))
+                            .foregroundStyle(.white)
+                            .frame(width: 62, height: 62)
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(CinemaPressStyle())
+                    .accessibilityLabel(Text("تقديم"))
+                }
+                Spacer(minLength: 0)
+            }
+            .opacity(controlsVisible && errorText == nil ? 1 : 0)
+            .allowsHitTesting(controlsVisible && errorText == nil)
+            .animation(.easeInOut(duration: 0.22), value: controlsVisible)
+            VStack(spacing: 12) {
+                CinemaScrubber(
+                    value: position,
+                    duration: max(1, duration),
+                    onSeek: { target in
+                        position = target
+                        player.seek(
+                            to: CMTime(
+                                value: CMTimeValue(target * 1000),
+                                timescale: 1000
                             )
+                        )
+                    },
+                    onEditingChanged: { editing in
+                        scrubbing = editing
+                        if !editing {
                             Task {
                                 try? await Task.sleep(nanoseconds: 700_000_000)
                                 scrubbing = false
                             }
                         }
-                    }
+                    },
+                    onPreview: { target in scrubValue = target }
                 )
-                .tint(CinemaTheme.accent)
-
-                HStack {
+                HStack(spacing: 10) {
                     Text(clockLabel(scrubbing ? scrubValue : position))
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.white)
                         .monospacedDigit()
-                    Spacer()
                     if sleepDeadline != nil {
                         Label(clockLabel(Double(sleepRemaining)), systemImage: "moon.zzz.fill")
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundStyle(CinemaTheme.accent)
                             .monospacedDigit()
                     }
-                    Text(clockLabel(duration))
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(CinemaTheme.muted)
-                        .monospacedDigit()
+                    Spacer(minLength: 8)
+                    // A tap swaps the right-hand time between what is left and
+                    // what the film holds whole.
+                    Button {
+                        Haptics.select()
+                        showRemaining.toggle()
+                    } label: {
+                        Text(showRemaining
+                             ? "−" + clockLabel(max(0, duration - position))
+                             : clockLabel(duration))
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.55))
+                            .monospacedDigit()
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text("الوقت المتبقي أو الكامل"))
+                }
+                .environment(\.layoutDirection, .leftToRight)
+                HStack(spacing: 2) {
+                    PlayerActionButton(system: "slider.horizontal.3", title: "خيارات") {
+                        showOptions = true
+                    }
+                    PlayerActionButton(
+                        system: "speedometer",
+                        title: speed == 1 ? "السرعة" : String(format: "%g×", speed),
+                        highlighted: speed != 1
+                    ) {
+                        showOptions = true
+                    }
+                    if !episodes.isEmpty {
+                        PlayerActionButton(system: "rectangle.stack", title: "الحلقات") {
+                            sheet = .episodes
+                        }
+                    }
+                    if upNext != nil {
+                        PlayerActionButton(
+                            system: "forward.end.fill",
+                            title: "التالي",
+                            highlighted: true
+                        ) {
+                            if let next = upNext { roll(to: next) }
+                        }
+                    }
+                    if AVPictureInPictureController.isPictureInPictureSupported() {
+                        PlayerActionButton(system: "pip.enter", title: "نافذة") {
+                            CinemaxPictureInPicture.shared.start()
+                        }
+                    }
                 }
             }
-            .padding(16)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .strokeBorder(CinemaTheme.hairline, lineWidth: 1)
-            )
-            .padding(.horizontal, 18)
-            .padding(.bottom, 14)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 8)
+            .opacity(controlsVisible && errorText == nil ? 1 : 0)
+            .allowsHitTesting(controlsVisible && errorText == nil)
+            .animation(.easeInOut(duration: 0.22), value: controlsVisible)
             if showOptions {
                 SystemOptionsSheet(
                     title: stageTitle,
@@ -4267,6 +4574,14 @@ struct SystemPlayerScreen: View {
             }
         }
         .preferredColorScheme(.dark)
+        .task(id: controlsVisible) {
+            // The tools step aside four seconds after the last interaction, so
+            // the film is never covered by its own controls.
+            guard controlsVisible, CinemaxPrefs.autoHideControls else { return }
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard !Task.isCancelled, isPlaying, !showOptions, sheet == nil else { return }
+            withAnimation(.easeInOut(duration: 0.22)) { controlsVisible = false }
+        }
         .task {
             // The task runs again when the app comes back from the background,
             // and starting again reopened the film from its resume point; the
