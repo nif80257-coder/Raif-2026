@@ -8,6 +8,7 @@ import com.cinemax.app.addons.createCinemaxHttpClient
 import com.cinemax.app.core.appVersionLabel
 import com.cinemax.app.core.dedupeSources
 import com.cinemax.app.core.parseSuggestedSources
+import com.cinemax.app.core.penalty
 import com.cinemax.app.core.streamBadges
 import com.cinemax.app.nuvio.NuvioProviderClient
 import com.cinemax.app.nuvio.NuvioProviderEntry
@@ -133,6 +134,7 @@ class CinemaxAppleBridge {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val addonStore = AddonSettingsStore()
     private val repository = AddonRepository(createCinemaxHttpClient())
+    private val statsStore = com.cinemax.app.SourceStatsStore()
     private val progressStore = WatchProgressStore()
     private val favoritesStore = FavoritesStore()
     private val nuvioStore = NuvioProviderStore()
@@ -1006,6 +1008,32 @@ class CinemaxAppleBridge {
 
     fun resetSourceHealth() {
         NSUserDefaults.standardUserDefaults.removeObjectForKey(SOURCE_HEALTH_KEY)
+    }
+
+    /**
+     * Every playable link's own record, as the penalty its place in the list
+     * takes. The sources screen mixes it into its score, so a link that just
+     * failed drops below the rest instead of leading the list again.
+     */
+    fun sourceLinkHealth(onDone: (String) -> Unit) {
+        val now = Clock.System.now().toEpochMilliseconds()
+        val rows = runCatching { statsStore.loadAll() }.getOrDefault(emptyMap())
+            .mapValues { (_, entry) -> entry.penalty(now) }
+        onDone(json.encodeToString(rows))
+    }
+
+    /**
+     * Records what happened to one link: a first frame that arrived, or a
+     * failure. The iOS app writes it after the picture opened or the link was
+     * given up on, so the next list is ordered by what really played.
+     */
+    fun recordSourceResult(url: String, played: Boolean, firstFrameMs: Long) {
+        if (url.isBlank()) return
+        if (played) {
+            statsStore.recordSuccess(url, firstFrameMs.takeIf { it > 0L })
+        } else {
+            statsStore.recordFailure(url)
+        }
     }
 
     /**

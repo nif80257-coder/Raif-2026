@@ -843,6 +843,21 @@ final class CinemaAPI {
         bridge.resetSourceHealth()
     }
 
+    /// Each playable link's own record, as the points its place takes.
+    func sourceLinkHealth() async -> [String: Int] {
+        await withCheckedContinuation { (continuation: CheckedContinuation<[String: Int], Never>) in
+            bridge.sourceLinkHealth(onDone: { json in
+                let rows = (try? JSONDecoder().decode([String: Int].self, from: Data(json.utf8))) ?? [:]
+                continuation.resume(returning: rows)
+            })
+        }
+    }
+
+    /// Writes what happened to one link, so the next list is ordered by it.
+    func recordSourceResult(url: String, played: Bool, firstFrameMs: Int64 = 0) {
+        bridge.recordSourceResult(url: url, played: played, firstFrameMs: firstFrameMs)
+    }
+
     /// Every installed addon with what it can answer and its catalogues.
     func addonProfiles() async -> [AddonProfile] {
         await withCheckedContinuation { (continuation: CheckedContinuation<[AddonProfile], Never>) in
@@ -2490,6 +2505,8 @@ struct PlayerScreen: View {
     /// True once the viewer said not now, so the end of the file closes the
     /// screen instead of rolling into the next episode.
     @State private var autoplayCancelled = false
+    /// True once this link's own record has been written for the screen open.
+    @State private var healthRecorded = false
     @State private var autoTries = 0
     @State private var loadTicks = 0
     @State private var playerError: String?
@@ -3536,6 +3553,7 @@ struct PlayerScreen: View {
             startMs = 0
             upNextCountdown = nil
             autoplayCancelled = false
+            healthRecorded = false
             currentVideoId = next.id
             currentVideoLabel = next.name
             currentTitle = next.name
@@ -3642,6 +3660,18 @@ struct PlayerScreen: View {
                     bufferTicks = 0
                 }
                 duration = max(1, Double(player.durationMs) / 1000)
+                // The link's own record is written once, when its picture
+                // opened or when it was given up on: the next list prefers a
+                // link that really played and drops one that just failed.
+                if !healthRecorded {
+                    if duration > 1 {
+                        healthRecorded = true
+                        CinemaAPI.shared.recordSourceResult(url: currentURL, played: true)
+                    } else if playerError != nil {
+                        healthRecorded = true
+                        CinemaAPI.shared.recordSourceResult(url: currentURL, played: false)
+                    }
+                }
                 if autoSkipIntro, !didAutoSkipIntro, duration > 300, position > 25, position < 80 {
                     didAutoSkipIntro = true
                     position = min(85, duration - 2)
@@ -3713,6 +3743,7 @@ struct PlayerScreen: View {
         duration = 0
         upNextCountdown = nil
         autoplayCancelled = false
+        healthRecorded = false
         currentURL = pool[poolIndex].url
         currentHeaders = pool[poolIndex].headers ?? [:]
         playToken += 1
@@ -3949,6 +3980,8 @@ struct SystemPlayerScreen: View {
     /// True while the viewer drags the timeline, so the poller leaves it alone.
     @State private var scrubbing = false
     @State private var scrubValue: Double = 0
+    /// True once this link's own record has been written for the screen open.
+    @State private var healthRecorded = false
 
     private enum SystemSheet: Identifiable {
         case episodes
@@ -4266,6 +4299,7 @@ struct SystemPlayerScreen: View {
         stageVideoLabel = videoLabel
         startMs = max(0, startAt)
         finished = false
+        healthRecorded = false
         errorText = nil
         duration = 0
         position = 0
@@ -4458,6 +4492,18 @@ struct SystemPlayerScreen: View {
                 if now.isFinite { position = now }
                 isPlaying = player.rate > 0
                 if player.currentItem?.duration.seconds.isFinite == true { duration = player.currentItem?.duration.seconds ?? duration }
+                // The link's own record is written once, when its picture
+                // opened or when it was given up on: the next list prefers a
+                // link that really played and drops one that just failed.
+                if !healthRecorded {
+                    if duration > 1 {
+                        healthRecorded = true
+                        CinemaAPI.shared.recordSourceResult(url: stageURL, played: true)
+                    } else if errorText != nil {
+                        healthRecorded = true
+                        CinemaAPI.shared.recordSourceResult(url: stageURL, played: false)
+                    }
+                }
                 // A link that never produces a duration is the black screen the
                 // viewer stared at: after twenty-four seconds it is swapped for
                 // the next source instead of being waited on forever.
@@ -5492,6 +5538,8 @@ struct DetailView: View {
     @State private var offAddons: Set<String> = SourcePrefs.offAddons
     @State private var foldedGroups: Set<String> = SourcePrefs.folded
     @State private var expandedGroups: Set<String> = []
+    /// Each playable link's own record, as the points its place takes.
+    @State private var linkHealth: [String: Int] = [:]
     @State private var addonLatency: [String: Int64] = [:]
     @AppStorage("cinemax.sourcesCompact") private var compactSources = false
     @AppStorage("cinemax.prefetchNext") private var prefetchNext = true
@@ -5608,6 +5656,9 @@ struct DetailView: View {
             if loadedItemID != item.id {
                 loadedItemID = item.id
                 await model.load(item: item)
+                // Each link's own record is read with the page, so the list is
+                // ordered by what really played for this viewer before.
+                linkHealth = await CinemaAPI.shared.sourceLinkHealth()
                 // The heart shows what the library really holds: before this it
                 // always opened empty, so a saved title looked unsaved and a tap
                 // on it removed it while the page said it was never saved.
@@ -6597,6 +6648,12 @@ struct DetailView: View {
         }
         if HLSParser.shared.isHLS(stream.url) { score += 0.4 }
         if isProxied(stream) { score -= 1 }
+        // What this link itself did last time: a recent failure drops it below
+        // the rest, a link that played rises, and both stay small next to the
+        // quality, so nothing that works is hidden by its own history.
+        if let health = linkHealth[stream.url] {
+            score += Double(health) / 50.0
+        }
         return score
     }
 
