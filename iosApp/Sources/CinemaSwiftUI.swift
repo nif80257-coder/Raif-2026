@@ -306,6 +306,14 @@ enum StreamLanguage {
         if id == unknown { return "غير محدد" }
         return entries.first { $0.id == id }?.name ?? id
     }
+
+    /// The single word a source row can show, or nothing when the link is
+    /// silent about its language.
+    static func primary(for stream: StreamChoice) -> String? {
+        let codes = codes(for: stream)
+        guard let match = entries.first(where: { codes.contains($0.id) }) else { return nil }
+        return match.name
+    }
 }
 
 /// One page of a catalogue, with the genres the addon offers for it.
@@ -2828,6 +2836,15 @@ struct PlayerScreen: View {
         var token: Int
     }
 
+    /// The two lists the player opens over itself. One sheet modifier carries
+    /// both: two of them on the same screen compete, and one never appears.
+    private enum PlayerSheet: String, Identifiable {
+        case episodes
+        case chapters
+
+        var id: String { rawValue }
+    }
+
     /// True once a held skip button has already jumped three steps, so the
     /// release that follows does not jump a fourth time: a long press used to
     /// give 3× and then 1× again, which overshot by a whole step. The moment it
@@ -2845,7 +2862,7 @@ struct PlayerScreen: View {
     @AppStorage("cinemax.playerHints") private var hintsShown = false
     @State private var brightness: Double = 0.6
     @State private var savedBrightness: Double = 0.6
-    @State private var showEpisodes = false
+    @State private var playerSheet: PlayerSheet?
     @State private var episodeError = false
     @State private var sleepMinutes: Int?
     /// The moment the sleep timer runs out, kept apart from the minutes so the
@@ -2961,7 +2978,7 @@ struct PlayerScreen: View {
             }
             if episodes.count > 1 {
                 PlayerTopButton(system: "rectangle.stack") {
-                    showEpisodes = true
+                    playerSheet = .episodes
                 }
             }
             PlayerTopButton(system: "slider.horizontal.3") { openOptions() }
@@ -3016,6 +3033,18 @@ struct PlayerScreen: View {
 
     @ViewBuilder
     private var moreActions: some View {
+        if chapters.count > 1 {
+            Button {
+                Haptics.tap()
+                // The file's own chapter list, read again in case the roll-over
+                // opened a file with a different set.
+                loadTracks()
+                playerSheet = .chapters
+            } label: {
+                Label("الفصول (\(chapters.count))", systemImage: "list.number")
+            }
+            Divider()
+        }
         if upNext != nil {
             Button {
                 Haptics.tap()
@@ -3275,7 +3304,14 @@ struct PlayerScreen: View {
                 }
                 if episodes.count > 1 {
                     PlayerActionButton(system: "rectangle.stack", title: "الحلقات") {
-                        showEpisodes = true
+                        playerSheet = .episodes
+                    }
+                } else if chapters.count > 1 {
+                    // A film has no episodes, so its own chapter list takes
+                    // that place in the row; a series finds it in ⋯ instead.
+                    PlayerActionButton(system: "list.number", title: "الفصول") {
+                        loadTracks()
+                        playerSheet = .chapters
                     }
                 }
                 PlayerActionButton(system: "lock.fill", title: "قفل") {
@@ -3889,18 +3925,33 @@ struct PlayerScreen: View {
                 }
         }
         .preferredColorScheme(.dark)
-        .sheet(isPresented: $showEpisodes) {
-            PlayerEpisodeSheet(
-                episodes: episodes,
-                currentVideoId: currentVideoId,
-                watchedLabels: watchedEpisodeLabels,
-                onPick: { episode in
-                    showEpisodes = false
-                    play(episode: episode)
-                },
-                onClose: { showEpisodes = false }
-            )
-            .presentationDetents([.medium, .large])
+        .sheet(item: $playerSheet) { value in
+            switch value {
+            case .episodes:
+                PlayerEpisodeSheet(
+                    episodes: episodes,
+                    currentVideoId: currentVideoId,
+                    watchedLabels: watchedEpisodeLabels,
+                    onPick: { episode in
+                        playerSheet = nil
+                        play(episode: episode)
+                    },
+                    onClose: { playerSheet = nil }
+                )
+                .presentationDetents([.medium, .large])
+            case .chapters:
+                PlayerChaptersSheet(
+                    chapters: chapters,
+                    currentSeconds: position,
+                    onPick: { chapter in
+                        playerSheet = nil
+                        position = chapter.seconds
+                        player?.seekTo(chapter.timeMs)
+                    },
+                    onClose: { playerSheet = nil }
+                )
+                .presentationDetents([.medium, .large])
+            }
         }
         .alert("تعذّر جلب مصدر لهذه الحلقة", isPresented: $episodeError) {
             Button("حسنًا", role: .cancel) {}
@@ -4009,7 +4060,7 @@ struct PlayerScreen: View {
             // the film starts are re-armed instead of staying forever.
             guard controlsVisible, CinemaxPrefs.autoHideControls else { return }
             try? await Task.sleep(nanoseconds: 4_500_000_000)
-            guard !Task.isCancelled, playing, !showOptions else { return }
+            guard !Task.isCancelled, playing, !showOptions, playerSheet == nil else { return }
             withAnimation(.easeInOut(duration: 0.2)) { controlsVisible = false }
         }
     }
@@ -5907,7 +5958,7 @@ struct PlayerOptionsPanel: View {
         .padding(.vertical, 9)
         .padding(.horizontal, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(CinemaTheme.elevated.opacity(0.6), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 
@@ -6006,7 +6057,7 @@ struct PlayerEpisodeSheet: View {
                                 .padding(.vertical, 12)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .background(
-                                    CinemaTheme.elevated.opacity(0.6),
+                                    Color.white.opacity(0.06),
                                     in: RoundedRectangle(cornerRadius: 12, style: .continuous)
                                 )
                             }
@@ -6021,6 +6072,105 @@ struct PlayerEpisodeSheet: View {
                     // Opening on the episode that is playing saves a long scroll.
                     if let current = currentVideoId {
                         proxy.scrollTo(current, anchor: .center)
+                    }
+                }
+            }
+        }
+        .background(CinemaTheme.canvas.ignoresSafeArea())
+        .preferredColorScheme(.dark)
+    }
+}
+
+/// The chapters the film's own file declares, so a viewer can jump to a scene
+/// instead of guessing a time. A file without chapters never opens this list.
+struct PlayerChaptersSheet: View {
+    let chapters: [PlayerChapter]
+    /// Where the film is now, so its chapter is the one that reads as current.
+    let currentSeconds: Double
+    let onPick: (PlayerChapter) -> Void
+    let onClose: () -> Void
+
+    private var currentIndex: Int? {
+        chapters.lastIndex { $0.seconds <= currentSeconds }
+    }
+
+    private func isCurrent(_ chapter: PlayerChapter) -> Bool {
+        chapters.firstIndex(of: chapter) == currentIndex
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Text("الفصول")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(.white)
+                Text("\(chapters.count)")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(CinemaTheme.muted)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color.white.opacity(0.08), in: Capsule())
+                Spacer()
+                CircleButton(system: "xmark") { onClose() }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 18)
+            .padding(.bottom, 10)
+
+            ScrollViewReader { proxy in
+                ScrollView(showsIndicators: false) {
+                    LazyVStack(spacing: 8) {
+                        ForEach(chapters) { chapter in
+                            Button {
+                                Haptics.select()
+                                onPick(chapter)
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Text(CinemaScrubber.clock(chapter.seconds))
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundStyle(
+                                            isCurrent(chapter) ? CinemaTheme.accent : CinemaTheme.muted
+                                        )
+                                        .monospacedDigit()
+                                        .frame(width: 58, alignment: .leading)
+                                    Text(
+                                        chapter.title.isEmpty
+                                            ? "الفصل \(chapters.firstIndex(of: chapter).map { $0 + 1 } ?? 1)"
+                                            : chapter.title
+                                    )
+                                    .font(.system(
+                                        size: 14,
+                                        weight: isCurrent(chapter) ? .bold : .regular
+                                    ))
+                                    .foregroundStyle(isCurrent(chapter) ? CinemaTheme.accent : .white)
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.leading)
+                                    Spacer(minLength: 8)
+                                    if isCurrent(chapter) {
+                                        Image(systemName: "play.fill")
+                                            .font(.system(size: 11, weight: .bold))
+                                            .foregroundStyle(CinemaTheme.accent)
+                                    }
+                                }
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 12)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(
+                                    Color.white.opacity(0.06),
+                                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .id(chapter.id)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 24)
+                }
+                .onAppear {
+                    // Opening on the chapter that is playing saves a long scroll.
+                    if let index = currentIndex {
+                        proxy.scrollTo(chapters[index].id, anchor: .center)
                     }
                 }
             }
@@ -7801,6 +7951,11 @@ struct DetailView: View {
                 }
                 if let quality = stream.quality {
                     CinemaPill(text: quality)
+                }
+                // The language the addon printed in its own title, so a viewer
+                // sees «عربي» before opening anything.
+                if let language = StreamLanguage.primary(for: stream) {
+                    CinemaPill(text: language, tint: CinemaTheme.muted)
                 }
                 if let note = stream.note {
                     CinemaPill(text: note, tint: CinemaTheme.muted)
@@ -18928,10 +19083,18 @@ struct DownloadsView: View {
                 ForEach(jobs) { job in
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
-                            Text(job.title)
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .lineLimit(1)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(job.title)
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .lineLimit(1)
+                                // Where it comes from and what it is, so a row
+                                // of several files says which is which.
+                                Text(sourceLabel(job))
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(CinemaTheme.muted)
+                                    .lineLimit(1)
+                            }
                             Spacer()
                             Text(statusLabel(job))
                                 .font(.system(size: 11, weight: .semibold))
@@ -19023,6 +19186,16 @@ struct DownloadsView: View {
         if running > 0 && waiting > 0 { return "\(size) · \(running) جارٍ · \(waiting) منتظر" }
         if waiting > 0 { return "\(size) · \(waiting) منتظر" }
         return running > 0 ? "\(size) · \(running) جارٍ" : size
+    }
+
+    /// The host and the file's own format, so a row of several files says
+    /// which is which.
+    private func sourceLabel(_ job: DownloadJob) -> String {
+        guard let url = URL(string: job.url) else { return job.sizeLabel }
+        let host = url.host ?? ""
+        let format = url.pathExtension.uppercased()
+        let parts = [host, format].filter { !$0.isEmpty }
+        return parts.isEmpty ? job.sizeLabel : parts.joined(separator: " · ")
     }
 
     private func statusLabel(_ job: DownloadJob) -> String {
