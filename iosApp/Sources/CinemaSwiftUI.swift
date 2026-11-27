@@ -19131,6 +19131,9 @@ final class DownloadManager: ObservableObject {
     static let shared = DownloadManager()
 
     @Published private(set) var jobs: [DownloadJob] = []
+    /// Why the last download was refused, so the downloads screen says it out
+    /// loud instead of a tap that looks like it did nothing.
+    @Published private(set) var refusal: String?
     /// Bytes per second for the transfers that are moving.
     @Published private(set) var speeds: [String: Int64] = [:]
     /// The speed over the whole transfer. The remaining time leans on it when a
@@ -19220,6 +19223,16 @@ final class DownloadManager: ObservableObject {
     func start(title: String, urlString: String, headers: [String: String] = [:]) {
         guard URL(string: urlString) != nil else { return }
         if jobs.contains(where: { $0.id == urlString && $0.state == "running" }) { return }
+        // A download that cannot fit is refused before it begins, instead of
+        // filling the device and stopping every other transfer with it.
+        if let free = Self.freeSpaceBytes(), free < 1_200_000_000 {
+            let freeGB = Double(free) / 1_073_741_824
+            refusal = String(format: "المساحة الحرة %.1f GB — احذف تنزيلًا ثم أعد المحاولة", freeGB)
+            EventLog.shared.add("download", "مساحة غير كافية لـ \(title)")
+            Haptics.tap()
+            return
+        }
+        refusal = nil
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
         let job = DownloadJob(
             id: urlString,
@@ -19367,6 +19380,13 @@ final class DownloadManager: ObservableObject {
             firstSample[id] = (now, job.received)
         }
         lastSample[id] = (now, job.received)
+    }
+
+    /// What the device can still take, in bytes, or nil when it cannot say.
+    private static func freeSpaceBytes() -> Int64? {
+        let url = URL(fileURLWithPath: NSHomeDirectory())
+        let values = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        return values?.volumeAvailableCapacityForImportantUsage
     }
 
     private var folder: URL {
@@ -19825,6 +19845,15 @@ struct DownloadsView: View {
                 }
                 .padding(.bottom, 2)
 
+                if let refusal = manager.refusal, !refusal.isEmpty {
+                    // The tap that started nothing says why, instead of looking
+                    // like the button is broken.
+                    Text(refusal)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.favourite)
+                        .lineLimit(2)
+                }
+
                 ForEach(jobs) { job in
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
@@ -19918,7 +19947,14 @@ struct DownloadsView: View {
         }
         .padding(.horizontal, 20)
         .fullScreenCover(item: $playing) { item in
-            PlayerScreen(title: item.name, url: item.id)
+            // A downloaded MP4 plays in the system player, where Picture in
+            // Picture and the correct shape work without a network; anything
+            // else stays with libmpv, which is the engine that reads it.
+            if CinemaxPrefs.systemReadable(item.id) {
+                SystemPlayerScreen(title: item.name, url: item.id)
+            } else {
+                PlayerScreen(title: item.name, url: item.id)
+            }
         }
     }
 
