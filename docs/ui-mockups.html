@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Řaif — معاينة الواجهة</title>
+<style>
+  :root{
+    --bg:#0E0C0B;
+    --surface:#171413;
+    --surface-2:#1F1B19;
+    --line:#2A2523;
+    --text:#F2EDE8;
+    --muted:#8F8580;
+    --copper:#E3A15C;
+    --danger:#E06C5A;
+    --ok:#68B76A;
+  }
+  *{box-sizing:border-box;-webkit-font-smoothing:antialiased}
+  body{
+    margin:0;padding:24px 16px 40px;background:#050505;color:var(--text);
+    font-family:-apple-system,"SF Arabic","Geeza Pro",system-ui,sans-serif;
+  }
+  h1{font-size:15px;color:var(--muted);font-weight:500;margin:0 0 18px;text-align:center}
+  .row{display:flex;gap:18px;overflow-x:auto;padding-bottom:12px}
+  .phone{
+    flex:0 0 340px;background:var(--bg);border:1px solid var(--line);border-radius:34px;
+    padding:14px;min-height:700px;box-shadow:0 18px 40px rgba(0,0,0,.55);
+  }
+  .cap{font-size:11px;color:var(--muted);text-align:center;margin:0 0 8px}
+  .label{font-size:11px;letter-spacing:.04em;color:var(--muted);margin:16px 2px 8px}
+  .hero{
+    height:210px;border-radius:22px;position:relative;overflow:hidden;
+    background:linear-gradient(160deg,#26333A 0%,#12181B 45%,#0B0D0E 100%);
+    border:1px solid var(--line);
+  }
+  .hero .art{position:absolute;inset:0;opacity:.55;
+    background:radial-gradient(circle at 70% 22%,#5C6B5E 0,transparent 42%),
+               radial-gradient(circle at 25% 90%,#8A7454 0,transparent 46%);}
+  .hero .shade{position:absolute;inset:0;background:linear-gradient(to top,rgba(8,8,8,.95),rgba(8,8,8,0) 62%)}
+  .hero .copy{position:absolute;right:14px;left:14px;bottom:12px}
+  .eyebrow{font-size:10px;color:var(--copper);letter-spacing:.02em}
+  .h-title{font-size:22px;font-weight:700;margin:4px 0 4px;font-family:"raif_display",inherit}
+  .h-meta{font-size:11px;color:var(--muted);margin-bottom:10px}
+  .actions{display:flex;gap:8px;align-items:center}
+  .btn-primary{
+    background:var(--copper);color:#1A1208;border:0;border-radius:20px;
+    padding:9px 20px;font-size:13px;font-weight:700;font-family:inherit
+  }
+  .btn-ghost{background:transparent;color:var(--text);border:0;font-size:12px;font-family:inherit}
+  .section{display:flex;justify-content:space-between;align-items:baseline;margin:16px 2px 8px}
+  .section b{font-size:15px;font-family:"raif_display",inherit}
+  .section span{font-size:10px;color:var(--muted)}
+  .cw{display:flex;gap:10px;overflow:hidden}
+  .cw .card{flex:0 0 132px}
+  .cw .thumb{height:76px;border-radius:14px;border:1px solid var(--line);position:relative;
+    background:linear-gradient(150deg,#1D2A31,#0F1416)}
+  .cw .bar{position:absolute;bottom:6px;right:6px;left:6px;height:3px;border-radius:3px;background:#3A322C}
+  .cw .bar i{display:block;height:3px;border-radius:3px;background:var(--copper);width:42%}
+  .cw .t{font-size:11px;margin-top:5px}
+  .cw .s{font-size:10px;color:var(--muted)}
+  .posters{display:flex;gap:8px}
+  .poster{flex:1;height:132px;border-radius:14px;border:1px solid var(--line);position:relative;
+    background:linear-gradient(160deg,#241E1C,#120F0E)}
+  .poster b{position:absolute;top:6px;left:6px;background:rgba(0,0,0,.55);border-radius:8px;
+    padding:2px 6px;font-size:10px;color:#EDE6DE;font-weight:500}
+  .tabbar{
+    margin-top:22px;display:flex;justify-content:space-around;align-items:center;
+    background:rgba(34,29,27,.86);border:1px solid var(--line);border-radius:26px;padding:10px 4px;
+  }
+  .tab{font-size:10px;color:var(--muted);text-align:center}
+  .tab.on{color:var(--copper)}
+  .tab i{display:block;font-size:15px;font-style:normal;margin-bottom:3px}
+
+  .sheet{background:var(--surface);border-radius:26px;padding:14px;border:1px solid var(--line)}
+  .sheet-head{display:flex;justify-content:space-between;align-items:flex-start}
+  .sheet-head b{font-size:20px;font-family:"raif_display",inherit}
+  .sheet-head .sub{font-size:11px;color:var(--muted);margin-top:2px}
+  .close{width:30px;height:30px;border-radius:50%;background:var(--surface-2);
+    display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:14px}
+  .chips{display:flex;gap:7px;margin:12px 0 14px;flex-wrap:wrap}
+  .chip{font-size:11px;padding:6px 12px;border-radius:16px;border:1px solid var(--line);color:var(--muted)}
+  .chip.on{background:var(--copper);color:#1A1208;border-color:var(--copper);font-weight:700}
+  .group{display:flex;justify-content:space-between;align-items:baseline;margin:14px 2px 6px}
+  .group .name{font-size:14px;font-weight:700}
+  .group .count{font-size:10px;color:var(--muted);margin-top:2px}
+  .group .speed{font-size:10px;color:var(--muted)}
+  .src{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)}
+  .src:last-child{border-bottom:0}
+  .play{width:32px;height:32px;border-radius:50%;background:var(--copper);flex:0 0 32px;
+    display:flex;align-items:center;justify-content:center;color:#1A1208;font-size:12px}
+  .play.dim{background:transparent;border:1px solid var(--line);color:var(--muted)}
+  .src .txt{flex:1;min-width:0}
+  .src .l1{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .src .l2{font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .q{font-size:10px;padding:3px 9px;border-radius:12px;border:1px solid var(--copper);color:var(--copper)}
+  .off{color:var(--muted);font-size:12px}
+  .sheet-foot{margin-top:14px;text-align:center}
+  .btn-outline{display:block;width:100%;background:transparent;border:1px solid var(--line);
+    color:var(--text);border-radius:18px;padding:12px;font-size:13px;font-family:inherit}
+  .foot-note{font-size:10px;color:var(--muted);margin-top:8px}
+
+  .summary{background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:14px;
+    display:flex;justify-content:space-between;align-items:center;margin-top:12px}
+  .summary b{font-size:20px;font-family:"raif_display",inherit;display:block}
+  .summary span{font-size:10px;color:var(--muted)}
+  .btn-mini{border:1px solid var(--copper);color:var(--copper);background:transparent;
+    border-radius:16px;padding:7px 14px;font-size:11px;font-family:inherit}
+  .repo{display:flex;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid var(--line)}
+  .repo:last-child{border-bottom:0}
+  .logo{width:36px;height:36px;border-radius:11px;background:var(--surface-2);
+    display:flex;align-items:center;justify-content:center;color:var(--copper);font-size:14px;flex:0 0 36px}
+  .repo .txt{flex:1;min-width:0}
+  .repo .n{font-size:12px;font-weight:700}
+  .repo .c{font-size:10px;color:var(--muted)}
+  .health{font-size:10px;color:var(--muted);text-align:left;max-width:96px}
+  .health.bad{color:var(--danger)}
+  .srch{display:flex;align-items:center;justify-content:space-between;background:var(--surface-2);
+    border:1px solid var(--line);border-radius:16px;padding:11px 14px;margin:8px 0 6px;
+    font-size:11px;color:var(--muted)}
+  .toggle{width:34px;height:20px;border-radius:12px;background:#3A322C;position:relative;flex:0 0 34px}
+  .toggle i{position:absolute;top:2px;right:2px;width:16px;height:16px;border-radius:50%;background:#7E736C}
+  .toggle.on{background:var(--copper)}
+  .toggle.on i{right:auto;left:2px;background:#1A1208}
+  .list-row{display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--line)}
+  .list-row:last-child{border-bottom:0}
+  .btn-full{width:100%;background:var(--copper);border:0;border-radius:18px;padding:13px;
+    font-size:13px;font-weight:700;color:#1A1208;font-family:inherit;margin-top:12px}
+  .note{font-size:10px;color:var(--muted);text-align:center;margin-top:6px}
+</style>
+</head>
+<body>
+<h1>Řaif — معاينة الواجهة (ثلاثة اتجاهات)</h1>
+
+<div class="row">
+
+  <!-- Home -->
+  <div>
+    <p class="cap">١ — الرئيسية</p>
+    <div class="phone">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div style="font-size:19px;color:var(--copper);font-weight:700">Řaif</div>
+        <div style="width:30px;height:30px;border-radius:50%;background:var(--surface-2);border:1px solid var(--line)"></div>
+      </div>
+      <div class="hero">
+        <div class="art"></div>
+        <div class="shade"></div>
+        <div class="copy">
+          <div class="eyebrow">جديد هذا الأسبوع</div>
+          <div class="h-title">الظل الأخير</div>
+          <div class="h-meta">٢٠٢٦ • فيلم • ٤K • ١س ٥٨د</div>
+          <div class="actions">
+            <button class="btn-primary">▶ تشغيل</button>
+            <button class="btn-ghost">التفاصيل</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="section"><b>متابعة المشاهدة</b><span>عرض الكل</span></div>
+      <div class="cw">
+        <div class="card">
+          <div class="thumb"><div class="bar"><i></i></div></div>
+          <div class="t">الطريق الطويل</div><div class="s">S02E04 • ١٢ دقيقة متبقية</div>
+        </div>
+        <div class="card">
+          <div class="thumb" style="background:linear-gradient(150deg,#2A2320,#12100F)"><div class="bar"><i style="width:70%"></i></div></div>
+          <div class="t">مدينة الصمت</div><div class="s">S01E07 • ٦ دقائق متبقية</div>
+        </div>
+      </div>
+
+      <div class="section"><b>جديد الأفلام</b><span></span></div>
+      <div class="posters">
+        <div class="poster"><b>8.1</b></div>
+        <div class="poster" style="background:linear-gradient(160deg,#2A2421,#120F0E)"><b>7.6</b></div>
+        <div class="poster" style="background:linear-gradient(160deg,#1E2429,#0F1214)"><b>8.4</b></div>
+      </div>
+
+      <div class="tabbar">
+        <div class="tab on"><i>⌂</i>الرئيسية</div>
+        <div class="tab"><i>◉</i>اكتشاف</div>
+        <div class="tab"><i>▤</i>المكتبة</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sources -->
+  <div>
+    <p class="cap">٢ — المصادر</p>
+    <div class="phone" style="padding:0;overflow:hidden">
+      <div style="height:150px;background:linear-gradient(160deg,#2B3338,#0D1012)"></div>
+      <div class="sheet" style="margin-top:-22px;border-radius:26px 26px 22px 22px">
+        <div class="sheet-head">
+          <div>
+            <b>المصادر</b>
+            <div class="sub">الظل الأخير • S02E04</div>
+          </div>
+          <div class="close">✕</div>
+        </div>
+
+        <div class="chips">
+          <div class="chip on">الكل</div>
+          <div class="chip">٤K</div>
+          <div class="chip">مترجم</div>
+          <div class="chip">سريع</div>
+          <div class="chip">HDR</div>
+        </div>
+
+        <div class="group">
+          <div>
+            <div class="name">كوميت</div>
+            <div class="count">٣ روابط</div>
+          </div>
+          <div class="speed">٠٫٨ ث</div>
+        </div>
+        <div class="src">
+          <div class="play">▶</div>
+          <div class="txt"><div class="l1">BluRay • HDR • 12.4 GB</div><div class="l2">dual audio • Netflix</div></div>
+          <div class="q">٤K</div>
+        </div>
+        <div class="src">
+          <div class="play">▶</div>
+          <div class="txt"><div class="l1">WEB-DL • 8.1 GB</div><div class="l2">مترجم • ١٠٨٠p</div></div>
+          <div class="q">٤K</div>
+        </div>
+
+        <div class="group">
+          <div><div class="name">نوفا</div><div class="count">رابط واحد</div></div>
+          <div class="speed">١٫٢ ث</div>
+        </div>
+        <div class="src">
+          <div class="play">▶</div>
+          <div class="txt"><div class="l1">BluRay • HDR • 12.4 GB</div><div class="l2">dual audio • Netflix</div></div>
+          <div class="q">٤K</div>
+        </div>
+
+        <div class="group">
+          <div><div class="name">أوريون</div><div class="count">رابط واحد</div></div>
+          <div class="speed">—</div>
+        </div>
+        <div class="src">
+          <div class="play dim">↻</div>
+          <div class="txt"><div class="off">غير متاح الآن</div></div>
+          <div></div>
+        </div>
+
+        <div class="sheet-foot">
+          <button class="btn-outline">↻ تحديث المصادر</button>
+          <div class="foot-note">آخر تحديث قبل دقيقتين</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add-ons -->
+  <div>
+    <p class="cap">٣ — الإضافات</p>
+    <div class="phone">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <div style="color:var(--muted);font-size:15px">‹</div>
+        <div style="font-size:19px;font-family:'raif_display',inherit;font-weight:700">الإضافات</div>
+      </div>
+
+      <div class="summary">
+        <div>
+          <b>١٢٤ مصدرًا</b>
+          <span>٣ مستودعات • ٢ غير متاحة</span>
+        </div>
+        <button class="btn-mini">تحديث الكل</button>
+      </div>
+
+      <div class="label">المستودعات</div>
+      <div class="repo">
+        <div class="logo">▣</div>
+        <div class="txt"><div class="n">مستودع يورو</div><div class="c">٣٠ مزوّدًا</div></div>
+        <div class="health">آخر تحديث قبل ٣ ساعات</div>
+      </div>
+      <div class="repo">
+        <div class="logo">▲</div>
+        <div class="txt"><div class="n">مستودع الشرق</div><div class="c">٤٢ مزوّدًا</div></div>
+        <div class="health bad">↻ ٣ إخفاقات متتالية</div>
+      </div>
+      <div class="repo">
+        <div class="logo">◎</div>
+        <div class="txt"><div class="n">مستودع العالم</div><div class="c">٥٢ مزوّدًا</div></div>
+        <div class="health">لم يُحدَّث بعد</div>
+      </div>
+
+      <div class="label">المصادر</div>
+      <div class="srch"><span>ابحث في الإضافات</span><span>⌕</span></div>
+
+      <div class="list-row">
+        <div class="logo">TA</div>
+        <div class="txt"><div class="n">TurkceAltyazi</div><div class="c">ترجمة • مسلسلات</div></div>
+        <div class="toggle on"><i></i></div>
+      </div>
+      <div class="list-row">
+        <div class="logo">▶</div>
+        <div class="txt"><div class="n">أديكتد</div><div class="c">ترجمة • مسلسلات</div></div>
+        <div class="toggle on"><i></i></div>
+      </div>
+      <div class="list-row">
+        <div class="logo">▤</div>
+        <div class="txt"><div class="n" style="color:var(--muted)">سينما الآن</div><div class="c">أفلام • مسلسلات</div></div>
+        <div class="toggle"><i></i></div>
+      </div>
+
+      <button class="btn-full">+ استعراض الدليل</button>
+      <div class="note">ثبّت مصدرًا من قائمة مصدر تملكه</div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
