@@ -20,7 +20,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
+import com.nuvio.app.core.i18n.localizedUiText
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -241,7 +241,8 @@ internal object PluginRuntime {
                 }?.takeIf { it.isNotEmpty() }
 
                 PluginRuntimeResult(
-                    title = item.stringOrNull("title") ?: item.stringOrNull("name") ?: runBlocking { getString(Res.string.generic_unknown) },
+                    title = item.stringOrNull("title") ?: item.stringOrNull("name")
+                        ?: localizedUiText("Unknown") { getString(Res.string.generic_unknown) },
                     name = item.stringOrNull("name"),
                     url = url,
                     quality = item.stringOrNull("quality"),

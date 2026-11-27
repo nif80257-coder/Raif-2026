@@ -2,6 +2,7 @@ package com.nuvio.app.features.plugins
 
 import co.touchlab.kermit.Logger
 import com.nuvio.app.core.concurrent.runCatchingCancellable
+import com.nuvio.app.core.i18n.localizedUiText
 import com.nuvio.app.core.network.SupabaseProvider
 import com.nuvio.app.features.addons.httpGetText
 import com.nuvio.app.features.profiles.ProfileRepository
@@ -291,7 +292,9 @@ actual object PluginRepository {
                                         existing.copy(
                                             isRefreshing = false,
                                             consecutiveRefreshFailures = existing.consecutiveRefreshFailures + 1,
-                                            errorMessage = error.message ?: runBlocking { getString(Res.string.plugins_repository_refresh_failed) },
+                                            errorMessage = error.message ?: localizedUiText(
+                                                "Refresh failed.",
+                                            ) { getString(Res.string.plugins_repository_refresh_failed) },
                                         )
                                     } else {
                                         existing
@@ -692,6 +695,14 @@ actual object PluginRepository {
             if (snapshot.revision < persistedRevision) return@synchronized
             val payload = snapshot.state.toStoredPluginsState()
             PluginStorage.saveState(snapshot.profileId, json.encodeToString(payload))
+            if (snapshot.state.scrapers.isNotEmpty()) {
+                // The installed providers are the authority on which failure record is still worth
+                // keeping: a repository the viewer removed leaves its providers behind otherwise.
+                PluginScraperHealth.pruneToInstalled(
+                    profileId = snapshot.profileId,
+                    installedScraperIds = snapshot.state.scrapers.mapTo(mutableSetOf()) { it.id },
+                )
+            }
             persistedRevisionByProfile[snapshot.profileId] = snapshot.revision
         }
     }
@@ -774,7 +785,12 @@ actual object PluginRepository {
 
     private fun normalizeManifestUrl(rawUrl: String): String {
         val trimmed = rawUrl.trim()
-        require(trimmed.isNotEmpty()) { runBlocking { getString(Res.string.plugins_error_enter_repo_url) } }
+        // `require`'s message is read on the thread that found the problem, and the resources call
+        // behind it suspends: the English sentence is returned at once and the translation lands in
+        // the shared map, exactly as the rest of the published text does.
+        require(trimmed.isNotEmpty()) {
+            localizedUiText("Enter a repository URL.") { getString(Res.string.plugins_error_enter_repo_url) }
+        }
 
         val normalizedScheme = when {
             trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed

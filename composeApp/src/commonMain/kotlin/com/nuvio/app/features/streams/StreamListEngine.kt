@@ -108,7 +108,10 @@ internal object StreamListEngine {
                             addonLogo = addon.manifest.logoUrl,
                         )
                     }.getOrNull()
-                }
+                // An answer that held nothing is not worth keeping this source silent for: the
+                    // viewer is told "nothing here" by a request that costs a second, not by an
+                    // empty group that no later request can fill.
+                }?.takeIf { streams -> streams.isNotEmpty() }
                 if (reusedStreams != null) {
                     return@runSourceTaskOrFallback AddonStreamGroup(
                         addonName = addon.addonName,

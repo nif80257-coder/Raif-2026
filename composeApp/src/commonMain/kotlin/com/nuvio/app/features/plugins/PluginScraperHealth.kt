@@ -63,6 +63,17 @@ internal object PluginScraperHealth {
         persist(profileId)
     }
 
+    /**
+     * Forgets the providers this app no longer has.
+     *
+     * A repository the viewer removed, or a provider its list dropped, leaves its failure record
+     * behind for ever: the map only grows. Called where the installed providers are the authority.
+     */
+    fun pruneToInstalled(profileId: Int, installedScraperIds: Set<String>) {
+        val entries = entries(profileId)
+        if (entries.keys.retainAll(installedScraperIds)) persist(profileId)
+    }
+
     /** Consecutive failures per provider, for the health report. */
     fun failureCounts(profileId: Int): Map<String, Int> =
         entries(profileId).mapNotNull { (scraperId, encoded) ->
