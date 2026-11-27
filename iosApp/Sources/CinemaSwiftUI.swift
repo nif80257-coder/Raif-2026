@@ -250,6 +250,38 @@ struct StreamChoice: Identifiable, Codable, Hashable {
     var id: String { url }
 }
 
+/// The language a link says it carries, read from the words the addon prints in
+/// its own stream title ("1080p · عربي · 2.1 GB"). Stremio has no language
+/// field, so a link that says nothing stays «غير محدد» rather than being guessed:
+/// claiming a film is dubbed when nobody said so is worse than saying nothing.
+enum StreamLanguage {
+    static let entries: [(id: String, name: String, words: [String])] = [
+        ("ar", "عربي", ["عربي", "عربية", "عربى", "arabic", "arab"]),
+        ("en", "إنجليزي", ["english", "إنجليزي", "انجليزي"]),
+        ("hi", "هندي", ["hindi", "هندي"]),
+        ("fr", "فرنسي", ["french", "français", "francais", "فرنسي"]),
+        ("tr", "تركي", ["turkish", "türkçe", "turkce", "تركي"]),
+        ("multi", "متعدد", ["multi", "dual audio", "متعدد"])
+    ]
+
+    static let unknown = "unknown"
+
+    /// Every language this link claims.
+    static func codes(for stream: StreamChoice) -> Set<String> {
+        let text = (stream.title + " " + stream.addon).lowercased()
+        var found = Set<String>()
+        for entry in entries where entry.words.contains(where: { text.contains($0) }) {
+            found.insert(entry.id)
+        }
+        return found
+    }
+
+    static func name(_ id: String) -> String {
+        if id == unknown { return "غير محدد" }
+        return entries.first { $0.id == id }?.name ?? id
+    }
+}
+
 /// One page of a catalogue, with the genres the addon offers for it.
 struct CatalogPagePayload: Codable {
     let items: [CinemaItem]
@@ -2460,6 +2492,15 @@ struct CircleButton: View {
 
 // MARK: - Player controls
 
+/// A chapter the film's own file declares, so the timeline can mark where it starts.
+struct PlayerChapter: Identifiable, Codable, Hashable {
+    let timeMs: Int64
+    let title: String
+
+    var id: Int64 { timeMs }
+    var seconds: Double { Double(timeMs) / 1000 }
+}
+
 /// One button of the player's top row: a bare glyph on a faint disc, with no
 /// material and no border, so the film stays the brightest thing on screen.
 struct PlayerTopButton: View {
@@ -2531,6 +2572,10 @@ struct CinemaScrubber: View {
     /// Called with the place under the finger while it is still down, so the
     /// time label can follow the drag.
     var onPreview: (Double) -> Void = { _ in }
+    /// Where the buffer ends, in seconds; 0 draws nothing ahead of the play head.
+    var buffered: Double = 0
+    /// Where the chapters begin, in seconds, drawn as thin marks in the track.
+    var marks: [Double] = []
 
     @State private var dragging = false
     @State private var dragValue: Double = 0
@@ -2542,6 +2587,16 @@ struct CinemaScrubber: View {
         return max(0, min(1, shown / duration))
     }
 
+    private var bufferFraction: Double {
+        guard duration > 1 else { return 0 }
+        return max(0, min(1, buffered / duration))
+    }
+
+    private func markFraction(_ seconds: Double) -> Double {
+        guard duration > 1 else { return 0 }
+        return max(0, min(1, seconds / duration))
+    }
+
     var body: some View {
         GeometryReader { geometry in
             let width = max(1, geometry.size.width)
@@ -2550,9 +2605,22 @@ struct CinemaScrubber: View {
                 Capsule()
                     .fill(Color.white.opacity(0.22))
                     .frame(height: thickness)
+                // What libmpv has already pulled, drawn behind the play head.
+                if bufferFraction > fraction {
+                    Capsule()
+                        .fill(Color.white.opacity(0.34))
+                        .frame(width: max(0, width * bufferFraction), height: thickness)
+                }
                 Capsule()
                     .fill(CinemaTheme.accent)
                     .frame(width: max(0, width * fraction), height: thickness)
+                // A chapter begins where the film's own file says it begins.
+                ForEach(Array(marks.enumerated()), id: \.offset) { entry in
+                    Rectangle()
+                        .fill(Color.black.opacity(0.6))
+                        .frame(width: 2, height: thickness)
+                        .offset(x: max(0, min(width - 2, width * markFraction(entry.element))))
+                }
             }
             .frame(width: width, height: geometry.size.height, alignment: .leading)
             .contentShape(Rectangle())
@@ -2674,6 +2742,10 @@ struct PlayerScreen: View {
     @State private var playing = true
     @State private var position: Double = 0
     @State private var duration: Double = 0
+    /// Where the buffer ends, read from libmpv on every tick.
+    @State private var bufferedMs: Int64 = 0
+    /// The chapters the file declares, for the marks inside the timeline.
+    @State private var chapters: [PlayerChapter] = []
     @State private var ticker: Timer?
     @State private var startMs: Int64 = 0
     @State private var ready = false
@@ -2988,6 +3060,14 @@ struct PlayerScreen: View {
         .accessibilityLabel(Text(backward ? "تأخير" : "تقديم"))
     }
 
+    /// The chapter the film is inside right now, when its own file declares any.
+    private var currentChapterTitle: String? {
+        let now = scrubbing ? scrubValue : position
+        guard let index = chapters.lastIndex(where: { $0.seconds <= now }) else { return nil }
+        let title = chapters[index].title.trimmingCharacters(in: .whitespaces)
+        return title.isEmpty ? nil : title
+    }
+
     /// True while one of the moment chips has something to say, so the row above
     /// the timeline never leaves an empty gap behind.
     private var showsMomentChips: Bool {
@@ -3025,6 +3105,12 @@ struct PlayerScreen: View {
                     Spacer(minLength: 0)
                 }
             }
+            if let chapter = currentChapterTitle {
+                Text(chapter)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .lineLimit(1)
+            }
             CinemaScrubber(
                 value: position,
                 duration: max(1, duration),
@@ -3044,7 +3130,9 @@ struct PlayerScreen: View {
                 },
                 onPreview: { target in
                     scrubValue = target
-                }
+                },
+                buffered: Double(bufferedMs) / 1000,
+                marks: chapters.map(\.seconds)
             )
             HStack(spacing: 10) {
                 Text(CinemaScrubber.clock(scrubbing ? scrubValue : position))
@@ -3841,6 +3929,12 @@ struct PlayerScreen: View {
             [TrackInfo].self,
             from: Data(player.embeddedAudioTracksJson().utf8)
         )) ?? []
+        // The file's own chapters, which arrive with the track list: a file
+        // without any simply leaves the timeline without marks.
+        chapters = (try? decoder.decode(
+            [PlayerChapter].self,
+            from: Data(player.chaptersJson().utf8)
+        )) ?? []
         applySubtitlePreferences()
     }
 
@@ -3989,6 +4083,7 @@ struct PlayerScreen: View {
                 if !scrubbing {
                     position = Double(player.positionMs) / 1000
                 }
+                bufferedMs = player.cacheMs
                 // The place the viewer reached is written every half minute while
                 // the film plays, so a call, a crash or the app being closed never
                 // loses it: before this it was only written on the way out.
@@ -4341,6 +4436,8 @@ struct SystemPlayerScreen: View {
     /// True while the viewer drags the timeline, so the poller leaves it alone.
     @State private var scrubbing = false
     @State private var scrubValue: Double = 0
+    /// What the item has already downloaded, so the timeline shows the buffer.
+    @State private var bufferedMs: Int64 = 0
     /// True once this link's own record has been written for the screen open.
     @State private var healthRecorded = false
     /// The tools step aside by themselves, the way they do in the libmpv player.
@@ -4577,7 +4674,8 @@ struct SystemPlayerScreen: View {
                             }
                         }
                     },
-                    onPreview: { target in scrubValue = target }
+                    onPreview: { target in scrubValue = target },
+                    buffered: Double(bufferedMs) / 1000
                 )
                 HStack(spacing: 10) {
                     Text(clockLabel(scrubbing ? scrubValue : position))
@@ -4949,6 +5047,12 @@ struct SystemPlayerScreen: View {
                 if total.isFinite, total > 0 { duration = total }
                 let now = player.currentTime().seconds
                 if now.isFinite { position = now }
+                // The buffer ahead is the item's own loaded ranges, so the
+                // timeline says what waits while the film plays.
+                if let loaded = current.loadedTimeRanges.last?.timeRangeValue {
+                    let end = (loaded.start + loaded.duration).seconds
+                    if end.isFinite { bufferedMs = Int64(max(0, end) * 1000) }
+                }
                 isPlaying = player.rate > 0
                 if player.currentItem?.duration.seconds.isFinite == true { duration = player.currentItem?.duration.seconds ?? duration }
                 // The link's own record is written once, when its picture
@@ -6011,6 +6115,8 @@ struct DetailView: View {
     /// an adaptive link goes to the system player and a file stays with libmpv.
     @State private var playbackEngine = "mpv"
     @State private var qualityFilter: String?
+    /// The language the viewer asked for, read from the words each link carries.
+    @State private var languageFilter: String?
     @State private var addonFilter: String?
     @AppStorage("cinemax.sourcesCollapsed") private var sourcesCollapsed = false
     @State private var speeds: [String: Double] = [:]
@@ -6668,6 +6774,7 @@ struct DetailView: View {
                             episode = entry
                             Task {
                                 qualityFilter = nil
+                                languageFilter = nil
                                 await model.loadStreams(id: entry.id, type: item.type)
                             }
                         } label: {
@@ -6850,6 +6957,24 @@ struct DetailView: View {
     /// addon leaves the chips row with its links.
     private var addonNames: [String] {
         Array(Set(model.streams.filter { !offAddons.contains($0.addon) }.map(\.addon))).sorted()
+    }
+
+    /// The languages this page's links actually claim, so the chips only offer
+    /// what is here: an empty row of languages would be noise.
+    private var languageOrder: [String] {
+        var present = Set<String>()
+        var unknown = false
+        for stream in model.streams where !offAddons.contains(stream.addon) {
+            let codes = StreamLanguage.codes(for: stream)
+            if codes.isEmpty {
+                unknown = true
+            } else {
+                present.formUnion(codes)
+            }
+        }
+        var order = StreamLanguage.entries.map(\.id).filter { present.contains($0) }
+        if unknown { order.append(StreamLanguage.unknown) }
+        return order
     }
 
     /// Links the viewer can actually see: not hidden, and not from a stopped addon.
@@ -7177,6 +7302,15 @@ struct DetailView: View {
             if hiddenSources.contains(stream.url) { return false }
             if offAddons.contains(stream.addon) { return false }
             if let addonFilter, stream.addon != addonFilter { return false }
+            if let languageFilter {
+                let codes = StreamLanguage.codes(for: stream)
+                if languageFilter == StreamLanguage.unknown {
+                    if !codes.isEmpty { return false }
+                } else if !codes.contains(languageFilter), !codes.contains("multi") {
+                    // A link that says "متعدد" answers for every language asked.
+                    return false
+                }
+            }
             guard let qualityFilter else { return true }
             let tier = stream.quality.flatMap { known.contains($0) ? $0 : nil } ?? "أخرى"
             return tier == qualityFilter
@@ -7387,6 +7521,17 @@ struct DetailView: View {
                     }
                     .padding(.horizontal, 20)
                 }
+                if languageOrder.count > 1 {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            languageChip("كل اللغات", nil)
+                            ForEach(languageOrder, id: \.self) { code in
+                                languageChip(StreamLanguage.name(code), code)
+                            }
+                        }
+                        .padding(.horizontal, 20)
+                    }
+                }
                 if addonNames.count > 1 {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 6) {
@@ -7472,6 +7617,26 @@ struct DetailView: View {
                 .padding(.vertical, 7)
                 .background {
                     Capsule().fill(qualityFilter == value ? CinemaTheme.accent : Color.white.opacity(0.08))
+                }
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// A language the links on this page carry. «عربي» keeps the rows that say
+    /// Arabic or «متعدد», because a dubbed row labelled multi is Arabic too when
+    /// the film is an Arabic release.
+    private func languageChip(_ title: String, _ value: String?) -> some View {
+        Button {
+            Haptics.select()
+            withAnimation(.easeInOut(duration: 0.15)) { languageFilter = value }
+        } label: {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(languageFilter == value ? .black : .white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background {
+                    Capsule().fill(languageFilter == value ? CinemaTheme.accent : Color.white.opacity(0.08))
                 }
         }
         .buttonStyle(.plain)

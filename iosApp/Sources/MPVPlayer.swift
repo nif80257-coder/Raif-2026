@@ -24,6 +24,9 @@ final class MPVViewController: UIViewController {
     private var isLoaded = false
     private var cachedDurationMs: Int64 = 0
     private var cachedPositionMs: Int64 = 0
+    /// Where the buffer ends: libmpv's `demuxer-cache-time`, the position of the
+    /// data it has already pulled, so the timeline can show what waits ahead.
+    private var cachedCacheMs: Int64 = 0
     private var cachedEnded = false
     /// Whether the viewer was watching when the app went to the background, so a
     /// deliberate pause is not undone on the way back.
@@ -179,6 +182,7 @@ final class MPVViewController: UIViewController {
         isLoaded = false
         cachedPositionMs = 0
         cachedDurationMs = 0
+        cachedCacheMs = 0
         cachedEnded = false
         startLoadIfPossible()
     }
@@ -286,6 +290,27 @@ final class MPVViewController: UIViewController {
         return text
     }
 
+    /// The file's chapters as JSON, each with its start in milliseconds and the
+    /// title the file gives it, so the timeline can mark where they begin.
+    func chaptersJson() -> String {
+        guard let mpv else { return "[]" }
+        var list: [[String: Any]] = []
+        let count = Int(getInt64(mpv, "chapter-list/count") ?? 0)
+        for index in 0..<count {
+            let prefix = "chapter-list/\(index)"
+            let start = getDouble(mpv, "\(prefix)/time") * 1000
+            list.append([
+                "timeMs": Int64(max(0, start)),
+                "title": getString(mpv, "\(prefix)/title") ?? ""
+            ])
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: list, options: []),
+              let text = String(data: data, encoding: .utf8) else {
+            return "[]"
+        }
+        return text
+    }
+
     /// Selects an audio track packed inside the file. A negative id is ignored:
     /// a film must never be left without sound.
     func setAudioTrack(_ trackId: Int64, ordinal: Int32) {
@@ -321,6 +346,8 @@ final class MPVViewController: UIViewController {
         drainEvents(mpv)
         cachedPositionMs = Int64(getDouble(mpv, "time-pos") * 1000)
         cachedDurationMs = Int64(getDouble(mpv, "duration") * 1000)
+        // A local file keeps no buffer ahead, which reads the same as none.
+        cachedCacheMs = max(0, Int64(getDouble(mpv, "demuxer-cache-time") * 1000))
         cachedEnded = getFlag(mpv, "eof-reached")
         // The shape of the file libmpv opened, which the layer is cut to. It is
         // read here rather than only once, because the video parameters arrive a
@@ -337,6 +364,8 @@ final class MPVViewController: UIViewController {
 
     var positionMs: Int64 { cachedPositionMs }
     var durationMs: Int64 { cachedDurationMs }
+    /// Where the buffered data ends, so the timeline can draw it ahead of the play head.
+    var cacheMs: Int64 { cachedCacheMs }
     var ended: Bool { cachedEnded }
     var errorMessage: String { errorText }
     /// True while libmpv has paused itself to fill the cache.
