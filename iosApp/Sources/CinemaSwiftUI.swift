@@ -2482,6 +2482,7 @@ struct CircleButton: View {
         case "ellipsis": return "المزيد"
         case "pip.enter": return "نافذة عائمة"
         case "lock.fill": return "قفل الأدوات"
+        case "lock.open.fill": return "فتح الأدوات"
         case "antenna.radiowaves.left.and.right": return "المصادر"
         case "rectangle.landscape.rotate": return "أفقي"
         case "rectangle.portrait.rotate": return "رأسي"
@@ -2948,9 +2949,9 @@ struct PlayerScreen: View {
         }
     }
 
-    /// Everything the options panel needs, loaded once before it opens.
+    /// Everything the options panel needs, loaded once before it opens. The
+    /// buttons that call it already give their own tap, so it adds none.
     private func openOptions() {
-        Haptics.tap()
         loadTracks()
         if addonSubtitles.isEmpty { loadAddonSubtitles() }
         showOptions = true
@@ -4053,6 +4054,9 @@ struct PlayerScreen: View {
             // subtitle choice and the panel's volume are applied to it again.
             subtitleTracks = []
             audioTracks = []
+            chapters = []
+            bufferedMs = 0
+            scrubValue = 0
             appliedInitial = false
             startTicker()
             applyRememberedSpeed()
@@ -4223,6 +4227,11 @@ struct PlayerScreen: View {
         // applied to it again instead of being carried over from the dead link.
         subtitleTracks = []
         audioTracks = []
+        // The marks and the buffer belong to the file that is leaving, so the
+        // next one starts with an empty timeline instead of the old chapters.
+        chapters = []
+        bufferedMs = 0
+        scrubValue = 0
         appliedInitial = false
         // The new link opens where the dead one stopped, a second before it, so a
         // swap in the middle of a film never sends the viewer back to the start.
@@ -5038,6 +5047,24 @@ struct SystemPlayerScreen: View {
         }
     }
 
+    /// The colour the viewer chose for subtitles, handed to AVPlayer's own
+    /// renderer. Captions packed as a picture in the file ignore it, which is
+    /// the one case the system player cannot restyle; text and WebVTT obey it.
+    private static func subtitleStyleRules() -> [AVTextStyleRule] {
+        let id = UserDefaults.standard.string(forKey: "cinemax.subColor") ?? SubtitlePalette.fallback
+        let hex = SubtitlePalette.value(id)
+        let attributes: [String: Any] = [
+            kCMTextMarkupAttribute_ForegroundColorARGB as String: [
+                1.0,
+                Double((hex >> 16) & 0xFF) / 255,
+                Double((hex >> 8) & 0xFF) / 255,
+                Double(hex & 0xFF) / 255
+            ]
+        ]
+        guard let rule = AVTextStyleRule(textMarkupAttributes: attributes) else { return [] }
+        return [rule]
+    }
+
     private func prepare() {
         let link: URL
         if stageURL.hasPrefix("/") {
@@ -5051,7 +5078,12 @@ struct SystemPlayerScreen: View {
         let asset = stageHeaders.isEmpty
             ? AVURLAsset(url: link)
             : AVURLAsset(url: link, options: ["AVURLAssetHTTPHeaderFieldsKey": stageHeaders])
-        let fresh = AVPlayer(playerItem: AVPlayerItem(asset: asset))
+        let item = AVPlayerItem(asset: asset)
+        // The system player has no panel for subtitle styling, so it borrows the
+        // colour the libmpv player saved: a viewer who picked yellow expects
+        // yellow whichever engine opens the link.
+        item.textStyleRules = Self.subtitleStyleRules()
+        let fresh = AVPlayer(playerItem: item)
         fresh.allowsExternalPlayback = true
         if #available(iOS 15.0, *) {
             fresh.audiovisualBackgroundPlaybackPolicy = .continuesIfPossible

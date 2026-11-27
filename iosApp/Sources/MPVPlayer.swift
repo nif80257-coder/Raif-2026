@@ -299,8 +299,11 @@ final class MPVViewController: UIViewController {
         for index in 0..<count {
             let prefix = "chapter-list/\(index)"
             let start = getDouble(mpv, "\(prefix)/time") * 1000
+            // A chapter whose time libmpv cannot state is skipped: Int64 of a
+            // non-number traps, and a mark at a made-up time is worse than none.
+            guard start.isFinite, start >= 0 else { continue }
             list.append([
-                "timeMs": Int64(max(0, start)),
+                "timeMs": Int64(start),
                 "title": getString(mpv, "\(prefix)/title") ?? ""
             ])
         }
@@ -346,8 +349,11 @@ final class MPVViewController: UIViewController {
         drainEvents(mpv)
         cachedPositionMs = Int64(getDouble(mpv, "time-pos") * 1000)
         cachedDurationMs = Int64(getDouble(mpv, "duration") * 1000)
-        // A local file keeps no buffer ahead, which reads the same as none.
-        cachedCacheMs = max(0, Int64(getDouble(mpv, "demuxer-cache-time") * 1000))
+        // A property that answers nothing (a local file, or a demuxer without a
+        // cache) stays at zero, and a value that is not a number never reaches
+        // Int64, which would trap the app on the spot.
+        let cacheSeconds = getDouble(mpv, "demuxer-cache-time")
+        cachedCacheMs = cacheSeconds.isFinite ? max(0, Int64(cacheSeconds * 1000)) : 0
         cachedEnded = getFlag(mpv, "eof-reached")
         // The shape of the file libmpv opened, which the layer is cut to. It is
         // read here rather than only once, because the video parameters arrive a
