@@ -2808,10 +2808,21 @@ struct PlayerScreen: View {
     @State private var shotNote: String?
     @State private var subtitlesOff = false
     @State private var subtitleDelay: Double = 0
+    /// How far the sound is shifted from the picture, in seconds.
+    @State private var audioDelay: Double = 0
+    /// A dub published as its own file or stream, played over the picture.
+    @State private var externalAudio: String?
+    /// Picture adjustments libmpv applies on the GPU; 0 leaves the file alone.
+    @State private var pictureBrightness: Double = 0
+    @State private var pictureContrast: Double = 0
+    @State private var pictureSaturation: Double = 0
     @State private var subtitleSize = UserDefaults.standard.string(forKey: "cinemax.subtitleSize") ?? "medium"
     /// The subtitle colour, kept across films the way the size is.
     @State private var subtitleColor =
         UserDefaults.standard.string(forKey: "cinemax.subColor") ?? SubtitlePalette.fallback
+    /// A dark box behind the subtitle line, for reading over a bright scene.
+    @State private var subtitleBackdrop =
+        (UserDefaults.standard.object(forKey: "cinemax.subBack") as? Bool) ?? false
     @State private var externalSubtitle: String?
     @State private var subtitleError = false
     @State private var addonSubtitles: [SubtitleChoice] = []
@@ -3004,11 +3015,13 @@ struct PlayerScreen: View {
         let defaults = UserDefaults.standard
         subtitleSize = defaults.string(forKey: "cinemax.subtitleSize") ?? "medium"
         subtitleColor = defaults.string(forKey: "cinemax.subColor") ?? SubtitlePalette.fallback
+        subtitleBackdrop = (defaults.object(forKey: "cinemax.subBack") as? Bool) ?? false
         subtitlePosition = (defaults.object(forKey: "cinemax.subPos") as? Double) ?? 100
         volume = (defaults.object(forKey: "cinemax.volume") as? Double) ?? 100
         player?.setSubtitleColor(SubtitlePalette.libmpvValue(subtitleColor))
         player?.setSubtitleFontSize(subtitleFontPoints(subtitleSize))
         player?.setSubtitlePosition(subtitlePosition)
+        player?.setSubtitleBackdrop(subtitleBackdrop)
         player?.setVolumeLevel(volume)
         loadTracks()
         if addonSubtitles.isEmpty { loadAddonSubtitles() }
@@ -3757,8 +3770,14 @@ struct PlayerScreen: View {
                     speed: speed,
                     subtitlesOff: subtitlesOff,
                     subtitleDelay: subtitleDelay,
+                    audioDelay: audioDelay,
+                    externalAudio: externalAudio,
+                    pictureBrightness: pictureBrightness,
+                    pictureContrast: pictureContrast,
+                    pictureSaturation: pictureSaturation,
                     subtitleSize: subtitleSize,
                     subtitleColor: subtitleColor,
+                    subtitleBackdrop: subtitleBackdrop,
                     externalSubtitle: externalSubtitle,
                     sourceLabel: currentSourceLabel,
                     canSwitchSource: pool.count > 1,
@@ -3799,6 +3818,34 @@ struct PlayerScreen: View {
                         player?.setSubtitleDelay(value)
                         Haptics.select()
                     },
+                    onAudioDelay: { value in
+                        audioDelay = value
+                        player?.setAudioDelay(value)
+                        Haptics.select()
+                    },
+                    onExternalAudio: { link in
+                        let text = link.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if text.isEmpty {
+                            externalAudio = nil
+                            player?.setExternalAudio(nil)
+                        } else {
+                            // A name the viewer can recognise, not the whole URL.
+                            let name = URL(string: text)?.lastPathComponent ?? ""
+                            externalAudio = name.isEmpty ? text : name
+                            player?.setExternalAudio(text)
+                        }
+                        Haptics.select()
+                    },
+                    onPicture: { brightness, contrast, saturation in
+                        pictureBrightness = brightness
+                        pictureContrast = contrast
+                        pictureSaturation = saturation
+                        player?.setPicture(
+                            brightness: brightness,
+                            contrast: contrast,
+                            saturation: saturation
+                        )
+                    },
                     onSubtitleSize: { value in
                         subtitleSize = value
                         UserDefaults.standard.set(value, forKey: "cinemax.subtitleSize")
@@ -3809,6 +3856,12 @@ struct PlayerScreen: View {
                         subtitleColor = value
                         UserDefaults.standard.set(value, forKey: "cinemax.subColor")
                         player?.setSubtitleColor(SubtitlePalette.libmpvValue(value))
+                        Haptics.select()
+                    },
+                    onSubtitleBackdrop: { value in
+                        subtitleBackdrop = value
+                        UserDefaults.standard.set(value, forKey: "cinemax.subBack")
+                        player?.setSubtitleBackdrop(value)
                         Haptics.select()
                     },
                     onVolume: { value in
@@ -4243,6 +4296,14 @@ struct PlayerScreen: View {
                     player.setVideoZoom(zoom)
                     player.setSubtitlePosition(subtitlePosition)
                     player.setSubtitleColor(SubtitlePalette.libmpvValue(subtitleColor))
+                    player.setSubtitleBackdrop(subtitleBackdrop)
+                    player.setAudioDelay(audioDelay)
+                    player.setExternalAudio(externalAudio)
+                    player.setPicture(
+                        brightness: pictureBrightness,
+                        contrast: pictureContrast,
+                        saturation: pictureSaturation
+                    )
                     appliedInitial = true
                 }
                 buffering = player.buffering
@@ -5398,9 +5459,19 @@ struct PlayerOptionsPanel: View {
     let speed: Double
     let subtitlesOff: Bool
     let subtitleDelay: Double
+    /// How far the sound is shifted from the picture, in seconds.
+    let audioDelay: Double
+    /// The extra dub playing over the picture, when one was loaded.
+    let externalAudio: String?
+    /// The GPU picture adjustments: brightness, contrast and saturation.
+    let pictureBrightness: Double
+    let pictureContrast: Double
+    let pictureSaturation: Double
     let subtitleSize: String
     /// The colour the viewer picked for the subtitle text, a SubtitlePalette id.
     let subtitleColor: String
+    /// Whether a dark box is drawn behind the subtitle line.
+    let subtitleBackdrop: Bool
     let externalSubtitle: String?
     let sourceLabel: String?
     let canSwitchSource: Bool
@@ -5420,8 +5491,12 @@ struct PlayerOptionsPanel: View {
     let onAudio: (TrackInfo) -> Void
     let onSpeed: (Double) -> Void
     let onSubtitleDelay: (Double) -> Void
+    let onAudioDelay: (Double) -> Void
+    let onExternalAudio: (String) -> Void
+    let onPicture: (Double, Double, Double) -> Void
     let onSubtitleSize: (String) -> Void
     let onSubtitleColor: (String) -> Void
+    let onSubtitleBackdrop: (Bool) -> Void
     let onVolume: (Double) -> Void
     let onBrightness: (Double) -> Void
     let onAspect: (String) -> Void
@@ -5442,6 +5517,8 @@ struct PlayerOptionsPanel: View {
 
     private let speeds: [Double] = [0.5, 0.75, 1, 1.25, 1.5, 2]
     @State private var subtitleLink = ""
+    /// The audio file or stream waiting in the field, pasted or typed.
+    @State private var audioLink = ""
     private let subtitleSizes: [(String, String)] = [
         ("small", "صغير"), ("medium", "متوسط"), ("large", "كبير")
     ]
@@ -5640,6 +5717,21 @@ struct PlayerOptionsPanel: View {
                         Spacer(minLength: 0)
                     }
 
+                    Toggle(isOn: Binding(
+                        get: { subtitleBackdrop },
+                        set: { onSubtitleBackdrop($0) }
+                    )) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("خلفية داكنة تحت الترجمة")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.white)
+                            Text("تجعل النص مقروءًا فوق المشاهد الساطعة")
+                                .font(.system(size: 10))
+                                .foregroundStyle(CinemaTheme.muted)
+                        }
+                    }
+                    .tint(CinemaTheme.accent)
+
                     label("ترجمة من رابط")
                     HStack(spacing: 8) {
                         Image(systemName: "link")
@@ -5791,6 +5883,107 @@ struct PlayerOptionsPanel: View {
                             .frame(width: 40)
                     }
 
+                    label("تأخير الصوت")
+                    HStack(spacing: 8) {
+                        Button {
+                            onAudioDelay(audioDelay - 0.25)
+                        } label: {
+                            Text("− 0.25")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(Color.white.opacity(0.1), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        Text(String(format: "%+.2f ث", audioDelay))
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.accent)
+                            .frame(minWidth: 62)
+                            .monospacedDigit()
+                        Button {
+                            onAudioDelay(audioDelay + 0.25)
+                        } label: {
+                            Text("+ 0.25")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(Color.white.opacity(0.1), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        Spacer()
+                        Button("تصفير") { onAudioDelay(0) }
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.muted)
+                            .buttonStyle(.plain)
+                    }
+
+                    label("صوت من رابط")
+                    HStack(spacing: 8) {
+                        Image(systemName: "waveform")
+                            .font(.system(size: 12))
+                            .foregroundStyle(CinemaTheme.muted)
+                        TextField("رابط ملف صوت أو دبلجة منشورة وحدها", text: $audioLink)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white)
+                            .keyboardType(.URL)
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
+                        Button("تحميل") {
+                            let text = audioLink.trimmingCharacters(in: .whitespacesAndNewlines)
+                            audioLink = ""
+                            onExternalAudio(text)
+                        }
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.accent)
+                        .disabled(audioLink.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
+                    .background(Color.white.opacity(0.06), in: Capsule())
+
+                    if let externalAudio {
+                        HStack(spacing: 8) {
+                            Image(systemName: "waveform.and.mic")
+                                .font(.system(size: 11))
+                                .foregroundStyle(CinemaTheme.accent)
+                            Text(externalAudio)
+                                .font(.system(size: 11))
+                                .foregroundStyle(CinemaTheme.muted)
+                                .lineLimit(1)
+                            Spacer()
+                            Button("إزالة") { onExternalAudio("") }
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(CinemaTheme.favourite)
+                                .buttonStyle(.plain)
+                        }
+                        .padding(.horizontal, 12)
+                    }
+
+                    label("الصورة")
+                    VStack(spacing: 10) {
+                        pictureSlider("سطوع", value: pictureBrightness) { value in
+                            onPicture(value, pictureContrast, pictureSaturation)
+                        }
+                        pictureSlider("تباين", value: pictureContrast) { value in
+                            onPicture(pictureBrightness, value, pictureSaturation)
+                        }
+                        pictureSlider("تشبع", value: pictureSaturation) { value in
+                            onPicture(pictureBrightness, pictureContrast, value)
+                        }
+                    }
+                    Button {
+                        onPicture(0, 0, 0)
+                    } label: {
+                        Label("إعادة ضبط الصورة", systemImage: "arrow.counterclockwise")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.muted)
+                    }
+                    .buttonStyle(.plain)
+
                     label("سطوع الشاشة")
                     HStack(spacing: 10) {
                         Image(systemName: "sun.max.fill")
@@ -5941,6 +6134,27 @@ struct PlayerOptionsPanel: View {
         Text(text)
             .font(.system(size: 12, weight: .semibold))
             .foregroundStyle(CinemaTheme.muted)
+    }
+
+    /// One of the three picture sliders, -100…100 with 0 as the file's own.
+    private func pictureSlider(
+        _ title: String,
+        value: Double,
+        onChange: @escaping (Double) -> Void
+    ) -> some View {
+        HStack(spacing: 10) {
+            Text(title)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(CinemaTheme.muted)
+                .frame(width: 42, alignment: .leading)
+            Slider(value: Binding(get: { value }, set: { onChange($0) }), in: -100...100)
+                .tint(CinemaTheme.accent)
+            Text("\(Int(value))")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(CinemaTheme.muted)
+                .frame(width: 34)
+                .monospacedDigit()
+        }
     }
 
     private func optionRow(_ text: String, selected: Bool) -> some View {
@@ -11289,6 +11503,278 @@ struct SettingsSection<Content: View>: View {
     }
 }
 
+/// Everything that feeds the catalogue in one place: the Stremio addons, the
+/// Nuvio repositories behind them, the metadata key, the manifest check and the
+/// sharing tools. Four separate entries in settings hid how they relate; here
+/// the counts sit together and every action is one tap away.
+struct SourcesHubScreen: View {
+    @AppStorage("cinemax.autoRefresh") private var autoRefresh = true
+    @State private var addons: [InstalledAddonRow] = []
+    @State private var repos: [NuvioRepositoryRow] = []
+    @State private var checking = false
+    @State private var checkNote: String?
+    @State private var loading = true
+
+    private var providerCount: Int {
+        repos.reduce(0) { $0 + $1.providers.count }
+    }
+
+    private var enabledProviders: Int {
+        repos.reduce(0) { $0 + $1.enabledCount }
+    }
+
+    private var tmdbState: String {
+        CinemaAPI.shared.tmdbKey.isEmpty ? "غير مضبوط" : "مضبوط"
+    }
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 20) {
+                summary
+
+                SettingsSection(title: "الإضافات") {
+                    NavigationLink {
+                        AddonsSettings()
+                    } label: {
+                        SettingsRow(
+                            icon: "puzzlepiece.extension.fill",
+                            title: "مدير الإضافات",
+                            detail: "ثبّت المجموعة الجاهزة، أضف رابط manifest، أو أزل إضافة",
+                            value: "\(addons.count) مثبتة"
+                        )
+                    }
+                    .buttonStyle(.plain)
+
+                    NavigationLink {
+                        SourcesControlSettings()
+                    } label: {
+                        SettingsRow(
+                            icon: "slider.horizontal.3",
+                            title: "المصادر عند التشغيل",
+                            detail: "إطفاء إضافة أو تشغيلها، الروابط المخفية، وشكل القائمة",
+                            value: "تخصيص"
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 20)
+
+                SettingsSection(title: "مستودعات Nuvio") {
+                    NavigationLink {
+                        NuvioSettings()
+                    } label: {
+                        SettingsRow(
+                            icon: "bolt.horizontal.circle.fill",
+                            title: "المستودعات والمزوّدون",
+                            detail: "سكربتات المصادر: مزوّد يعمل وآخر متوقف، بمستودعه",
+                            value: "\(repos.count) مستودع"
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 20)
+
+                SettingsSection(title: "الخدمات والمفاتيح") {
+                    NavigationLink {
+                        TmdbSettings()
+                    } label: {
+                        SettingsRow(
+                            icon: "star.bubble.fill",
+                            title: "TMDB",
+                            detail: "عنوان ووصف عربي وتقييم حقيقي — بمفتاح مجاني",
+                            value: tmdbState
+                        )
+                    }
+                    .buttonStyle(.plain)
+
+                    NavigationLink {
+                        SharingSettings()
+                    } label: {
+                        SettingsRow(
+                            icon: "square.and.arrow.up.on.square.fill",
+                            title: "تصدير واستيراد",
+                            detail: "روابط إضافاتك ومستودعاتك: نسخ، مشاركة، أو لصقها في جهاز ثانٍ",
+                            value: nil
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 20)
+
+                SettingsSection(title: "التحديث والفحص") {
+                    HStack(spacing: 14) {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.accent)
+                            .frame(width: 34, height: 34)
+                            .background(
+                                CinemaTheme.accent.opacity(0.14),
+                                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            )
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("التحديث التلقائي")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(.white)
+                            Text("صفوف الرئيسية تُقرأ من جديد عند كل زيارة")
+                                .font(.system(size: 11))
+                                .foregroundStyle(CinemaTheme.muted)
+                        }
+                        Spacer(minLength: 8)
+                        Toggle("", isOn: $autoRefresh)
+                            .labelsHidden()
+                            .tint(CinemaTheme.accent)
+                    }
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .strokeBorder(CinemaTheme.hairline, lineWidth: 1)
+                    )
+
+                    Button {
+                        Haptics.tap()
+                        Task { await runCheck() }
+                    } label: {
+                        HStack(spacing: 14) {
+                            Image(systemName: "checkmark.seal.fill")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(CinemaTheme.accent)
+                                .frame(width: 34, height: 34)
+                                .background(
+                                    CinemaTheme.accent.opacity(0.14),
+                                    in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                )
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("افحص الإضافات الآن")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                Text(checkNote ?? "يسأل كل manifest عن نفسه ويقول أيّها يعمل وأيّها سقط")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(
+                                        checkNote == nil ? CinemaTheme.muted : CinemaTheme.accent
+                                    )
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.leading)
+                            }
+                            Spacer(minLength: 8)
+                            if checking {
+                                ProgressView().tint(CinemaTheme.accent)
+                            } else {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(CinemaTheme.muted)
+                            }
+                        }
+                        .padding(14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .strokeBorder(CinemaTheme.hairline, lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(checking || addons.isEmpty)
+
+                    HStack(spacing: 14) {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(CinemaTheme.muted)
+                            .frame(width: 34, height: 34)
+                            .background(
+                                Color.white.opacity(0.06),
+                                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            )
+                        Text("آخر تحديث للكتالوج")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.white)
+                        Spacer(minLength: 8)
+                        Text(CinemaxPrefs.lastRefreshLabel)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(CinemaTheme.muted)
+                    }
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(CinemaTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .strokeBorder(CinemaTheme.hairline, lineWidth: 1)
+                    )
+                }
+                .padding(.horizontal, 20)
+
+                Spacer(minLength: 140)
+            }
+            .padding(.top, 8)
+            .padding(.bottom, 20)
+        }
+        .background(CinemaTheme.canvas.ignoresSafeArea())
+        .navigationTitle("المصادر")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await load() }
+    }
+
+    /// The counts, read together, so the screen says what the app really has
+    /// before the viewer opens any of the four screens behind it.
+    private var summary: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("كل ما يغذّي الكتالوج")
+                .font(.system(size: 11, weight: .semibold))
+                .tracking(2)
+                .foregroundStyle(CinemaTheme.muted)
+            Text("المصادر والإضافات")
+                .font(.system(size: 28, weight: .heavy))
+                .foregroundStyle(.white)
+            HStack(spacing: 8) {
+                hubPill("\(addons.count) إضافة", icon: "puzzlepiece.extension.fill")
+                hubPill("\(repos.count) مستودع", icon: "bolt.horizontal.circle.fill")
+                hubPill("\(enabledProviders)/\(providerCount) مزوّد", icon: "bolt.fill")
+            }
+            Text(
+                loading
+                    ? "يُقرأ عدد الإضافات من المحرك…"
+                    : "الأعداد من المحرك نفسه الذي يفتح الفيلم، لا من قائمة محفوظة هنا."
+            )
+            .font(.system(size: 11))
+            .foregroundStyle(CinemaTheme.muted)
+            .lineSpacing(3)
+        }
+        .padding(.horizontal, 20)
+    }
+
+    private func hubPill(_ text: String, icon: String) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon)
+                .font(.system(size: 10, weight: .semibold))
+            Text(text)
+                .font(.system(size: 11, weight: .semibold))
+        }
+        .foregroundStyle(CinemaTheme.muted)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Color.white.opacity(0.07), in: Capsule())
+    }
+
+    private func load() async {
+        addons = await CinemaAPI.shared.installedAddons()
+        repos = await CinemaAPI.shared.nuvioRepositories()
+        loading = false
+    }
+
+    private func runCheck() async {
+        checking = true
+        checkNote = nil
+        let results = await CinemaAPI.shared.checkAddons()
+        let alive = results.filter(\.ok).count
+        checkNote = results.isEmpty
+            ? "لا إضافة مثبتة لفحصها"
+            : "الفحص: \(alive) تعمل من \(results.count)"
+        checking = false
+        Haptics.select()
+    }
+}
+
 struct SettingsView: View {
     @AppStorage("cinemax.design") private var design = "cinematic"
     @AppStorage("cinemax.accent") private var accent = "raif"
@@ -11309,6 +11795,7 @@ struct SettingsView: View {
 
     private var destinations: [Destination] {
         [
+            Destination(id: "hub", title: "المصادر والإضافات", detail: "كل ما يغذّي الكتالوج في مكان واحد", icon: "antenna.radiowaves.left.and.right", keywords: "مصادر اضافات مستودعات مزودون مفاتيح فحص تصدير hub sources addons nuvio tmdb"),
             Destination(id: "appearance", title: "المظهر واللغة", detail: "لون، أنماط جاهزة، زوايا، اهتزاز", icon: "paintpalette.fill", keywords: "لون مظهر نمط زوايا اهتزاز oled accent theme"),
             Destination(id: "layout", title: "التخطيط", detail: "تصميم الرئيسية، الهيرو، الصفوف", icon: "rectangle.3.group.fill", keywords: "تخطيط رئيسية صفوف هيرو بوستر home layout"),
             Destination(id: "addons", title: "الإضافات", detail: "تثبيت، فحص، تحديث، ترتيب، إعدادات كل إضافة", icon: "puzzlepiece.extension.fill", keywords: "اضافات ستريميو addons stremio manifest"),
@@ -11341,6 +11828,7 @@ struct SettingsView: View {
     @ViewBuilder
     private func destinationView(_ id: String) -> some View {
         switch id {
+        case "hub": SourcesHubScreen()
         case "appearance": AppearanceSettings()
         case "layout": LayoutSettings()
         case "addons": AddonsSettings()
@@ -11484,47 +11972,14 @@ struct SettingsView: View {
                     }
                     .padding(.horizontal, 20)
 
-                    SettingsSection(title: "المحتوى") {
+                    SettingsSection(title: "المصادر") {
                         NavigationLink {
-                            AddonsSettings()
+                            SourcesHubScreen()
                         } label: {
                             SettingsRow(
-                                icon: "puzzlepiece.extension.fill",
-                                title: "الإضافات",
-                                detail: "ثبّت المصادر الجاهزة، أضف رابطًا، أو أزل إضافة"
-                            )
-                        }
-                        .buttonStyle(.plain)
-
-                        NavigationLink {
-                            SourcesControlSettings()
-                        } label: {
-                            SettingsRow(
-                                icon: "slider.horizontal.3",
-                                title: "المصادر",
-                                detail: "إطفاء إضافة أو تشغيلها، الروابط المخفية، وشكل القائمة"
-                            )
-                        }
-                        .buttonStyle(.plain)
-
-                        NavigationLink {
-                            NuvioSettings()
-                        } label: {
-                            SettingsRow(
-                                icon: "bolt.horizontal.circle.fill",
-                                title: "مزوّدو Nuvio",
-                                detail: "مستودع سكربتات المصادر، وتشغيل كل مزوّد أو إيقافه"
-                            )
-                        }
-                        .buttonStyle(.plain)
-
-                        NavigationLink {
-                            TmdbSettings()
-                        } label: {
-                            SettingsRow(
-                                icon: "star.bubble.fill",
-                                title: "TMDB",
-                                detail: "صفوف عربية بوصف وتقييمات — يحتاج مفتاحًا مجانيًا"
+                                icon: "antenna.radiowaves.left.and.right",
+                                title: "المصادر والإضافات",
+                                detail: "إضافات Stremio، مستودعات Nuvio، مفتاح TMDB، الفحص، والتصدير — في مكان واحد"
                             )
                         }
                         .buttonStyle(.plain)
@@ -17249,7 +17704,7 @@ enum CinemaxPrefs {
             "cinemax.homeFilter", "cinemax.sourcesCollapsed",
             "cinemax.appLock", "cinemax.autoSkipIntro", "cinemax.searchSort",
             "cinemax.rowOrder", "cinemax.volume", "cinemax.aspect", "cinemax.zoom",
-            "cinemax.subPos", "cinemax.subColor", "cinemax.showHero", "cinemax.autoRefresh",
+            "cinemax.subPos", "cinemax.subColor", "cinemax.subBack", "cinemax.showHero", "cinemax.autoRefresh",
             "cinemax.playerHints", "cinemax.lists.v1", "cinemax.corner",
             "cinemax.hapticsLevel", "cinemax.sourcesCompact", "cinemax.prefetchNext",
             "cinemax.eventLog.v1",

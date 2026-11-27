@@ -437,6 +437,35 @@ final class MPVViewController: UIViewController {
         setString(mpv, "sub-delay", String(format: "%.2f", seconds))
     }
 
+    /// Shifts the sound against the picture, for a dub that was muxed late.
+    func setAudioDelay(_ seconds: Double) {
+        guard let mpv else { return }
+        setString(mpv, "audio-delay", String(format: "%.2f", seconds))
+    }
+
+    /// Plays an audio file or stream alongside the picture, which is what a dub
+    /// published on its own needs. An empty link removes the added track and
+    /// goes back to the file's own first track, so the film is never silent.
+    func setExternalAudio(_ urlString: String?) {
+        guard let mpv else { return }
+        let text = (urlString ?? "").trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else {
+            command(mpv, "audio-remove", ["select"])
+            setString(mpv, "aid", "1")
+            return
+        }
+        command(mpv, "audio-add", [text, "select"])
+    }
+
+    /// The picture adjustments libmpv makes on the GPU: brightness, contrast and
+    /// saturation, each -100…100 with 0 meaning the file as it was made.
+    func setPicture(brightness: Double, contrast: Double, saturation: Double) {
+        guard let mpv else { return }
+        setString(mpv, "brightness", String(format: "%.0f", max(-100, min(100, brightness))))
+        setString(mpv, "contrast", String(format: "%.0f", max(-100, min(100, contrast))))
+        setString(mpv, "saturation", String(format: "%.0f", max(-100, min(100, saturation))))
+    }
+
     /// The shape the viewer picked while this screen is open. It is kept here and
     /// not in the preferences on purpose: libmpv forgets these per-file options
     /// the moment a new file opens, and a crop left from an earlier film was what
@@ -480,6 +509,13 @@ final class MPVViewController: UIViewController {
         guard let mpv else { return }
         setString(mpv, "sub-color", hex)
         setString(mpv, "sub-border-color", "#000000")
+    }
+
+    /// Draws a dark box behind the subtitle line, which is what makes Arabic
+    /// text readable over a bright scene. Off leaves only the outline.
+    func setSubtitleBackdrop(_ on: Bool) {
+        guard let mpv else { return }
+        setString(mpv, "sub-back-color", on ? "#00000099" : "#00000000")
     }
 
     /// Raises the subtitle line from the bottom, 100 being libmpv's own place.
