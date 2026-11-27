@@ -56,6 +56,7 @@ internal fun AddonEcosystemReviewContent(
             NuvioScreenHeader(
                 title = stringResource(Res.string.addon_review_title),
                 onBack = onBack,
+                usesOwnHeaderBar = true,
             )
         }
 

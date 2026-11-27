@@ -68,6 +68,7 @@ internal fun AddonConfigDialog(
                 NuvioScreenHeader(
                     title = stringResource(Res.string.addons_config_title, addon.displayTitle),
                     onBack = { if (!isInstalling) onDismiss() },
+                    usesOwnHeaderBar = true,
                 )
             }
 

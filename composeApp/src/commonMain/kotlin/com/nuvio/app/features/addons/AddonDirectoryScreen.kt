@@ -91,6 +91,7 @@ private fun AddonDirectoryContent(
             NuvioScreenHeader(
                 title = state.title.ifBlank { stringResource(Res.string.addons_directory_title) },
                 onBack = onClose,
+                usesOwnHeaderBar = true,
             )
         }
 

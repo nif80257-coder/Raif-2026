@@ -379,10 +379,11 @@ object AddonRepository {
             if (error is AddonSecretStorageUnavailableException) {
                 return AddAddonResult.Error(getString(Res.string.addons_config_secret_storage_unavailable))
             }
-            // Transport exceptions may include the full URL, so only the generic localized message is
-            // returned to the screen; diagnostic detail stays in the local log.
+            // Transport exceptions may include the full URL, so the screen is given a sentence that
+            // says which part failed — an address that does not resolve, a server that answered
+            // with a status, or one that stayed silent — instead of one sentence for all three.
             log.w { "addAddon() — the manifest did not load" }
-            return AddAddonResult.Error(getString(Res.string.addon_source_unreachable))
+            return AddAddonResult.Error(error.addonInstallFailureMessage())
         }
 
         if (existingAddon != null) {
@@ -412,6 +413,14 @@ object AddonRepository {
         queueAddonChanges(changedManifestUrls = setOf(safeManifestUrl))
         pushToServer()
         return AddAddonResult.Success(manifest)
+    }
+
+    /** The sentence the screen shows for a manifest that could not be read, by what failed. */
+    private suspend fun Throwable.addonInstallFailureMessage(): String = when {
+        this is AddonHttpStatusException -> getString(Res.string.addon_install_failed_http, statusCode)
+        this is AddonUnsafeDestinationException -> getString(Res.string.addon_install_failed_not_found)
+        isTimeoutFailure(this) -> getString(Res.string.addon_install_failed_timeout)
+        else -> getString(Res.string.addon_source_unreachable)
     }
 
     /**

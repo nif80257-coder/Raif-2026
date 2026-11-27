@@ -138,11 +138,20 @@ fun NuvioScreenHeader(
     includeStatusBarPadding: Boolean = true,
     topPadding: Dp? = null,
     onBack: (() -> Unit)? = null,
+    /**
+     * Draw the title and the back button here even when the app has a native navigation bar.
+     *
+     * A screen shown in a full-screen `Dialog` has no native bar behind it, so the header used to
+     * hand the title and the way back to a bar that was not there: the dialog opened with no back
+     * button at all. A dialog passes `true` and keeps its own.
+     */
+    usesOwnHeaderBar: Boolean = false,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     val tokens = MaterialTheme.nuvio
     val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    val nativeDetailNavigation = LocalUseNativeNavigation.current &&
+    val nativeDetailNavigation = !usesOwnHeaderBar &&
+        LocalUseNativeNavigation.current &&
         !LocalNativeNavigationBarHidden.current &&
         onBack != null
     if (nativeDetailNavigation) {

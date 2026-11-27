@@ -1850,6 +1850,9 @@
     <string name="addon_invalid_url">Enter a valid addon URL</string>
     <string name="addon_load_manifest_failed">Unable to load manifest</string>
     <string name="addon_source_unreachable">This source did not answer. Check its link and your connection, then try again.</string>
+    <string name="addon_install_failed_http">The add-on's server answered with HTTP %1$d.</string>
+    <string name="addon_install_failed_not_found">The add-on's address could not be found. Check the link.</string>
+    <string name="addon_install_failed_timeout">The add-on did not answer in time. Try again.</string>
     <string name="app_brand_name">Řaif</string>
     <string name="auth_account_deletion_failed">Account deletion failed</string>
     <string name="auth_sign_in_failed">Sign-in failed</string>

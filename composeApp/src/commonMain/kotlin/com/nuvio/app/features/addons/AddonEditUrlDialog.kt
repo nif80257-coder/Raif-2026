@@ -60,6 +60,7 @@ internal fun AddonEditUrlDialog(
                 NuvioScreenHeader(
                     title = stringResource(Res.string.addons_edit_link_title, addon.displayTitle),
                     onBack = { if (!isSaving) onDismiss() },
+                    usesOwnHeaderBar = true,
                 )
             }
 

@@ -2918,4 +2918,7 @@
     <string name="plugins_repository_health_age_days">آخر تحديث قبل %1$d يوم</string>
     <string name="plugins_repository_health_never">لم يُحدَّث بعد</string>
     <string name="plugins_repository_health_failures">%1$d إخفاقات تحديث متتالية</string>
+    <string name="addon_install_failed_http">خادم الإضافة أجاب بـHTTP %1$d.</string>
+    <string name="addon_install_failed_not_found">لم يُعثر على عنوان الإضافة. تحقق من الرابط.</string>
+    <string name="addon_install_failed_timeout">الإضافة لم تُجب في الوقت المتاح. أعد المحاولة.</string>
 </resources>

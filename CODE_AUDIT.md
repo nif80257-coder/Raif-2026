@@ -450,3 +450,12 @@ If any item does not reproduce when opened at the cited lines, it should be demo
 **قرار CI: لا إعادة تشغيل تلقائية بعد اليوم.** أُلغيت المهمة مرتين، ١٥ دقيقة كل مرة، بالرسالة نفسها `The job was not acquired by Runner of type hosted` مع ملاحظة GitHub عن نقص عدّادات `macOS arm64`. الاختبارات مكتوبة وتُترجم وتُربط، ولم تُنفَّذ ولا مرة. لا مزيد من إعادة التشغيل من هنا؛ التشغيل القادم يأتي مع أول دفعة، أو بتشغيل يدوي من صاحب المستودع.
 
 **قرار الـPR: يبقى مفتوحًا سجلًّا، ولا يُدمج من هنا.** بوابة القالب تطلب بندين لا أستطيع تحقيقهما من هذه البيئة: أداة تفتح Issue، وتقسيمًا إلى مشكلة واحدة لكل PR (أدوات git المتاحة لا تسمح بإحضار مجموعة ملفات من إصدار سابق). تجاوز البوابة بدمج مباشر في `main` قرار لصاحب المستودع، لا أتخذه بدلًا عنه.
+
+
+### 18. ما أُصلح من ملاحظاتك على الشاشة
+
+| الرقم | الموقع | الوصف | الإصلاح | الدليل |
+|---|---|---|---|---|
+| 17 | `core/ui/Components.kt`, `AddonDirectoryScreen.kt`, `AddonConfigDialog.kt`, `AddonEditUrlDialog.kt`, `AddonEcosystemReviewScreen.kt` | الشاشات المفتوحة في `Dialog` بلا زر رجوع ولا عنوان: الترويسة كانت تُسلّم العنوان والرجوع إلى شريط التنقّل الأصلي، وهو غير موجود داخل نافذة | `NuvioScreenHeader` يقبل `usesOwnHeaderBar`؛ الشاشات الأربع تمرّره `true` فترسم عنوانها وزر رجوعها بنفسها | بناء `iosApp` (Debug، full) نجح |
+| 18 | `features/addons/AddonRepository.kt`, `values/strings.xml`, `values-ar/strings.xml` | كل فشل في تثبيت مصدر كان يعطي الجملة نفسها «This source did not answer»، فلا يُعرف أفشل العنوان أم رفض الخادم أم انتهى الوقت | `addonInstallFailureMessage` يميّز: `AddonHttpStatusException` ← «أجاب بـHTTP n»، `AddonUnsafeDestinationException` ← «لم يُعثر على العنوان»، انتهاء المهلة ← «لم تُجب في الوقت المتاح»، وإلا الجملة العامة | البناء نجح؛ أربعة مفاتيح إنجليزية وعربية (ثلاثة جديدة وواحدة موجودة) |
+| 19 | `store.json`, `.github/workflows/update-store-source.yml` | ملف مصدر تحميل جانبي يحمل اسم ومنتج تطبيق آخر (Nuvio) وروابط إصداراته، ووركفلو يصدره؛ لا كود في التطبيق يقرأه | حُذف الملف والوركفلو معًا. أما صفحة التراخيص فبقيت: المشروع مشتق من NuvioMobile تحت GPL-3.0، وإشعارات الترخيص والت attribution شرط قانوني لا يُزال |
