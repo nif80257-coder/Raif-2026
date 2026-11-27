@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+      # The review branch is worked on with no pull request open — the last one was closed by the
+      # upstream bot — so without this a push there starts nothing and the tests never run.
+      - raif-review-sources-downloads
   pull_request:
   workflow_dispatch:
 
