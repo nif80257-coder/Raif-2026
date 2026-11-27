@@ -42,6 +42,40 @@ enum AccentPalette {
     }
 }
 
+/// The colours a subtitle can take. libmpv reads its own colours as "#RRGGBB",
+/// so the list keeps the number and writes the text from it, which stops the
+/// panel's swatch and the player's text from drifting apart.
+enum SubtitlePalette {
+    static let entries: [(id: String, name: String, hex: UInt32)] = [
+        ("white", "أبيض", 0xFFFFFF),
+        ("yellow", "أصفر", 0xFFD60A),
+        ("green", "أخضر", 0x8CE99A),
+        ("cyan", "سماوي", 0x74D8FF),
+        ("pink", "وردي", 0xFF9BC4)
+    ]
+
+    static let fallback = "white"
+
+    /// The number the picked id stands for, and white for one this list lost.
+    static func value(_ id: String) -> UInt32 {
+        entries.first { $0.id == id }?.hex ?? 0xFFFFFF
+    }
+
+    /// The colour in the shape libmpv's "sub-color" takes.
+    static func libmpvValue(_ id: String) -> String {
+        String(format: "#%06X", value(id))
+    }
+
+    static func color(_ id: String) -> Color {
+        let hex = value(id)
+        return Color(
+            red: Double((hex >> 16) & 0xFF) / 255,
+            green: Double((hex >> 8) & 0xFF) / 255,
+            blue: Double(hex & 0xFF) / 255
+        )
+    }
+}
+
 /// The house palette: Hype's near-black violet field, a raised sheet, a coral
 /// accent and a gold star. The accent and the canvas still come from settings, so
 /// a viewer can recolour the app or go OLED-deep.
@@ -2459,6 +2493,9 @@ struct PlayerScreen: View {
     @State private var subtitlesOff = false
     @State private var subtitleDelay: Double = 0
     @State private var subtitleSize = UserDefaults.standard.string(forKey: "cinemax.subtitleSize") ?? "medium"
+    /// The subtitle colour, kept across films the way the size is.
+    @State private var subtitleColor =
+        UserDefaults.standard.string(forKey: "cinemax.subColor") ?? SubtitlePalette.fallback
     @State private var externalSubtitle: String?
     @State private var subtitleError = false
     @State private var addonSubtitles: [SubtitleChoice] = []
@@ -3189,6 +3226,7 @@ struct PlayerScreen: View {
                     subtitlesOff: subtitlesOff,
                     subtitleDelay: subtitleDelay,
                     subtitleSize: subtitleSize,
+                    subtitleColor: subtitleColor,
                     externalSubtitle: externalSubtitle,
                     sourceLabel: currentSourceLabel,
                     canSwitchSource: pool.count > 1,
@@ -3234,6 +3272,12 @@ struct PlayerScreen: View {
                         UserDefaults.standard.set(value, forKey: "cinemax.subtitleSize")
                         let points = value == "small" ? 42 : (value == "large" ? 66 : 54)
                         player?.setSubtitleFontSize(points)
+                        Haptics.select()
+                    },
+                    onSubtitleColor: { value in
+                        subtitleColor = value
+                        UserDefaults.standard.set(value, forKey: "cinemax.subColor")
+                        player?.setSubtitleColor(SubtitlePalette.libmpvValue(value))
                         Haptics.select()
                     },
                     onVolume: { value in
@@ -3502,6 +3546,10 @@ struct PlayerScreen: View {
         default: fontSize = 54
         }
         player.setSubtitleFontSize(fontSize)
+        // The colour comes from the same place as the size, so a film opened in
+        // the classic screen looks the way the panel says it should.
+        let color = defaults.string(forKey: "cinemax.subColor") ?? SubtitlePalette.fallback
+        player.setSubtitleColor(SubtitlePalette.libmpvValue(color))
 
         guard auto, language != "off", !subtitlesOff else { return }
         guard let match = subtitleTracks.first(where: {
@@ -3643,6 +3691,7 @@ struct PlayerScreen: View {
                     player.setVideoAspect(aspect)
                     player.setVideoZoom(zoom)
                     player.setSubtitlePosition(subtitlePosition)
+                    player.setSubtitleColor(SubtitlePalette.libmpvValue(subtitleColor))
                     appliedInitial = true
                 }
                 buffering = player.buffering
@@ -4662,6 +4711,8 @@ struct PlayerOptionsPanel: View {
     let subtitlesOff: Bool
     let subtitleDelay: Double
     let subtitleSize: String
+    /// The colour the viewer picked for the subtitle text, a SubtitlePalette id.
+    let subtitleColor: String
     let externalSubtitle: String?
     let sourceLabel: String?
     let canSwitchSource: Bool
@@ -4682,6 +4733,7 @@ struct PlayerOptionsPanel: View {
     let onSpeed: (Double) -> Void
     let onSubtitleDelay: (Double) -> Void
     let onSubtitleSize: (String) -> Void
+    let onSubtitleColor: (String) -> Void
     let onVolume: (Double) -> Void
     let onBrightness: (Double) -> Void
     let onAspect: (String) -> Void
@@ -4864,6 +4916,40 @@ struct PlayerOptionsPanel: View {
                             }
                             .buttonStyle(.plain)
                         }
+                    }
+
+                    // The five colours the text can take. The picked one wears the
+                    // accent ring and a tick, so a glance says which is in force.
+                    label("لون الترجمة")
+                    HStack(spacing: 10) {
+                        ForEach(SubtitlePalette.entries, id: \.0) { entry in
+                            Button {
+                                onSubtitleColor(entry.0)
+                            } label: {
+                                Circle()
+                                    .fill(SubtitlePalette.color(entry.0))
+                                    .frame(width: 26, height: 26)
+                                    .overlay {
+                                        Circle().strokeBorder(
+                                            subtitleColor == entry.0
+                                                ? CinemaTheme.accent
+                                                : Color.white.opacity(0.22),
+                                            lineWidth: subtitleColor == entry.0 ? 2.5 : 1
+                                        )
+                                    }
+                                    .overlay {
+                                        Image(systemName: "checkmark")
+                                            .font(.system(size: 11, weight: .heavy))
+                                            .foregroundStyle(.black.opacity(0.85))
+                                            .opacity(subtitleColor == entry.0 ? 1 : 0)
+                                    }
+                                    .padding(3)
+                                    .contentShape(Circle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(entry.1)
+                        }
+                        Spacer(minLength: 0)
                     }
 
                     label("ترجمة من رابط")
@@ -11196,6 +11282,7 @@ struct SubtitleSettings: View {
     @AppStorage("cinemax.subtitleLang") private var language = "ar"
     @AppStorage("cinemax.subtitleSize") private var size = "medium"
     @AppStorage("cinemax.subtitleAuto") private var autoSelect = true
+    @AppStorage("cinemax.subColor") private var color = SubtitlePalette.fallback
 
     private let languages: [(id: String, title: String)] = [
         ("ar", "العربية"), ("en", "English"), ("off", "إيقاف")
@@ -11259,12 +11346,43 @@ struct SubtitleSettings: View {
                     }
                 }
 
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("لون الترجمة")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(CinemaTheme.muted)
+                    HStack(spacing: 10) {
+                        ForEach(SubtitlePalette.entries, id: \.0) { entry in
+                            Button {
+                                Haptics.select()
+                                color = entry.0
+                            } label: {
+                                Circle()
+                                    .fill(SubtitlePalette.color(entry.0))
+                                    .frame(width: 26, height: 26)
+                                    .overlay {
+                                        Circle().strokeBorder(
+                                            color == entry.0
+                                                ? CinemaTheme.accent
+                                                : Color.white.opacity(0.22),
+                                            lineWidth: color == entry.0 ? 2.5 : 1
+                                        )
+                                    }
+                                    .padding(3)
+                                    .contentShape(Circle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(entry.1)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                }
+
                 // A dark frame that shows exactly how big the subtitle will be.
                 VStack {
                     Spacer(minLength: 0)
                     Text("هكذا ستظهر الترجمة على الشاشة")
                         .font(.system(size: previewSize, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(SubtitlePalette.color(color))
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 14)
                         .shadow(color: .black.opacity(0.9), radius: 3, y: 1)
@@ -16272,7 +16390,7 @@ enum CinemaxPrefs {
             "cinemax.homeFilter", "cinemax.sourcesCollapsed",
             "cinemax.appLock", "cinemax.autoSkipIntro", "cinemax.searchSort",
             "cinemax.rowOrder", "cinemax.volume", "cinemax.aspect", "cinemax.zoom",
-            "cinemax.subPos", "cinemax.showHero", "cinemax.autoRefresh",
+            "cinemax.subPos", "cinemax.subColor", "cinemax.showHero", "cinemax.autoRefresh",
             "cinemax.playerHints", "cinemax.lists.v1", "cinemax.corner",
             "cinemax.hapticsLevel", "cinemax.sourcesCompact", "cinemax.prefetchNext",
             "cinemax.eventLog.v1",

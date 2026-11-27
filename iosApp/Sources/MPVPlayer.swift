@@ -431,6 +431,14 @@ final class MPVViewController: UIViewController {
         setString(mpv, "sub-font-size", String(max(20, min(120, size))))
     }
 
+    /// Subtitle text colour, as libmpv's "sub-color" property ("#RRGGBB"). The
+    /// black outline stays on, so a pale colour still reads over a bright scene.
+    func setSubtitleColor(_ hex: String) {
+        guard let mpv else { return }
+        setString(mpv, "sub-color", hex)
+        setString(mpv, "sub-border-color", "#000000")
+    }
+
     /// Raises the subtitle line from the bottom, 100 being libmpv's own place.
     func setSubtitlePosition(_ value: Double) {
         guard let mpv else { return }
