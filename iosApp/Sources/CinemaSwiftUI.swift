@@ -2492,6 +2492,18 @@ struct CircleButton: View {
 
 // MARK: - Player controls
 
+/// The glyph SF Symbols actually draws for the skip step. Only a few numbers
+/// exist (10, 15, 30, 45, 60, 75, 90), so any other step falls back to the
+/// plain arrow instead of a button with nothing in it.
+enum SkipGlyph {
+    static func name(backward: Bool) -> String {
+        let step = CinemaxPrefs.seekSeconds
+        let numbered = [10, 15, 30, 45, 60, 75, 90].contains(step)
+        guard numbered else { return backward ? "gobackward" : "goforward" }
+        return "\(backward ? "gobackward" : "goforward").\(step)"
+    }
+}
+
 /// A chapter the film's own file declares, so the timeline can mark where it starts.
 struct PlayerChapter: Identifiable, Codable, Hashable {
     let timeMs: Int64
@@ -3045,7 +3057,7 @@ struct PlayerScreen: View {
             Haptics.tap()
             seek(by: backward ? -seekStep : seekStep)
         } label: {
-            Image(systemName: "\(backward ? "gobackward" : "goforward").\(CinemaxPrefs.seekSeconds)")
+            Image(systemName: skipSymbol(backward: backward))
                 .font(.system(size: 28, weight: .regular))
                 .foregroundStyle(.white)
                 .frame(width: 62, height: 62)
@@ -3058,6 +3070,11 @@ struct PlayerScreen: View {
             }
         )
         .accessibilityLabel(Text(backward ? "تأخير" : "تقديم"))
+    }
+
+    /// The glyph for this step, from one place, so both players draw it alike.
+    private func skipSymbol(backward: Bool) -> String {
+        SkipGlyph.name(backward: backward)
     }
 
     /// The chapter the film is inside right now, when its own file declares any.
@@ -3909,8 +3926,10 @@ struct PlayerScreen: View {
                 if speed != 1 { player?.setSpeed(speed) }
             }
         }
-        .task(id: controlsVisible) {
+        .task(id: "\(controlsVisible)-\(playing)") {
             // The controls step aside after a few quiet seconds while playing.
+            // The id carries `playing` as well, so controls that are up when
+            // the film starts are re-armed instead of staying forever.
             guard controlsVisible, CinemaxPrefs.autoHideControls else { return }
             try? await Task.sleep(nanoseconds: 4_500_000_000)
             guard !Task.isCancelled, playing, !showOptions else { return }
@@ -4610,7 +4629,7 @@ struct SystemPlayerScreen: View {
                         Haptics.tap()
                         jump(by: -Double(CinemaxPrefs.seekSeconds))
                     } label: {
-                        Image(systemName: "gobackward.\(CinemaxPrefs.seekSeconds)")
+                        Image(systemName: SkipGlyph.name(backward: true))
                             .font(.system(size: 28, weight: .regular))
                             .foregroundStyle(.white)
                             .frame(width: 62, height: 62)
@@ -4638,7 +4657,7 @@ struct SystemPlayerScreen: View {
                         Haptics.tap()
                         jump(by: Double(CinemaxPrefs.seekSeconds))
                     } label: {
-                        Image(systemName: "goforward.\(CinemaxPrefs.seekSeconds)")
+                        Image(systemName: SkipGlyph.name(backward: false))
                             .font(.system(size: 28, weight: .regular))
                             .foregroundStyle(.white)
                             .frame(width: 62, height: 62)
@@ -4767,9 +4786,11 @@ struct SystemPlayerScreen: View {
             }
         }
         .preferredColorScheme(.dark)
-        .task(id: controlsVisible) {
+        .task(id: "\(controlsVisible)-\(isPlaying)") {
             // The tools step aside four seconds after the last interaction, so
-            // the film is never covered by its own controls.
+            // the film is never covered by its own controls. The id carries the
+            // playing state, so a film that starts after the screen opens arms
+            // the timer instead of leaving the tools up for good.
             guard controlsVisible, CinemaxPrefs.autoHideControls else { return }
             try? await Task.sleep(nanoseconds: 4_000_000_000)
             guard !Task.isCancelled, isPlaying, !showOptions, sheet == nil else { return }

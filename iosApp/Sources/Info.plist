@@ -58,5 +58,14 @@
 	<!-- A frame grabbed from the player is written to the photo library. -->
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>لحفظ لقطة من الفيلم أو الحلقة في تطبيق الصور عندما تطلب ذلك من المشغّل.</string>
+	<!-- Many of the free sources answer over plain http, and both the system
+	     player and the poster loader refuse a clear channel without this. It is
+	     not a convenience: a large share of the Arabic links are http only, and
+	     without the exception they fail before the first frame. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
 </dict>
 </plist>
