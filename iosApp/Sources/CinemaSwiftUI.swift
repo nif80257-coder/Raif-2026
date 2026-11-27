@@ -2800,6 +2800,11 @@ struct PlayerScreen: View {
         var amount: Int
         var token: Int
     }
+
+    /// True once a held skip button has already jumped three steps, so the
+    /// release that follows does not jump a fourth time: a long press used to
+    /// give 3× and then 1× again, which overshot by a whole step.
+    @State private var skipHeld = false
     @State private var locked = false
     @State private var bufferTicks = 0
     /// Counts the half seconds between two resume points written while playing.
@@ -3054,6 +3059,12 @@ struct PlayerScreen: View {
     /// that takes three of them.
     private func skipButton(backward: Bool) -> some View {
         Button {
+            // A hold has already jumped three steps: the release is the same
+            // press, not a second one.
+            if skipHeld {
+                skipHeld = false
+                return
+            }
             Haptics.tap()
             seek(by: backward ? -seekStep : seekStep)
         } label: {
@@ -3066,6 +3077,8 @@ struct PlayerScreen: View {
         .buttonStyle(CinemaPressStyle())
         .simultaneousGesture(
             LongPressGesture(minimumDuration: 0.45).onEnded { _ in
+                skipHeld = true
+                Haptics.tap()
                 seek(by: backward ? -seekStep * 3 : seekStep * 3)
             }
         )
