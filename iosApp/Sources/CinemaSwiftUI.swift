@@ -3071,6 +3071,21 @@ struct PlayerScreen: View {
         UserDefaults.standard.set(value, forKey: "cinemax.speed." + id)
     }
 
+    /// A subtitle saved beside a downloaded film, with the film's own name. The
+    /// download keeps the two together, so the text opens with the film and
+    /// nothing has to be found on the network.
+    static func siblingSubtitle(for link: String) -> String? {
+        guard let url = URL(string: link), url.isFileURL else { return nil }
+        let base = url.deletingPathExtension()
+        for ext in ["srt", "vtt", "ass", "ssa"] {
+            let candidate = base.appendingPathExtension(ext)
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                return candidate.path
+            }
+        }
+        return nil
+    }
+
     /// The surface builds its player a moment after the screen appears, so the
     /// remembered speed is pushed once that player exists, not before it.
     private func applyRememberedSpeed() {
@@ -4108,10 +4123,13 @@ struct PlayerScreen: View {
                     },
                     onDownload: {
                         Haptics.tap()
+                        // The subtitle in use travels with the film, so the file
+                        // on the device plays with its Arabic text offline.
                         DownloadManager.shared.start(
                             title: (item?.name ?? title) + " — " + currentURL.suffix(6),
                             urlString: currentURL,
-                            headers: currentHeaders
+                            headers: currentHeaders,
+                            subtitleUrl: externalSubtitle ?? addonSubtitles.first?.url
                         )
                         showOptions = false
                     },
@@ -4491,6 +4509,12 @@ struct PlayerScreen: View {
                         contrast: pictureContrast,
                         saturation: pictureSaturation
                     )
+                    // A downloaded film keeps its subtitle beside it, named after
+                    // it: the text opens with the film, offline, with no panel.
+                    if let local = Self.siblingSubtitle(for: currentURL) {
+                        player.setSubtitle(local)
+                        externalSubtitle = local
+                    }
                     appliedInitial = true
                 }
                 buffering = player.buffering
@@ -4579,6 +4603,9 @@ struct PlayerScreen: View {
     /// first Arabic one by itself when the file carries none: an Arabic-first
     /// app should not open a film silent while a subtitle is a tap away.
     private func loadAddonSubtitles() {
+        // A file on the device has no addon behind it: asking the subtitle
+        // servers about a file path only costs a round trip and answers nothing.
+        guard !currentURL.hasPrefix("file:") else { return }
         guard let id = currentVideoId ?? item?.id else { return }
         loadingSubtitles = true
         let kind = type
@@ -19022,6 +19049,12 @@ struct DownloadJob: Identifiable, Codable, Equatable {
     /// running · done · failed · cancelled
     var state: String
     var filePath: String?
+    /// The subtitle saved beside the film, when one came with it. A missing key
+    /// in an entry stored by an older build simply reads as none.
+    var subtitlePath: String? = nil
+    /// Where the subtitle is fetched from while the film downloads, kept with
+    /// the job so a transfer picked up after a relaunch still brings it.
+    var subtitleUrl: String? = nil
 
     var progress: Double {
         guard total > 0 else { return 0 }
@@ -19504,7 +19537,12 @@ final class DownloadManager: ObservableObject {
         save()
     }
 
-    func start(title: String, urlString: String, headers: [String: String] = [:]) {
+    func start(
+        title: String,
+        urlString: String,
+        headers: [String: String] = [:],
+        subtitleUrl: String? = nil
+    ) {
         guard URL(string: urlString) != nil else { return }
         if jobs.contains(where: { $0.id == urlString && $0.state == "running" }) { return }
         // A download that cannot fit is refused before it begins, instead of
@@ -19526,7 +19564,8 @@ final class DownloadManager: ObservableObject {
             received: 0,
             total: 0,
             state: "running",
-            filePath: nil
+            filePath: nil,
+            subtitleUrl: subtitleUrl
         )
         // A fresh download of the same link replaces the old entry instead of
         // leaving a second row for one file, and the file it wrote is removed so
@@ -19595,8 +19634,15 @@ final class DownloadManager: ObservableObject {
         let title = job.title
         let urlString = job.url
         let headers = job.headers ?? [:]
+        let subtitle = job.subtitleUrl
         runners[id] = Task { [weak self] in
-            await self?.run(id: id, title: title, urlString: urlString, headers: headers)
+            await self?.run(
+                id: id,
+                title: title,
+                urlString: urlString,
+                headers: headers,
+                subtitleUrl: subtitle
+            )
         }
     }
 
@@ -19680,7 +19726,13 @@ final class DownloadManager: ObservableObject {
         return dir
     }
 
-    private func run(id: String, title: String, urlString: String, headers: [String: String]) async {
+    private func run(
+        id: String,
+        title: String,
+        urlString: String,
+        headers: [String: String],
+        subtitleUrl: String?
+    ) async {
         guard let url = URL(string: urlString) else { return }
         lastSample[id] = (Date(), jobs.first { $0.id == id }?.received ?? 0)
         let sampler = Task { @MainActor [weak self] in
@@ -19723,6 +19775,14 @@ final class DownloadManager: ObservableObject {
                     entry.state = "done"
                     entry.received = entry.total
                     entry.filePath = destination.path
+                }
+                // The subtitle is fetched here, beside the film, named after it:
+                // a downloaded episode plays with its Arabic text without the
+                // network, and without the viewer finding it again.
+                if let subtitleUrl, !subtitleUrl.isEmpty,
+                   let saved = await saveSubtitle(subtitleUrl, beside: destination) {
+                    update(id) { entry in entry.subtitlePath = saved }
+                    EventLog.shared.add("download", "نُزّلت ترجمة \(title)")
                 }
                 EventLog.shared.add("download", "اكتمل \(title)")
                 finished = true
@@ -19774,6 +19834,41 @@ final class DownloadManager: ObservableObject {
             notify(title: title)
         }
         sampler.cancel()
+        pump()
+    }
+
+    /// Saves a subtitle beside the film with the film's own name, so the pair
+    /// travels together and the player finds the text on its own.
+    private func saveSubtitle(_ link: String, beside film: URL) async -> String? {
+        guard let url = URL(string: link) else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 30
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse,
+              http.statusCode < 400,
+              !data.isEmpty else { return nil }
+        let ext = url.pathExtension.isEmpty ? "srt" : url.pathExtension
+        let target = film.deletingPathExtension().appendingPathExtension(ext)
+        do {
+            try data.write(to: target, options: .atomic)
+            return target.path
+        } catch {
+            return nil
+        }
+    }
+
+    /// Moves a waiting transfer to the front of the queue: the episode the viewer
+    /// wants next should not wait behind four other files, and a stopped one is
+    /// put back in line by the same tap.
+    func bump(_ job: DownloadJob) {
+        guard let index = jobs.firstIndex(where: { $0.id == job.id }) else { return }
+        var entry = jobs.remove(at: index)
+        if entry.state == "paused" || entry.state == "failed" || entry.state == "cancelled" {
+            entry.state = "queued"
+        }
+        jobs.insert(entry, at: 0)
+        save()
+        EventLog.shared.add("download", "قُدّم في الانتظار \(entry.title)")
         pump()
     }
 
@@ -20189,6 +20284,24 @@ struct DownloadsView: View {
                                 .font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(CinemaTheme.accent)
                             }
+                            // A waiting file can be pulled to the front of the
+                            // queue: the episode the viewer wants next should
+                            // not sit behind the four others already moving.
+                            if job.state == "queued"
+                                || job.state == "paused"
+                                || job.state == "failed"
+                                || job.state == "cancelled" {
+                                Button {
+                                    Haptics.select()
+                                    manager.bump(job)
+                                } label: {
+                                    Image(systemName: "arrow.up.to.line")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundStyle(CinemaTheme.muted)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("قدّم في الانتظار")
+                            }
                             if job.state == "done", let path = job.filePath {
                                 if FileManager.default.fileExists(atPath: path) {
                                     Button("تشغيل") {
@@ -20233,11 +20346,17 @@ struct DownloadsView: View {
         .fullScreenCover(item: $playing) { item in
             // A downloaded MP4 plays in the system player, where Picture in
             // Picture and the correct shape work without a network; anything
-            // else stays with libmpv, which is the engine that reads it.
-            if CinemaxPrefs.systemReadable(item.id) {
-                SystemPlayerScreen(title: item.name, url: item.id)
+            // else stays with libmpv, which is the engine that reads it. The
+            // title travels with it so the place it stopped is written down and
+            // the next open resumes there instead of starting again.
+            // A film that came with its subtitle opens in libmpv, which reads
+            // the text saved beside it; Picture in Picture is the price of the
+            // text, and both work without a network.
+            if CinemaxPrefs.systemReadable(item.id),
+               PlayerScreen.siblingSubtitle(for: item.id) == nil {
+                SystemPlayerScreen(title: item.name, url: item.id, item: item, type: "movie")
             } else {
-                PlayerScreen(title: item.name, url: item.id)
+                PlayerScreen(title: item.name, url: item.id, item: item, type: "movie")
             }
         }
     }
@@ -20259,7 +20378,10 @@ struct DownloadsView: View {
         guard let url = URL(string: job.url) else { return job.sizeLabel }
         let host = url.host ?? ""
         let format = url.pathExtension.uppercased()
-        let parts = [host, format].filter { !$0.isEmpty }
+        var parts = [host, format].filter { !$0.isEmpty }
+        // A file that came with its own subtitle says so, so the viewer knows
+        // the text opens offline with it.
+        if job.subtitlePath != nil { parts.append("مع ترجمة") }
         return parts.isEmpty ? job.sizeLabel : parts.joined(separator: " · ")
     }
 
@@ -20277,6 +20399,13 @@ struct DownloadsView: View {
 
     /// How much of the file already landed, in the units a viewer reads.
     private func progressText(_ job: DownloadJob) -> String {
+        // A finished file states the room it really takes, which is the number
+        // the viewer needs before deleting something to free space.
+        if job.state == "done", let path = job.filePath,
+           let attributes = try? FileManager.default.attributesOfItem(atPath: path),
+           let size = (attributes[.size] as? NSNumber)?.int64Value, size > 0 {
+            return String(format: "%.0f MB على الجهاز", Double(size) / 1_048_576)
+        }
         guard job.total > 0 else { return job.sizeLabel }
         let done = Double(job.received) / 1_048_576
         let total = Double(job.total) / 1_048_576
