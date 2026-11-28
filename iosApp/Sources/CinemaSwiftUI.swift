@@ -269,6 +269,9 @@ struct StreamChoice: Identifiable, Codable, Hashable {
 /// The filter the viewer last chose, kept so the next title opens the way it was
 /// left. An empty string means «الكل», which is not the same as never chosen.
 enum SourceFilterMemory {
+    /// A key the self test writes and clears, kept apart from the viewer's own.
+    static let selftestKey = "cinemax.selftest.filter"
+
     static func saved(_ key: String) -> String? {
         guard let stored = UserDefaults.standard.string(forKey: key) else { return nil }
         return stored.isEmpty ? nil : stored
@@ -13227,6 +13230,96 @@ struct SelfTestView: View {
         return Date()
     }
 
+    /// The three newest pieces of logic, each proved on the device without a
+    /// network: a link's language comes from its own words, the filters that
+    /// were chosen are the ones the next title opens with, and a pinned source
+    /// belongs to one title only.
+    @MainActor
+    private func checkLanguage() async {
+        let start = begin("language")
+        let arabic = StreamChoice(
+            url: "https://x.test/a.mkv",
+            addon: "فحص",
+            title: "1080p · عربي · 2.1 GB",
+            quality: "1080p"
+        )
+        let multi = StreamChoice(
+            url: "https://x.test/c.mkv",
+            addon: "فحص",
+            title: "1080p · Multi · 1.4 GB",
+            quality: "1080p"
+        )
+        let silent = StreamChoice(
+            url: "https://x.test/d.mkv",
+            addon: "فحص",
+            title: "2017 1080p 2.1 GB",
+            quality: "1080p"
+        )
+        guard StreamLanguage.codes(for: arabic).contains("ar") else {
+            finish("language", passed: false, note: "الرابط العربي لم يُقرأ عربيًا", since: start)
+            return
+        }
+        guard StreamLanguage.codes(for: multi).contains("multi") else {
+            finish("language", passed: false, note: "«Multi» لم يُقرأ متعددًا", since: start)
+            return
+        }
+        guard StreamLanguage.codes(for: silent).isEmpty else {
+            finish("language", passed: false, note: "رابط صامت نُسب إلى لغة", since: start)
+            return
+        }
+        finish(
+            "language",
+            passed: true,
+            note: "عربي ومتعدد يُقرآن، والصامت يبقى بلا لغة",
+            since: start
+        )
+    }
+
+    @MainActor
+    private func checkFilters() async {
+        let start = begin("filters")
+        SourceFilterMemory.store(SourceFilterMemory.selftestKey, "1080p")
+        guard SourceFilterMemory.saved(SourceFilterMemory.selftestKey) == "1080p" else {
+            SourceFilterMemory.store(SourceFilterMemory.selftestKey, nil)
+            finish("filters", passed: false, note: "الفلتر المحفوظ لم يُقرأ", since: start)
+            return
+        }
+        // «الكل» is stored as an empty string, so the next title opens with no
+        // filter instead of the one that was chosen before it.
+        SourceFilterMemory.store(SourceFilterMemory.selftestKey, nil)
+        guard SourceFilterMemory.saved(SourceFilterMemory.selftestKey) == nil else {
+            finish("filters", passed: false, note: "«الكل» عاد فلترًا", since: start)
+            return
+        }
+        UserDefaults.standard.removeObject(forKey: SourceFilterMemory.selftestKey)
+        finish("filters", passed: true, note: "حُفظ و«الكل» يمسحه", since: start)
+    }
+
+    @MainActor
+    private func checkPin() async {
+        let start = begin("pin")
+        let first = "cinemax-selftest-1"
+        let second = "cinemax-selftest-2"
+        let url = "https://x.test/pinned.mkv"
+        SourcePin.store(url, for: first)
+        guard SourcePin.pinned(first) == url else {
+            SourcePin.store(nil, for: first)
+            finish("pin", passed: false, note: "التثبيت لم يُقرأ", since: start)
+            return
+        }
+        guard SourcePin.pinned(second) == nil else {
+            SourcePin.store(nil, for: first)
+            finish("pin", passed: false, note: "التثبيت انتقل إلى عنوان آخر", since: start)
+            return
+        }
+        SourcePin.store(nil, for: first)
+        guard SourcePin.pinned(first) == nil else {
+            finish("pin", passed: false, note: "الإلغاء لم يمسح التثبيت", since: start)
+            return
+        }
+        finish("pin", passed: true, note: "ثُبّت لعنوان واحد وأُلغي وحده", since: start)
+    }
+
     @MainActor
     private func finish(_ id: String, passed: Bool, note: String, since start: Date) {
         guard let index = outcomes.firstIndex(where: { $0.id == id }) else { return }
@@ -13249,7 +13342,10 @@ struct SelfTestView: View {
             Outcome(id: "display", title: "الدوران ومقاس الشاشة"),
             Outcome(id: "aspect", title: "نسبة الصورة والتكبير"),
             Outcome(id: "search", title: "البحث في كل المصادر"),
-            Outcome(id: "storage", title: "حفظ واسترجاع الإعدادات")
+            Outcome(id: "storage", title: "حفظ واسترجاع الإعدادات"),
+            Outcome(id: "language", title: "لغة الرابط من عنوانه"),
+            Outcome(id: "filters", title: "حفظ الفلاتر بين العناوين"),
+            Outcome(id: "pin", title: "تثبيت مصدر لكل عنوان")
         ]
         await checkFold()
         await checkExpiry()
@@ -13260,6 +13356,9 @@ struct SelfTestView: View {
         await checkAspect()
         await checkSearch()
         await checkStorage()
+        await checkLanguage()
+        await checkFilters()
+        await checkPin()
         running = false
         EventLog.shared.add("selftest", summary)
     }
