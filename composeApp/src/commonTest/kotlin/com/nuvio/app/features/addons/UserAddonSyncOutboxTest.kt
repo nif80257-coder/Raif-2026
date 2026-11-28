@@ -31,9 +31,11 @@ class UserAddonSyncOutboxTest {
         val afterRestart = newOutbox()
         assertEquals(change, afterRestart.pendingFor("account-a", 2))
 
+        // A synced row is keyed by its manifest address, which is also its id; the pending edit for
+        // that id has to land on it rather than beside it.
         val merged = applyPendingUserAddonMutations(
             remoteRows = listOf(
-                UserAddonSyncRecord("https://edited.example.org/manifest.json", "https://old.example.org/manifest.json"),
+                UserAddonSyncRecord("https://edited.example.org/manifest.json", "https://edited.example.org/manifest.json"),
                 UserAddonSyncRecord("https://removed.example.org/manifest.json", "https://removed.example.org/manifest.json"),
                 UserAddonSyncRecord("https://keep.example.org/manifest.json", "https://keep.example.org/manifest.json"),
             ),
