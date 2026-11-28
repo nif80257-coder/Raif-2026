@@ -128,6 +128,16 @@ private fun createAddonHttpClient(followRedirects: Boolean): HttpClient = HttpCl
         configureSession {
             HTTPMaximumConnectionsPerHost = 8
             waitsForConnectivity = false
+            // Every TLS request is carried by the app's own tunnel, which refuses a name whose
+            // answer is not public and opens the socket to the address it verified, so the address
+            // on the connection is the one that was checked.
+            AddonPinnedTunnel.portOrNull()?.let { port ->
+                connectionProxyDictionary = mapOf<Any?, Any?>(
+                    "HTTPSEnable" to 1,
+                    "HTTPSProxy" to "127.0.0.1",
+                    "HTTPSPort" to port,
+                )
+            }
         }
     }
     install(HttpTimeout) {
