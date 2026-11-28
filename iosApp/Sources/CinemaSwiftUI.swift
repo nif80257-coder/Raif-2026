@@ -266,7 +266,32 @@ struct StreamChoice: Identifiable, Codable, Hashable {
     var id: String { url }
 }
 
-/// The filter the viewer last chose, kept so the next title opens the way it was
+/// Asks the library where a title stopped, but never waits longer than the
+/// given time: a slow answer must not hold the picture behind a black screen.
+enum ResumePoint {
+    static func first(id: String, videoId: String?, seconds: Double) async -> Int64 {
+        await withTaskGroup(of: Int64?.self) { group in
+            group.addTask {
+                await CinemaAPI.shared.resume(itemId: id, videoId: videoId)
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(max(0.1, seconds) * 1_000_000_000))
+                return nil
+            }
+            var point: Int64 = 0
+            while let result = await group.next() {
+                if let value = result, value > 0 {
+                    point = value
+                    group.cancelAll()
+                    break
+                }
+            }
+            return point
+        }
+    }
+}
+
+/// The quality and language filters the viewer last chose, kept so the next
 /// left. An empty string means «الكل», which is not the same as never chosen.
 enum SourceFilterMemory {
     /// A key the self test writes and clears, kept apart from the viewer's own.
@@ -3601,7 +3626,14 @@ struct PlayerScreen: View {
                         }
                     }
             } else {
-                ProgressView().tint(CinemaTheme.accent)
+                // A player that has not opened yet says so instead of leaving a
+                // black page that looks like the app has stopped.
+                VStack(spacing: 10) {
+                    ProgressView().tint(.white)
+                    Text("يفتح المصدر…")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.8))
+                }
             }
             // The picture steps back a little while the controls are up, the way
             // the native players do it, so a white glyph never fights a bright
@@ -4199,9 +4231,16 @@ struct PlayerScreen: View {
             savedBrightness = screenBrightness
             brightness = savedBrightness
             if let item, CinemaxPrefs.autoResume {
-                startMs = await CinemaAPI.shared.resume(itemId: item.id, videoId: videoId)
-                if startMs > 30_000 {
-                    resumeHint = "استؤنف من \(clock(Double(startMs) / 1000))"
+                // The picture opens at once: waiting for the resume point held
+                // the whole screen black whenever the library was slow to answer.
+                let point = await ResumePoint.first(
+                    id: item.id,
+                    videoId: videoId,
+                    seconds: 0.8
+                )
+                if point > 30_000 {
+                    startMs = point
+                    resumeHint = "استؤنف من \(clock(Double(point) / 1000))"
                 }
             }
             ready = true

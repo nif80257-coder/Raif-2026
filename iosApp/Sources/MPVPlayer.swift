@@ -650,7 +650,13 @@ final class MPVViewController: UIViewController {
         setOption(ctx, "force-seekable", "yes")
         setOption(ctx, "demuxer-seekable-cache", "yes")
 
+        // A debug build keeps libmpv's whole log, which is the only way a black
+        // picture can be explained from the app itself; a release keeps warnings.
+        #if DEBUG
+        mpv_request_log_messages(ctx, "debug")
+        #else
         mpv_request_log_messages(ctx, "warn")
+        #endif
         if mpv_initialize(ctx) < 0 {
             errorText = "تعذر تشغيل مشغل MPV"
         }
