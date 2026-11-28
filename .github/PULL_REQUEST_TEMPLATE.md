@@ -36,7 +36,7 @@
 
 <!-- ALL boxes must be checked or the PR will be closed without review. -->
 - [ ] I have read and understood `CONTRIBUTING.md`.
-- [ ] This PR is small, focused, and limited to one problem.
+- [ ] This PR is one coherent change, named in the Summary, without unrelated fixes.
 - [ ] This PR is not cosmetic-only.
 - [ ] Any UI change fixes a linked glitch/bug and includes visual proof, or this PR has no UI change.
 - [ ] Any behavior change fixes a linked bug/regression or has explicit approval, or this PR has no behavior change.
@@ -54,7 +54,9 @@
 
 <!-- What you tested and how. Include devices/emulators, commands, and manual flows. Do not write only "not tested" unless this is docs/translation-only. -->
 
-## Screenshots / Video (UI changes only)
+## Screenshots / Video
+
+<!-- UI changes only. -->
 
 <!-- Required for any UI change. Write "Not a UI change" only if no UI changed. -->
 
