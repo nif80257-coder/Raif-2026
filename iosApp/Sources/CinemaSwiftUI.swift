@@ -553,6 +553,23 @@ struct CinemaError: LocalizedError {
 
 // MARK: - Bridge
 
+/// Answers a call exactly once. A bridge that reports both a done and an error
+/// for the same call used to resume the same continuation twice, which traps the
+/// app, and one that never answers left a screen waiting for its answer forever.
+final class CinemaOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var answered = false
+
+    /// True the first time only, so the caller resumes its continuation once.
+    func claim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if answered { return false }
+        answered = true
+        return true
+    }
+}
+
 /// Thin async wrapper over the Kotlin data layer. Everything the interface shows
 /// comes from the same addon store, caches and history the classic UI uses.
 @MainActor
@@ -577,13 +594,16 @@ final class CinemaAPI {
 
     func shelves() async throws -> [Shelf] {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[Shelf], Error>) in
+            let once = CinemaOnce()
             bridge.loadShelves(onDone: { json in
+                guard once.claim() else { return }
                 do {
                     continuation.resume(returning: try self.decode(ShelvesPayload.self, json).shelves)
                 } catch {
                     continuation.resume(throwing: error)
                 }
             }, onError: { message in
+                guard once.claim() else { return }
                 continuation.resume(throwing: CinemaError(message: message))
             })
         }
@@ -598,6 +618,7 @@ final class CinemaAPI {
         onPartial: @escaping ([CinemaItem]) -> Void
     ) async -> [CinemaItem] {
         await withCheckedContinuation { (continuation: CheckedContinuation<[CinemaItem], Never>) in
+            let once = CinemaOnce()
             bridge.searchStreaming(
                 query: query,
                 token: token,
@@ -606,10 +627,12 @@ final class CinemaAPI {
                     onPartial(shelves.flatMap(\.items))
                 },
                 onDone: { json in
+                    guard once.claim() else { return }
                     let shelves = (try? self.decode(ShelvesPayload.self, json).shelves) ?? []
                     continuation.resume(returning: shelves.flatMap(\.items))
                 },
                 onError: { _ in
+                    guard once.claim() else { return }
                     continuation.resume(returning: [])
                 }
             )
@@ -623,13 +646,16 @@ final class CinemaAPI {
 
     func search(_ query: String) async throws -> [Shelf] {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[Shelf], Error>) in
+            let once = CinemaOnce()
             bridge.search(query: query, onDone: { json in
+                guard once.claim() else { return }
                 do {
                     continuation.resume(returning: try self.decode(ShelvesPayload.self, json).shelves)
                 } catch {
                     continuation.resume(throwing: error)
                 }
             }, onError: { message in
+                guard once.claim() else { return }
                 continuation.resume(throwing: CinemaError(message: message))
             })
         }
@@ -637,13 +663,16 @@ final class CinemaAPI {
 
     func detail(for item: CinemaItem) async throws -> DetailPayload {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<DetailPayload, Error>) in
+            let once = CinemaOnce()
             bridge.loadDetail(itemId: item.id, type: item.type, onDone: { json in
+                guard once.claim() else { return }
                 do {
                     continuation.resume(returning: try self.decode(DetailPayload.self, json))
                 } catch {
                     continuation.resume(throwing: error)
                 }
             }, onError: { message in
+                guard once.claim() else { return }
                 continuation.resume(throwing: CinemaError(message: message))
             })
         }
@@ -658,12 +687,14 @@ final class CinemaAPI {
     /// every addon and provider all over again.
     func streamsReport(for id: String, type: String) async throws -> (streams: [StreamChoice], failures: [String]) {
         let key = id + "|" + type
-        if let cached = CinemaAPI.streamCache[key],
-           Date().timeIntervalSince(cached.at) < 60 {
+        let known = CinemaAPI.cacheLock.withLock { CinemaAPI.streamCache[key] }
+        if let cached = known, Date().timeIntervalSince(cached.at) < 60 {
             return (cached.streams, cached.failures)
         }
         let report = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<([StreamChoice], [String]), Error>) in
+            let once = CinemaOnce()
             bridge.loadStreams(itemId: id, type: type, onDone: { json in
+                guard once.claim() else { return }
                 do {
                     let payload = try self.decode(StreamsPayload.self, json)
                     continuation.resume(returning: (payload.streams, payload.failures ?? []))
@@ -671,17 +702,22 @@ final class CinemaAPI {
                     continuation.resume(throwing: error)
                 }
             }, onError: { message in
+                guard once.claim() else { return }
                 continuation.resume(throwing: CinemaError(message: message))
             })
         }
         if !report.0.isEmpty {
-            CinemaAPI.streamCache[key] = (report.0, report.1, Date())
+            CinemaAPI.cacheLock.withLock {
+                CinemaAPI.streamCache[key] = (report.0, report.1, Date())
+            }
         }
         return report
     }
 
-    /// Answers kept for a minute, keyed by "id|type".
+    /// Answers kept for a minute, keyed by "id|type". Two pages opened at once
+    /// read and write it from different tasks, so its own lock guards it.
     nonisolated(unsafe) static var streamCache: [String: (streams: [StreamChoice], failures: [String], at: Date)] = [:]
+    static let cacheLock = NSLock()
 
     func progress() async -> [ProgressItem] {
         await withCheckedContinuation { (continuation: CheckedContinuation<[ProgressItem], Never>) in
@@ -1004,9 +1040,18 @@ final class CinemaAPI {
 
     func checkAddons() async -> [AddonCheckRow] {
         await withCheckedContinuation { (continuation: CheckedContinuation<[AddonCheckRow], Never>) in
+            let once = CinemaOnce()
             bridge.checkAddons(onDone: { json in
+                guard once.claim() else { return }
                 continuation.resume(returning: (try? self.decode([AddonCheckRow].self, json)) ?? [])
             })
+            // Every addon is asked for its manifest, so a slow host can hold the
+            // answer for a while — but not forever: a check that never answers
+            // used to leave the row saying «جارٍ الفحص…» for the whole session.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 45) {
+                guard once.claim() else { return }
+                continuation.resume(returning: [])
+            }
         }
     }
 
@@ -1570,7 +1615,8 @@ final class StreamProber {
         var result: [String: Double] = [:]
         var pending: [String] = []
         for stream in streams.prefix(limit) {
-            if let entry = cache[stream.url], Date().timeIntervalSince(entry.at) < 600 {
+            let known = cacheLock.withLock { cache[stream.url] }
+            if let entry = known, Date().timeIntervalSince(entry.at) < 600 {
                 result[stream.url] = entry.speed
             } else if URL(string: stream.url) != nil {
                 pending.append(stream.url)
@@ -1585,7 +1631,7 @@ final class StreamProber {
             for await outcome in group {
                 if let speed = outcome.1 {
                     result[outcome.0] = speed
-                    cache[outcome.0] = (speed, Date())
+                    cacheLock.withLock { cache[outcome.0] = (speed, Date()) }
                 }
             }
         }
@@ -1593,6 +1639,9 @@ final class StreamProber {
     }
 
     private var cache: [String: (speed: Double, at: Date)] = [:]
+    /// The cache is written when a probe lands while another page may already be
+    /// reading it: a plain dictionary shared that way was a data race.
+    private let cacheLock = NSLock()
 }
 
 // MARK: - Small components
@@ -17278,7 +17327,7 @@ struct DataSettings: View {
                     }
                     Divider().overlay(CinemaTheme.hairline)
                     action("تفريغ ذاكرة المصادر", "يمسح قوائم الروابط المحفوظة لمدة دقيقة", destructive: false) {
-                        CinemaAPI.streamCache.removeAll()
+                        CinemaAPI.cacheLock.withLock { CinemaAPI.streamCache.removeAll() }
                         message = "أُفرغت ذاكرة المصادر"
                     }
                 }
