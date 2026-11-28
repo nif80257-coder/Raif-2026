@@ -266,9 +266,8 @@ struct StreamChoice: Identifiable, Codable, Hashable {
     var id: String { url }
 }
 
-/// The quality and language filters the viewer last chose, kept so the next
-/// title opens the way it was left. An empty string means «الكل», which is not
-/// the same as never having chosen a filter at all.
+/// The filter the viewer last chose, kept so the next title opens the way it was
+/// left. An empty string means «الكل», which is not the same as never chosen.
 enum SourceFilterMemory {
     static func saved(_ key: String) -> String? {
         guard let stored = UserDefaults.standard.string(forKey: key) else { return nil }
@@ -277,6 +276,23 @@ enum SourceFilterMemory {
 
     static func store(_ key: String, _ value: String?) {
         UserDefaults.standard.set(value ?? "", forKey: key)
+    }
+}
+
+/// The link the viewer pinned for one title, kept per title: the film they
+/// watch every week then opens with the source that really works for them,
+/// above whatever the score would have put first today.
+enum SourcePin {
+    static func pinned(_ id: String) -> String? {
+        UserDefaults.standard.string(forKey: "cinemax.pin." + id)
+    }
+
+    static func store(_ url: String?, for id: String) {
+        guard let url, !url.isEmpty else {
+            UserDefaults.standard.removeObject(forKey: "cinemax.pin." + id)
+            return
+        }
+        UserDefaults.standard.set(url, forKey: "cinemax.pin." + id)
     }
 }
 
@@ -3111,6 +3127,24 @@ struct PlayerScreen: View {
 
     @ViewBuilder
     private var moreActions: some View {
+        if let item {
+            // A source that works can be pinned while it plays, not only from
+            // the list: the moment a viewer knows, they are in the film.
+            Button {
+                Haptics.select()
+                let pinned = SourcePin.pinned(item.id) == currentURL
+                SourcePin.store(pinned ? nil : currentURL, for: item.id)
+                shotNote = pinned ? "أُلغي تثبيت المصدر" : "ثُبّت هذا المصدر للعنوان"
+            } label: {
+                Label(
+                    SourcePin.pinned(item.id) == currentURL
+                        ? "ألغِ تثبيت هذا المصدر"
+                        : "ثبّت هذا المصدر",
+                    systemImage: "pin"
+                )
+            }
+            Divider()
+        }
         if chapters.count > 1 {
             Button {
                 Haptics.tap()
@@ -6709,6 +6743,8 @@ struct DetailView: View {
     /// The language the viewer asked for, read from the words each link carries.
     @State private var languageFilter: String? = SourceFilterMemory.saved("cinemax.lastLanguage")
     @State private var addonFilter: String?
+    /// The link the viewer pinned for this title, read once with the page.
+    @State private var pinnedURL: String?
     @AppStorage("cinemax.sourcesCollapsed") private var sourcesCollapsed = false
     @State private var speeds: [String: Double] = [:]
     @State private var probeTask: Task<Void, Never>?
@@ -6852,6 +6888,9 @@ struct DetailView: View {
                 // Each link's own record is read with the page, so the list is
                 // ordered by what really played for this viewer before.
                 linkHealth = await CinemaAPI.shared.sourceLinkHealth()
+                // A pinned link is this viewer's own choice for this title, so
+                // it is read with the page and stays above the score.
+                pinnedURL = SourcePin.pinned(item.id)
                 // The heart shows what the library really holds: before this it
                 // always opened empty, so a saved title looked unsaved and a tap
                 // on it removed it while the page said it was never saved.
@@ -7930,6 +7969,14 @@ struct DetailView: View {
             let entry = sorted.remove(at: index)
             sorted.insert(entry, at: 0)
         }
+        // A pinned link is the viewer's own choice, so it leads even the link
+        // that played last: the source that works for them is the first tap.
+        if let pinned = pinnedURL,
+           let index = sorted.firstIndex(where: { $0.url == pinned }),
+           index > 0 {
+            let entry = sorted.remove(at: index)
+            sorted.insert(entry, at: 0)
+        }
         return sorted
     }
 
@@ -8263,6 +8310,9 @@ struct DetailView: View {
                 if stream.url == lastPlayedURL {
                     CinemaPill(text: "آخر ما شغّلت", tint: CinemaTheme.muted)
                 }
+                if stream.url == pinnedURL {
+                    CinemaPill(text: "مثبّت")
+                }
                 if let size = stream.size {
                     CinemaPill(text: size, tint: CinemaTheme.muted)
                 }
@@ -8313,6 +8363,17 @@ struct DetailView: View {
         .accessibilityLabel("\(stream.addon). \(stream.title). \(stream.quality ?? "")")
         .accessibilityHint("تشغيل هذا المصدر")
         .contextMenu {
+            Button {
+                Haptics.select()
+                let next = pinnedURL == stream.url ? nil : stream.url
+                pinnedURL = next
+                SourcePin.store(next, for: item.id)
+            } label: {
+                Label(
+                    pinnedURL == stream.url ? "ألغِ تثبيت هذا المصدر" : "ثبّت هذا المصدر",
+                    systemImage: pinnedURL == stream.url ? "pin.slash" : "pin"
+                )
+            }
             Button {
                 Haptics.tap()
                 hide(stream)
