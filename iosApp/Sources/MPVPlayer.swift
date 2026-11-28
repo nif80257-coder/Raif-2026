@@ -33,6 +33,12 @@ final class MPVViewController: UIViewController {
     private var wasPlayingBeforeBackground = false
     /// The last warnings libmpv wrote, kept so a black picture can be explained.
     private var recentLog: [String] = []
+    /// How many times the load was re-sent while the view was still waiting for
+    /// its window; a film never handed to libmpv is a black page with no message.
+    private var loadAttempts = 0
+    /// True once the video output was forced to re-open for this file, so a
+    /// picture that cannot be drawn is reported instead of retried forever.
+    private var voRetried = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -54,6 +60,16 @@ final class MPVViewController: UIViewController {
         super.viewDidLayoutSubviews()
         updateSurfaceSize()
         startPendingLoadIfReady()
+    }
+
+    /// SwiftUI builds this controller a moment before it reaches the window, so
+    /// the load is asked for again here: a source that was requested while the
+    /// view had no window was otherwise never handed to libmpv at all, which is
+    /// the black page with nothing to explain it.
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        updateSurfaceSize()
+        startLoadIfPossible()
     }
 
     /// Turns with the phone. mpv draws into this layer, so its drawable has to
@@ -148,7 +164,10 @@ final class MPVViewController: UIViewController {
         cachedDurationMs = 0
         cachedCacheMs = 0
         cachedEnded = false
+        loadAttempts = 0
+        voRetried = false
         startLoadIfPossible()
+        retryLoadIfNeeded()
     }
 
     func playPlayback() {
@@ -311,6 +330,7 @@ final class MPVViewController: UIViewController {
     func refreshState() {
         guard let mpv else { return }
         drainEvents(mpv)
+        retryVideoOutputIfNeeded(mpv)
         cachedPositionMs = Int64(getDouble(mpv, "time-pos") * 1000)
         cachedDurationMs = Int64(getDouble(mpv, "duration") * 1000)
         // A property that answers nothing (a local file, or a demuxer without a
@@ -329,6 +349,23 @@ final class MPVViewController: UIViewController {
             DispatchQueue.main.async { [weak self] in
                 self?.updateSurfaceSize()
             }
+        }
+    }
+
+    /// A video output that never opened is nudged once by dropping the video
+    /// track and asking for it again, which re-creates the renderer: MoltenVK
+    /// can fail its first attachment to the layer and work on the second try.
+    /// One nudge only, so a file that truly cannot be drawn is reported to the
+    /// screen, which hands it to the system player.
+    private func retryVideoOutputIfNeeded(_ ctx: OpaquePointer) {
+        guard !voRetried, isLoaded, cachedPositionMs > 1_000 else { return }
+        guard (getInt64(ctx, "video-params/w") ?? 0) > 0 else { return }
+        guard !getFlag(ctx, "vo-configured") else { return }
+        voRetried = true
+        setString(ctx, "vid", "no")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            guard let self, let context = self.mpv else { return }
+            self.setString(context, "vid", "auto")
         }
     }
 
@@ -658,13 +695,32 @@ final class MPVViewController: UIViewController {
         mpv_request_log_messages(ctx, "warn")
         #endif
         if mpv_initialize(ctx) < 0 {
+            // A context that failed to initialize is not a player: every command
+            // sent to it afterwards is ignored, so the screen stayed black with
+            // nothing on it. The reason is kept and the context thrown away, so
+            // the next attempt starts from a clean one.
             errorText = "تعذر تشغيل مشغل MPV"
+            mpv_terminate_destroy(ctx)
+            mpv = nil
         }
     }
 
     private func startPendingLoadIfReady() {
         guard pendingURL != nil else { return }
         startLoadIfPossible()
+    }
+
+    /// Keeps asking until the pending link is really open, then stops. Twelve
+    /// tries are three seconds, which is longer than any presentation the screen
+    /// does, and a link that opened on the first try costs nothing.
+    private func retryLoadIfNeeded() {
+        guard pendingURL != nil, loadAttempts < 12 else { return }
+        loadAttempts += 1
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            guard let self else { return }
+            self.startLoadIfPossible()
+            self.retryLoadIfNeeded()
+        }
     }
 
     private func startLoadIfPossible() {
@@ -738,6 +794,12 @@ final class MPVViewController: UIViewController {
             let hardware = getString(mpv, "hwdec-current") ?? "—"
             head.append("صورة: \(width)×\(height) · نسبة \(String(format: "%.2f", aspect)) · \(pixelFormat)")
             head.append("فك الترميز: \(hardware) · الموضع \(cachedPositionMs / 1000) ث من \(cachedDurationMs / 1000) ث")
+            // The video output is the piece that decides whether a picture is
+            // drawn at all, so a black report carries its answer.
+            head.append(
+                "مخرج الصورة: " + (getFlag(mpv, "vo-configured") ? "مفتوح" : "لم يفتح")
+                + " · مسار الفيديو: " + (getFlag(mpv, "vid") ? "مطلوب" : "مغلق")
+            )
             head.append("الطبقة: \(Int(metalLayer.bounds.width))×\(Int(metalLayer.bounds.height)) @\(String(format: "%.0f", metalLayer.contentsScale))x")
         }
         if !errorText.isEmpty { head.insert(errorText, at: 0) }
@@ -750,6 +812,18 @@ final class MPVViewController: UIViewController {
     var noPicture: Bool {
         guard let mpv, isLoaded, cachedDurationMs > 5_000, cachedPositionMs > 0 else { return false }
         return (getInt64(mpv, "video-params/w") ?? 0) <= 0
+    }
+
+    /// True while libmpv has a video track but no video output at all, which is
+    /// the black screen itself: the picture decodes and the sound plays, yet
+    /// nothing is drawn. A file with no video track is not this case — that one
+    /// is reported as sound without picture instead.
+    var videoOutputMissing: Bool {
+        guard let mpv, isLoaded, cachedPositionMs > 0, cachedDurationMs > 5_000 else {
+            return false
+        }
+        guard (getInt64(mpv, "video-params/w") ?? 0) > 0 else { return false }
+        return !getFlag(mpv, "vo-configured")
     }
 
     /// Reads a C string libmpv handed over. The pointer is only valid until the

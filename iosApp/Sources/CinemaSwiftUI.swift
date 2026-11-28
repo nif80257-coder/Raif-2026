@@ -3019,6 +3019,12 @@ struct PlayerScreen: View {
     @State private var currentVideoId: String?
     @State private var currentVideoLabel: String?
     @State private var switching = false
+    /// True once the same link was handed to the system player because libmpv
+    /// drew nothing: the swap happens once per file, never in a loop.
+    @State private var triedSystemEngine = false
+    /// True when libmpv itself turned out to be the black screen, so closing the
+    /// system player closes this screen instead of going back to black.
+    @State private var libmpvUnusable = false
     /// The link handed to the system player, and whether this one was playing so
     /// it is taken back up when the viewer comes back.
     @State private var systemTakeover: SystemTakeover?
@@ -4184,6 +4190,12 @@ struct PlayerScreen: View {
         }
         .fullScreenCover(item: $systemTakeover, onDismiss: {
             systemTakeover = nil
+            // libmpv was the black screen itself, so going back to it would show
+            // the same black page: the screen closes and the film stays watched.
+            if libmpvUnusable {
+                dismiss()
+                return
+            }
             // Only a film that was still running goes on; a finished one or a
             // deliberate pause stays where it is.
             if pausedForSystem {
@@ -4390,6 +4402,8 @@ struct PlayerScreen: View {
             scrubValue = 0
             subtitlesRequested = false
             appliedInitial = false
+            triedSystemEngine = false
+            libmpvUnusable = false
             startTicker()
             applyRememberedSpeed()
         }
@@ -4481,6 +4495,24 @@ struct PlayerScreen: View {
                 }
                 buffering = player.buffering
                 noPicture = player.noPicture
+                // A file that demuxes and plays sound but draws nothing is the
+                // one black screen a source swap cannot cure: switching to the
+                // next link loses a film that was already open. The same link is
+                // handed to the system player once instead, which renders it
+                // through AVPlayer and its own video output.
+                if !triedSystemEngine,
+                   player.videoOutputMissing,
+                   duration > 5,
+                   playerError == nil,
+                   CinemaxPrefs.systemReadable(currentURL) {
+                    triedSystemEngine = true
+                    EventLog.shared.add(
+                        "player",
+                        "لا صورة من libmpv · نحوّل إلى مشغل النظام"
+                    )
+                    switchToSystemEngine()
+                    return
+                }
                 // A source that keeps starving is swapped for the next one instead
                 // of leaving the viewer watching a spinner.
                 if buffering, duration > 1, pool.count > 1, !scrubbing {
@@ -4580,6 +4612,9 @@ struct PlayerScreen: View {
         playerError = nil
         autoTries = 0
         loadTicks = 0
+        // A fresh attempt gets its own chance in the other engine as well.
+        triedSystemEngine = false
+        libmpvUnusable = false
         playToken += 1
         Haptics.tap()
     }
@@ -4605,6 +4640,8 @@ struct PlayerScreen: View {
         scrubValue = 0
         subtitlesRequested = false
         appliedInitial = false
+        triedSystemEngine = false
+        libmpvUnusable = false
         // The new link opens where the dead one stopped, a second before it, so a
         // swap in the middle of a film never sends the viewer back to the start.
         startMs = position > 5 ? Int64((position - 1) * 1000) : 0
@@ -4619,6 +4656,31 @@ struct PlayerScreen: View {
         ticker?.invalidate()
         startTicker()
         Haptics.tap()
+    }
+
+    /// Hands the playing link to the system player without losing the film:
+    /// libmpv is paused underneath so it keeps its place, and the cover opens
+    /// over it. It exists for the link that demuxes but never draws.
+    private func switchToSystemEngine() {
+        libmpvUnusable = true
+        pausedForSystem = false
+        playing = false
+        player?.pausePlayback()
+        let takeover = SystemTakeover(
+            id: currentURL,
+            title: currentTitle,
+            url: currentURL,
+            headers: currentHeaders,
+            videoId: currentVideoId,
+            videoLabel: currentVideoLabel,
+            item: item,
+            episodes: episodes,
+            type: type,
+            sources: pool
+        )
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            systemTakeover = takeover
+        }
     }
 
     /// Loads a subtitle the viewer found elsewhere. libmpv fetches http links itself,
