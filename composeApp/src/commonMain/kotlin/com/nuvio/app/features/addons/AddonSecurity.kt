@@ -185,13 +185,13 @@ private fun isPublicIpv4(address: List<Int>): Boolean {
 private fun isPublicIpv6(value: String): Boolean {
     val groups = parseIpv6Groups(value) ?: return false
     if (groups.take(5).all { it == 0 } && groups[5] == 0xFFFF) {
-        val mappedIpv4 = listOf(
-            groups[6] ushr 8,
-            groups[6] and 0xFF,
-            groups[7] ushr 8,
-            groups[7] and 0xFF,
-        )
-        return isPublicIpv4(mappedIpv4)
+        return isPublicIpv4(embeddedIpv4(groups))
+    }
+    // An iPhone on an IPv6-only carrier sees every IPv4 host as 64:ff9b::<address>, the well-known
+    // NAT64 prefix. Judging the address inside that prefix keeps those networks usable; without
+    // this every add-on install on such a carrier looked like a name that does not resolve.
+    if (groups[0] == 0x0064 && groups[1] == 0xFF9B && groups[2] == 0 && groups[3] == 0 && groups[4] == 0 && groups[5] == 0) {
+        return isPublicIpv4(embeddedIpv4(groups))
     }
 
     val first = groups.first()
@@ -199,6 +199,13 @@ private fun isPublicIpv6(value: String): Boolean {
     if (groups[0] == 0x2001 && groups[1] == 0x0DB8) return false
     return true
 }
+
+private fun embeddedIpv4(groups: List<Int>): List<Int> = listOf(
+    groups[6] ushr 8,
+    groups[6] and 0xFF,
+    groups[7] ushr 8,
+    groups[7] and 0xFF,
+)
 
 private fun parseIpv6Groups(value: String): List<Int>? {
     val compression = value.indexOf("::")

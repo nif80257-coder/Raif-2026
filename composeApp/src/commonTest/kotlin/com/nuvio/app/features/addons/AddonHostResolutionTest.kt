@@ -13,6 +13,10 @@ class AddonHostResolutionTest {
         assertTrue(isPublicNumericAddress("93.184.216.34"))
         assertTrue(isPublicNumericAddress("2606:2800:220:1:248:1893:25c8:1946"))
         assertTrue(isPublicNumericAddress("2606:2800:220:1::1"))
+        // A carrier that only speaks IPv6 hands back IPv4 hosts inside the well-known NAT64 prefix.
+        assertTrue(isPublicNumericAddress("64:ff9b::5db8:d822"))
+        assertFalse(isPublicNumericAddress("64:ff9b::c0a8:101"))
+        assertFalse(isPublicNumericAddress("64:ff9b::7f00:1"))
 
         assertFalse(isPublicNumericAddress("127.0.0.1"))
         assertFalse(isPublicNumericAddress("10.4.5.6"))
