@@ -31,12 +31,17 @@ internal class AddonUnsafeDestinationException : IllegalStateException("Add-on d
  * Checks [url] against the URL policy and, for a name, against the addresses it answers with now.
  *
  * The literal-address check alone cannot see a host that answers with a public address while it is
- * inspected and a private one when the connection is made, so the lookup is repeated right before
- * each request (and before every redirect hop) and every answer has to be public. That closes the
- * case where the first answer is already private; it does not pin the address to the connection,
- * because the transport resolves the name again on its own, so a host that switches between the
- * two lookups is still not defeated here. The answer is never cached, which keeps the window as
- * small as this layer can make it.
+ * inspected and a private one when the connection is made, so the lookup is repeated twice right
+ * before each request (and before every redirect hop) and every answer of both has to be public.
+ * The second lookup is what catches the usual shape of a rebinding attack: a cache entry whose
+ * entry lives for no time at all answers public once and private the next. The answers are not
+ * required to be equal, because a load-balanced host legitimately rotates its addresses.
+ *
+ * This is as far as a check can go: it does not pin the address to the connection, because the
+ * transport resolves the name again on its own, so a host that keeps both answers equal while it is
+ * inspected and switches only at connect time is still not defeated here. Closing that needs the
+ * connection itself, which Ktor's Darwin engine does not expose. Nothing is cached, which keeps the
+ * window as small as this layer can make it.
  *
  * [resolve] exists so the decision can be tested without a network.
  */
@@ -52,11 +57,16 @@ internal suspend fun verifyAddonDestinationIsPublic(
     if (isLiteralAddressHost(host)) return
 
     val resolver = resolve ?: ::resolveHostAddresses
-    val addresses = resolver(host)
-    if (addresses.isEmpty() || addresses.any { !isPublicNumericAddress(it) }) {
-        throw AddonUnsafeDestinationException()
+    repeat(ADDON_ADDRESS_LOOKUPS_PER_REQUEST) {
+        val addresses = resolver(host)
+        if (addresses.isEmpty() || addresses.any { !isPublicNumericAddress(it) }) {
+            throw AddonUnsafeDestinationException()
+        }
     }
 }
+
+/** Every request and every redirect hop asks twice, so one answer cannot be swapped after the check. */
+private const val ADDON_ADDRESS_LOOKUPS_PER_REQUEST = 2
 
 /** True only for a literal public address, as a resolver reports it (`93.184.216.34`, `2606:…`). */
 internal fun isPublicNumericAddress(value: String): Boolean {

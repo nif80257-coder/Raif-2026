@@ -1,11 +1,33 @@
 package com.nuvio.app.features.addons
 
+import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class AddonSecurityTest {
+    @Test
+    fun `a host that answers public once and private the next time is refused`() = runBlocking<Unit> {
+        var lookups = 0
+        assertFailsWith<AddonUnsafeDestinationException> {
+            verifyAddonDestinationIsPublic("https://addons.example.org/manifest.json") { _ ->
+                lookups += 1
+                if (lookups == 1) listOf("93.184.216.34") else listOf("192.168.1.20")
+            }
+        }
+    }
+
+    @Test
+    fun `a host that keeps answering public addresses is accepted`() = runBlocking<Unit> {
+        var lookups = 0
+        verifyAddonDestinationIsPublic("https://addons.example.org/manifest.json") { _ ->
+            lookups += 1
+            listOf("93.184.216.34")
+        }
+        assertEquals(2, lookups)
+    }
     @Test
     fun `public web URLs are accepted while local and malformed endpoints are rejected`() {
         assertTrue(isSafePublicWebUrl("https://addons.example.org/manifest.json"))
