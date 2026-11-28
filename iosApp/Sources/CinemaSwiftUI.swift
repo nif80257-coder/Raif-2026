@@ -2919,6 +2919,8 @@ struct PlayerScreen: View {
     @State private var zoom: Double = 0
     @State private var subtitlePosition: Double = (UserDefaults.standard.object(forKey: "cinemax.subPos") as? Double) ?? 100
     @State private var buffering = false
+    /// True when the sound plays with no picture at all, so the screen can say it.
+    @State private var noPicture = false
     @State private var appliedInitial = false
     @State private var lastDoubleTap = Date.distantPast
     /// A short-lived answer to a double tap on the picture: which way it jumped
@@ -3130,6 +3132,14 @@ struct PlayerScreen: View {
 
     @ViewBuilder
     private var moreActions: some View {
+        // The libmpv log is one tap away while the film plays, not only after
+        // it fails: a black picture with no message needs it most.
+        Button {
+            diagnosticsText = player?.diagnostics() ?? "لا رسائل من المشغّل"
+        } label: {
+            Label("تشخيص المشغّل", systemImage: "stethoscope")
+        }
+        Divider()
         if let item {
             // A source that works can be pinned while it plays, not only from
             // the list: the moment a viewer knows, they are in the film.
@@ -3808,6 +3818,18 @@ struct PlayerScreen: View {
                 .background(Color.black.opacity(0.5), in: Capsule())
                 .transition(.opacity)
             }
+            if noPicture, duration > 5, playerError == nil {
+                // The sound plays but there is no picture: the source has no
+                // video track, or its video output never opened. Saying so is
+                // better than a black frame the viewer cannot explain.
+                Text("الصوت يعمل بلا صورة — المصدر بلا مسار فيديو")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .background(Color.black.opacity(0.55), in: Capsule())
+                    .transition(.opacity)
+            }
             if let resumeHint {
                 VStack {
                     Text(resumeHint)
@@ -4419,6 +4441,7 @@ struct PlayerScreen: View {
                     appliedInitial = true
                 }
                 buffering = player.buffering
+                noPicture = player.noPicture
                 // A source that keeps starving is swapped for the next one instead
                 // of leaving the viewer watching a spinner.
                 if buffering, duration > 1, pool.count > 1, !scrubbing {

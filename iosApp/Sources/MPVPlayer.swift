@@ -77,9 +77,10 @@ final class MPVViewController: UIViewController {
     /// which is what made the video come out larger than the page.
     private var videoAspect: Double = 0
 
-    /// Sizes the layer to the picture's own shape, at the screen's own scale.
-    /// Keeping the layer the shape of the video is what makes libmpv fill it
-    /// exactly, with no stretch and nothing cropped, in either orientation.
+    /// Gives the layer the whole window, the way MPVKit's own demo does, and
+    /// leaves its drawable size to MoltenVK. Sizing the layer and its drawable
+    /// here as well was what fought the renderer and left a black picture on the
+    /// device: mpv already fits the video inside the layer with its own aspect.
     private func updateSurfaceSize() {
         let bounds = view.bounds
         guard bounds.width > 1, bounds.height > 1 else { return }
@@ -87,59 +88,14 @@ final class MPVViewController: UIViewController {
             1,
             (view.window?.screen ?? CinemaWindow.screen)?.nativeScale ?? traitCollection.displayScale
         )
-        let target = pictureRect(in: bounds)
-        let drawable = CGSize(
-            width: (target.width * scale).rounded(),
-            height: (target.height * scale).rounded()
-        )
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        metalLayer.frame = target
+        metalLayer.frame = bounds
         metalLayer.contentsScale = scale
-        if metalLayer.drawableSize != drawable {
-            metalLayer.drawableSize = drawable
-        }
         CATransaction.commit()
-        // A ratio or a zoom the viewer picked sits on top of the fitted shape.
+        // A ratio, a crop or a zoom the viewer picked is handed to mpv, which
+        // then draws the picture that way inside the layer.
         applyPicture()
-    }
-
-    /// Where the picture sits inside the window: the video's own shape fitted
-    /// in it and centred, the whole window when a crop was asked for, and the
-    /// ratio the viewer named when they picked one.
-    private func pictureRect(in bounds: CGRect) -> CGRect {
-        let value = requestedAspect.trimmingCharacters(in: .whitespaces)
-        if value == "fill" { return bounds }
-        var aspect = videoAspect
-        if let forced = Self.ratio(value) { aspect = forced }
-        guard aspect >= 0.05, aspect <= 20 else { return bounds }
-        let windowAspect = bounds.width / bounds.height
-        var size: CGSize
-        if aspect > windowAspect {
-            size = CGSize(width: bounds.width, height: (bounds.width / aspect).rounded())
-        } else {
-            size = CGSize(width: (bounds.height * aspect).rounded(), height: bounds.height)
-        }
-        size.width = max(1, min(bounds.width, size.width))
-        size.height = max(1, min(bounds.height, size.height))
-        return CGRect(
-            x: ((bounds.width - size.width) / 2).rounded(),
-            y: ((bounds.height - size.height) / 2).rounded(),
-            width: size.width,
-            height: size.height
-        )
-    }
-
-    /// Reads a ratio such as "16:9" or "2.35:1"; nil when the value is not one.
-    private static func ratio(_ value: String) -> Double? {
-        let pieces = value.split(separator: ":")
-        guard pieces.count == 2,
-              let left = Double(pieces[0]),
-              let right = Double(pieces[1]),
-              left > 0, right > 0 else {
-            return nil
-        }
-        return left / right
     }
 
     /// A player that came back from the background is the classic black screen:
@@ -489,10 +445,10 @@ final class MPVViewController: UIViewController {
         let value = requestedAspect.trimmingCharacters(in: .whitespaces)
         let fits = value.isEmpty || value == "auto" || value == "fit"
         let fills = value == "fill"
+        // mpv owns the fitting now: it keeps the picture's own shape inside the
+        // layer unless a crop or a ratio was asked for, and it never stretches.
+        setString(mpv, "keepaspect", "yes")
         setString(mpv, "panscan", fills ? "1.0" : "0.0")
-        // mpv's own word for "no override" is `no`, not an empty value: an empty
-        // one leaves the last ratio in place, which is the stretched picture
-        // the viewer saw after turning the phone.
         setString(mpv, "video-aspect-override", fits || fills ? "no" : value)
         setString(mpv, "video-zoom", String(format: "%.2f", requestedZoom))
     }
@@ -764,11 +720,30 @@ final class MPVViewController: UIViewController {
         }
     }
 
-    /// The last warnings libmpv wrote, so a black picture can be explained.
+    /// The last warnings libmpv wrote, with what the video output is really
+    /// doing above them: a black picture needs those numbers, not a guess.
     func diagnostics() -> String {
+        var head: [String] = []
+        if let mpv, isLoaded {
+            let width = getInt64(mpv, "video-params/w") ?? 0
+            let height = getInt64(mpv, "video-params/h") ?? 0
+            let aspect = getDouble(mpv, "video-params/aspect")
+            let pixelFormat = getString(mpv, "video-params/pixelformat") ?? "—"
+            let hardware = getString(mpv, "hwdec-current") ?? "—"
+            head.append("صورة: \(width)×\(height) · نسبة \(String(format: "%.2f", aspect)) · \(pixelFormat)")
+            head.append("فك الترميز: \(hardware) · الموضع \(cachedPositionMs / 1000) ث من \(cachedDurationMs / 1000) ث")
+            head.append("الطبقة: \(Int(metalLayer.bounds.width))×\(Int(metalLayer.bounds.height)) @\(String(format: "%.0f", metalLayer.contentsScale))x")
+        }
+        if !errorText.isEmpty { head.insert(errorText, at: 0) }
         let tail = recentLog.suffix(18).joined(separator: "\n")
-        if errorText.isEmpty { return tail }
-        return tail.isEmpty ? errorText : errorText + "\n" + tail
+        return (head + (tail.isEmpty ? [] : [tail])).joined(separator: "\n")
+    }
+
+    /// True once a file is playing with no picture at all: an audio-only link,
+    /// or a video output that never opened.
+    var noPicture: Bool {
+        guard let mpv, isLoaded, cachedDurationMs > 5_000, cachedPositionMs > 0 else { return false }
+        return (getInt64(mpv, "video-params/w") ?? 0) <= 0
     }
 
     /// Reads a C string libmpv handed over. The pointer is only valid until the
