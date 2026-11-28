@@ -1426,7 +1426,12 @@ struct RemoteImage: View {
             }
         }
         .task(id: url) {
-            guard let url else { return }
+            // A card that is reused for another title must drop the poster it
+            // was showing: a nil link used to keep the previous film's picture.
+            guard let url else {
+                image = nil
+                return
+            }
             let loaded = await CinemaImageStore.shared.image(for: url)
             withAnimation(.easeInOut(duration: 0.25)) { image = loaded }
         }
@@ -1436,6 +1441,9 @@ struct RemoteImage: View {
 /// Two colours sampled from a poster, used to light the room behind the hero.
 enum PaletteSampler {
     private static let cache = NSCache<NSURL, NSArray>()
+    /// One Core Image context for every poster sampled: building a fresh one per
+    /// slide cost more than the average it computed.
+    private static let context = CIContext(options: [.workingColorSpace: NSNull()])
 
     static func colors(for url: URL?) async -> [Color] {
         guard let url else { return [] }
@@ -1450,8 +1458,7 @@ enum PaletteSampler {
         filter.setValue(CIVector(cgRect: ciImage.extent), forKey: kCIInputExtentKey)
         guard let output = filter.outputImage else { return [] }
         var bitmap = [UInt8](repeating: 0, count: 4)
-        let context = CIContext(options: [.workingColorSpace: NSNull()])
-        context.render(
+        Self.context.render(
             output,
             toBitmap: &bitmap,
             rowBytes: 4,
@@ -2057,13 +2064,36 @@ enum DailyChecks {
         running = true
         Task {
             let results = await CinemaAPI.shared.checkAddons()
-            if !results.isEmpty {
-                UserDefaults.standard.set(Date(), forKey: checkedKey)
-                UserDefaults.standard.set(results.filter(\.ok).count, forKey: aliveKey)
-                UserDefaults.standard.set(results.count, forKey: totalKey)
-            }
+            record(results)
             running = false
         }
+    }
+
+    /// Writes what a check found, and says so once when an addon really has a
+    /// newer build: the daily check used to run silently, so a newer version of
+    /// an installed addon was never mentioned.
+    static func record(_ results: [AddonCheckRow]) {
+        guard !results.isEmpty else { return }
+        UserDefaults.standard.set(Date(), forKey: checkedKey)
+        UserDefaults.standard.set(results.filter(\.ok).count, forKey: aliveKey)
+        UserDefaults.standard.set(results.count, forKey: totalKey)
+        let updates = results.filter(\.hasUpdate).count
+        guard updates > 0, CinemaxPrefs.notifications else { return }
+        let content = UNMutableNotificationContent()
+        content.title = "إصدارات جديدة للإضافات"
+        content.body = updates == 1
+            ? "إضافة واحدة لها إصدار جديد — افتح المصادر للتحديث"
+            : "\(updates) إضافات لها إصدار جديد — افتح المصادر للتحديث"
+        content.sound = .default
+        // One identifier, so a check tomorrow replaces today's note instead of
+        // stacking a second copy of the same news.
+        UNUserNotificationCenter.current().add(
+            UNNotificationRequest(
+                identifier: "cinemax.addon.update",
+                content: content,
+                trigger: nil
+            )
+        )
     }
 
     /// «12 من 14 تعمل» for the sources screen, or nothing before a first check.
@@ -8128,11 +8158,19 @@ struct DetailView: View {
         for stream in list { scores[stream.url] = streamScore(stream) }
         // The viewer picks whether quality or the measured speed leads the list.
         var sorted: [StreamChoice]
+        // Speeds are compared in fixed steps of a twentieth of a megabyte, so the
+        // ordering is a strict weak order. The old tolerance form mixed speeds
+        // and scores and was not transitive, which Swift treats as undefined
+        // behaviour: it could crash, and it reordered rows on every pass.
+        func speedBucket(_ value: Double) -> Int {
+            guard value.isFinite else { return 0 }
+            return Int((max(-1_000_000, min(1_000_000, value)) * 20).rounded())
+        }
         if CinemaxPrefs.speedFirst {
             sorted = list.sorted { lhs, rhs in
-                let left = speeds[lhs.url] ?? 0
-                let right = speeds[rhs.url] ?? 0
-                if abs(left - right) > 0.05 { return left > right }
+                let left = speedBucket(speeds[lhs.url] ?? 0)
+                let right = speedBucket(speeds[rhs.url] ?? 0)
+                if left != right { return left > right }
                 return (scores[lhs.url] ?? 0) > (scores[rhs.url] ?? 0)
             }
         } else {
@@ -12295,11 +12333,11 @@ struct SourcesHubScreen: View {
         let results = await CinemaAPI.shared.checkAddons()
         let alive = results.filter(\.ok).count
         checkNote = results.isEmpty
-            ? "لا إضافة مثبتة لفحصها"
+            ? (addons.isEmpty ? "لا إضافة مثبتة لفحصها" : "تعذر إتمام الفحص")
             : "الفحص: \(alive) تعمل من \(results.count)"
-        // The date is kept so the row can say how fresh its answer is the next
-        // time the screen opens, instead of showing a result from days ago.
-        UserDefaults.standard.set(Date(), forKey: "cinemax.lastAddonCheck")
+        // The counters and the date move together now, so the summary line and
+        // the freshness line come from the very same check.
+        DailyChecks.record(results)
         checking = false
         Haptics.select()
     }
@@ -14995,9 +15033,15 @@ struct AddonsSettings: View {
         checking = true
         message = nil
         let results = await CinemaAPI.shared.checkAddons()
-        checks = Dictionary(uniqueKeysWithValues: results.map { ($0.url, $0) })
+        // Two addons can point at the same address, and the dictionary that
+        // insists on unique keys traps the app on the second one: a duplicate
+        // link was a crash on the check button.
+        checks = Dictionary(results.map { ($0.url, $0) }, uniquingKeysWith: { first, _ in first })
         let alive = results.filter { $0.ok }.count
-        message = "الفحص: \(alive) تعمل من \(results.count)"
+        message = results.isEmpty
+            ? (addons.isEmpty ? "لا إضافة مثبتة لفحصها" : "تعذر إتمام الفحص")
+            : "الفحص: \(alive) تعمل من \(results.count)"
+        DailyChecks.record(results)
         checking = false
     }
 
@@ -19762,6 +19806,13 @@ final class DownloadManager: ObservableObject {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let dir = docs.appendingPathComponent("CINEMAX", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        // A downloaded film is not a document the viewer wrote: keeping it out
+        // of the iCloud backup stops a season of episodes from filling the
+        // account, and it is what the store guidelines ask of a media app.
+        var target = dir
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? target.setResourceValues(values)
         return dir
     }
 
