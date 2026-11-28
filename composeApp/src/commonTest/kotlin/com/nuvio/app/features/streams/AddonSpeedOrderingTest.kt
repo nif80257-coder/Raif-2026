@@ -154,7 +154,13 @@ class AddonSpeedOrderingTest {
                 useful.manifestUrl to 3_000L,
             ),
             failureStreaks = mapOf(failing.manifestUrl to 3),
-            resultCounts = mapOf(failing.manifestUrl to 20, useful.manifestUrl to 4),
+            // The third source answered with an empty list; without that record it is not silent,
+            // so the order this test is about would never be exercised.
+            resultCounts = mapOf(
+                failing.manifestUrl to 20,
+                useful.manifestUrl to 4,
+                silent.manifestUrl to 0,
+            ),
         )
 
         assertEquals(listOf(useful, silent, failing), ordered)

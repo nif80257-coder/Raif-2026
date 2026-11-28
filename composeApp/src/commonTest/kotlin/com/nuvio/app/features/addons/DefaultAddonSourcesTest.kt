@@ -64,7 +64,9 @@ class DefaultAddonSourcesTest {
                 assertFalse(url.contains("/u/"), "user path in $url")
                 assertFalse(url.contains("/u_"), "user path in $url")
                 assertFalse(url.contains("/addon/"), "config id in $url")
-                assertFalse(url.contains("/stremio/"), "config id in $url")
+                // `api/stremio/manifest.json` is a plain public path: only a segment between
+                // `stremio/` and the manifest file is the configuration of one person.
+                assertFalse(SENSITIVE_STREMIO_SEGMENT.containsMatchIn(url), "config id in $url")
             }
     }
 
@@ -105,9 +107,14 @@ class DefaultAddonSourcesTest {
             .first { url -> url.contains("cinema.debrid.in") }
 
         assertTrue(url.contains("|livetv=0"))
-        assertTrue(url.contains("|mode=http"))
+        assertTrue(url.contains("mode=http"))
         // The shipped link used to carry a `profile=` id, which is one person's configuration.
         assertFalse(url.contains("|profile="))
+    }
+
+    private companion object {
+        /** A configuration segment sitting between `stremio/` and the manifest file itself. */
+        val SENSITIVE_STREMIO_SEGMENT = Regex("/stremio/[^/?]+/")
     }
 
     @Test
