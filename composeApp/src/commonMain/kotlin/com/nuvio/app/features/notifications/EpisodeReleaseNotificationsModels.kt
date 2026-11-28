@@ -1,11 +1,10 @@
 package com.nuvio.app.features.notifications
 
+import com.nuvio.app.core.i18n.localizedSeasonEpisodeCode
+import com.nuvio.app.core.i18n.localizedUiText
 import com.nuvio.app.core.time.parseEpisodeReleaseLocalDate
-import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
 import nuvio.composeapp.generated.resources.Res
-import nuvio.composeapp.generated.resources.compose_player_episode_code_episode_only
-import nuvio.composeapp.generated.resources.compose_player_episode_code_full
 import nuvio.composeapp.generated.resources.notifications_episode_release_body_code
 import nuvio.composeapp.generated.resources.notifications_episode_release_body_code_title
 import nuvio.composeapp.generated.resources.notifications_episode_release_body_generic
@@ -82,24 +81,29 @@ internal fun buildEpisodeReleaseNotificationBody(
     seasonNumber: Int?,
     episodeNumber: Int?,
     episodeTitle: String?,
-): String = runBlocking {
-    val code = when {
-        seasonNumber != null && episodeNumber != null ->
-            getString(Res.string.compose_player_episode_code_full, seasonNumber, episodeNumber)
-        episodeNumber != null ->
-            getString(Res.string.compose_player_episode_code_episode_only, episodeNumber)
-        else -> ""
-    }
+): String {
+    val code = localizedSeasonEpisodeCode(
+        seasonNumber = seasonNumber,
+        episodeNumber = episodeNumber,
+    ).orEmpty()
     val title = episodeTitle?.trim().takeUnless { it.isNullOrBlank() }
 
-    when {
+    return when {
         code.isNotBlank() && title != null ->
-            getString(Res.string.notifications_episode_release_body_code_title, code, title)
+            localizedUiText("$code • $title is out now") {
+                getString(Res.string.notifications_episode_release_body_code_title, code, title)
+            }
         code.isNotBlank() ->
-            getString(Res.string.notifications_episode_release_body_code, code)
+            localizedUiText("$code is out now") {
+                getString(Res.string.notifications_episode_release_body_code, code)
+            }
         title != null ->
-            getString(Res.string.notifications_episode_release_body_title, title)
+            localizedUiText("$title is out now") {
+                getString(Res.string.notifications_episode_release_body_title, title)
+            }
         else ->
-            getString(Res.string.notifications_episode_release_body_generic)
+            localizedUiText("A new episode is out now") {
+                getString(Res.string.notifications_episode_release_body_generic)
+            }
     }
 }

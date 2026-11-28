@@ -7,7 +7,7 @@ import com.nuvio.app.features.addons.ManagedAddon
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.catalog.supportsPagination
 import com.nuvio.app.features.servers.ServerCatalog
-import kotlinx.coroutines.runBlocking
+import com.nuvio.app.core.i18n.localizedUiText
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.home_catalog_default_title
 import nuvio.composeapp.generated.resources.home_catalog_free_and_legal
@@ -70,17 +70,18 @@ fun buildHomeCatalogDefinitions(addons: List<ManagedAddon>): List<HomeCatalogDef
                 // The public-domain source is the app's one shelf that needs no key and carries no
                 // rights risk, so its catalogs say so instead of looking like any other source.
                 val isFreeAndLegal = manifest.transportUrl.contains("publicdomainmovies", ignoreCase = true)
+                val typeLabel = localizedMediaTypeLabel(catalog.type)
                 HomeCatalogDefinition(
                     key = "${manifest.id}:${catalog.type}:${catalog.id}",
-                    defaultTitle = runBlocking {
+                    defaultTitle = localizedUiText("${catalog.name} - $typeLabel") {
                         getString(
                             Res.string.home_catalog_default_title,
                             catalog.name,
-                            localizedMediaTypeLabel(catalog.type),
+                            typeLabel,
                         )
                     },
                     catalogName = if (isFreeAndLegal) {
-                        runBlocking {
+                        localizedUiText("Free & legal · ${catalog.name}") {
                             getString(Res.string.home_catalog_free_and_legal, catalog.name)
                         }
                     } else {
