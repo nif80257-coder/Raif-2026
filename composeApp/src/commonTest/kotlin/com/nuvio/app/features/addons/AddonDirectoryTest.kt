@@ -12,7 +12,7 @@ class AddonDirectoryTest {
             {
               "metas": [
                 {
-                  "manifestUrl": "https://source.example/addon-a/manifest.json",
+                  "manifestUrl": "https://source.example.org/addon-a/manifest.json",
                   "name": "Add-on A",
                   "description": "First",
                   "types": ["movie", "series"]
@@ -24,7 +24,7 @@ class AddonDirectoryTest {
         val entries = AddonDirectoryParser.parse(payload, emptySet())
 
         assertEquals(1, entries.size)
-        assertEquals("https://source.example/addon-a/manifest.json", entries[0].manifestUrl)
+        assertEquals("https://source.example.org/addon-a/manifest.json", entries[0].manifestUrl)
         assertEquals("Add-on A", entries[0].name)
         assertEquals(listOf("movie", "series"), entries[0].types)
         assertFalse(entries[0].isInstalled)
@@ -32,11 +32,11 @@ class AddonDirectoryTest {
 
     @Test
     fun transportUrlGetsTheManifestSuffix() {
-        val payload = """{"metas":[{"transportUrl":"https://source.example/addon-b","name":"B"}]}"""
+        val payload = """{"metas":[{"transportUrl":"https://source.example.org/addon-b","name":"B"}]}"""
 
         val entries = AddonDirectoryParser.parse(payload, emptySet())
 
-        assertEquals("https://source.example/addon-b/manifest.json", entries[0].manifestUrl)
+        assertEquals("https://source.example.org/addon-b/manifest.json", entries[0].manifestUrl)
     }
 
     @Test
@@ -45,7 +45,7 @@ class AddonDirectoryTest {
             {
               "addons": [
                 {
-                  "transportUrl": "https://source.example/c",
+                  "transportUrl": "https://source.example.org/c",
                   "manifest": {
                     "name": "Add-on C",
                     "description": "Embedded",
@@ -71,8 +71,8 @@ class AddonDirectoryTest {
             {
               "metas": [
                 {"name": "No URL"},
-                {"manifestUrl": "https://source.example/d", "name": "D"},
-                {"manifestUrl": "https://source.example/d/manifest.json", "name": "D again"}
+                {"manifestUrl": "https://source.example.org/d", "name": "D"},
+                {"manifestUrl": "https://source.example.org/d/manifest.json", "name": "D again"}
               ]
             }
         """.trimIndent()
@@ -80,16 +80,16 @@ class AddonDirectoryTest {
         val entries = AddonDirectoryParser.parse(payload, emptySet())
 
         assertEquals(1, entries.size)
-        assertEquals("https://source.example/d/manifest.json", entries[0].manifestUrl)
+        assertEquals("https://source.example.org/d/manifest.json", entries[0].manifestUrl)
     }
 
     @Test
     fun marksAnInstalledEntry() {
-        val payload = """{"metas":[{"manifestUrl":"https://source.example/e","name":"E"}]}"""
+        val payload = """{"metas":[{"manifestUrl":"https://source.example.org/e","name":"E"}]}"""
 
         val entries = AddonDirectoryParser.parse(
             payload = payload,
-            installedManifestUrls = setOf("https://source.example/e/manifest.json"),
+            installedManifestUrls = setOf("https://source.example.org/e/manifest.json"),
         )
 
         assertTrue(entries.single().isInstalled)
@@ -109,7 +109,7 @@ class AddonDirectoryTest {
                   "name": "On this phone"
                 },
                 {
-                  "manifestUrl": "https://source.example/f",
+                  "manifestUrl": "https://source.example.org/f",
                   "name": "F"
                 }
               ]
@@ -118,7 +118,7 @@ class AddonDirectoryTest {
 
         val entries = AddonDirectoryParser.parse(payload, emptySet())
 
-        assertEquals(listOf("https://source.example/f/manifest.json"), entries.map { it.manifestUrl })
+        assertEquals(listOf("https://source.example.org/f/manifest.json"), entries.map { it.manifestUrl })
     }
 
     @Test
@@ -127,7 +127,7 @@ class AddonDirectoryTest {
             {
               "metas": [
                 {
-                  "manifestUrl": "https://source.example/catalogs-only",
+                  "manifestUrl": "https://source.example.org/catalogs-only",
                   "name": "Catalogs only",
                   "manifest": {
                     "name": "Catalogs only",
@@ -138,7 +138,7 @@ class AddonDirectoryTest {
                   }
                 },
                 {
-                  "manifestUrl": "https://source.example/streams",
+                  "manifestUrl": "https://source.example.org/streams",
                   "name": "Streams",
                   "manifest": {
                     "name": "Streams",
@@ -154,56 +154,56 @@ class AddonDirectoryTest {
 
         val entries = AddonDirectoryParser.parse(payload, emptySet())
 
-        assertEquals(listOf("https://source.example/streams/manifest.json"), entries.map { it.manifestUrl })
+        assertEquals(listOf("https://source.example.org/streams/manifest.json"), entries.map { it.manifestUrl })
     }
 
     @Test
     fun aLocalLinkIsNotOffered() {
         assertTrue("http://127.0.0.1:11470/local-addon/manifest.json".isLocalDeviceUrl())
         assertTrue("http://192.168.1.4:7000/manifest.json".isLocalDeviceUrl())
-        assertFalse("https://source.example/manifest.json".isLocalDeviceUrl())
+        assertFalse("https://source.example.org/manifest.json".isLocalDeviceUrl())
     }
 
     @Test
     fun configuredManifestUrlCarriesTheFieldsAsQuery() {
         val url = buildConfiguredManifestUrl(
-            manifestUrl = "https://source.example/abc?profile=42",
+            manifestUrl = "https://source.example.org/abc?profile=42",
             values = listOf("sort" to "quality", "limit" to "200"),
         )
 
-        assertEquals("https://source.example/abc/manifest.json?profile=42&sort=quality&limit=200", url)
+        assertEquals("https://source.example.org/abc/manifest.json?profile=42&sort=quality&limit=200", url)
     }
 
     @Test
     fun configuredManifestUrlDropsEmptyValuesAndEncodesThem() {
         val url = buildConfiguredManifestUrl(
-            manifestUrl = "https://source.example/abc/manifest.json",
+            manifestUrl = "https://source.example.org/abc/manifest.json",
             values = listOf("language" to "ar", "empty" to " ", "region" to "sa ud"),
         )
 
-        assertEquals("https://source.example/abc/manifest.json?language=ar&region=sa%20ud", url)
+        assertEquals("https://source.example.org/abc/manifest.json?language=ar&region=sa%20ud", url)
     }
 
     @Test
     fun configuredManifestUrlReplacesAKeyItAlreadyHad() {
         val url = buildConfiguredManifestUrl(
-            manifestUrl = "https://source.example/abc/manifest.json?sort=seeders&profile=42",
+            manifestUrl = "https://source.example.org/abc/manifest.json?sort=seeders&profile=42",
             values = listOf("sort" to "quality"),
         )
 
-        assertEquals("https://source.example/abc/manifest.json?profile=42&sort=quality", url)
+        assertEquals("https://source.example.org/abc/manifest.json?profile=42&sort=quality", url)
     }
 
     @Test
     fun directoryRequestUsesTheAddonCatalogResourcePath() {
         val url = buildAddonResourceUrl(
-            manifestUrl = "https://source.example/abc/manifest.json",
+            manifestUrl = "https://source.example.org/abc/manifest.json",
             resource = "addon_catalog",
             type = "other",
             id = "directory",
         )
 
-        assertEquals("https://source.example/abc/addon_catalog/other/directory.json", url)
+        assertEquals("https://source.example.org/abc/addon_catalog/other/directory.json", url)
     }
 
     @Test

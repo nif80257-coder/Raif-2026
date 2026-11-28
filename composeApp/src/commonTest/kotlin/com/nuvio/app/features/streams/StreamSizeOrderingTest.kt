@@ -10,9 +10,11 @@ import kotlin.test.assertEquals
  */
 class StreamSizeOrderingTest {
 
+    // Two copies at the same quality are two different files, so their addresses differ; the same
+    // address twice would be one duplicate the list is right to collapse.
     private fun stream(label: String, sizeBytes: Long?): StreamItem = StreamItem(
         name = label,
-        url = "https://example.org/$label.mkv",
+        url = "https://example.org/$label-${sizeBytes ?: "unknown"}.mkv",
         addonName = "Test",
         addonId = "test",
         behaviorHints = StreamBehaviorHints(videoSize = sizeBytes),
