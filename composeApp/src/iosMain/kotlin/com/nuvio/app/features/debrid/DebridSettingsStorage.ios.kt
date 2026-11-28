@@ -281,7 +281,8 @@ actual object DebridSettingsStorage {
         payload.decodeSyncString(streamDescriptionTemplateKey)?.let(::saveStreamDescriptionTemplate)
     }
 
-    private fun providerApiKeyKey(providerId: String): String {
+    /** The stored name of a provider's key; the one place that knows legacy spellings. */
+    internal fun providerApiKeyKey(providerId: String): String {
         val normalized = DebridProviders.byId(providerId)?.id
             ?: providerId.trim().lowercase().replace(Regex("[^a-z0-9_]+"), "_")
         return when (normalized) {

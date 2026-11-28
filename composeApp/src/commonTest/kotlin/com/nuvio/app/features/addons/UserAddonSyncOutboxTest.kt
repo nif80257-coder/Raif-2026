@@ -5,7 +5,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import kotlinx.serialization.json.JsonObject
 
 class UserAddonSyncOutboxTest {
     @Test
@@ -21,11 +20,11 @@ class UserAddonSyncOutboxTest {
             profileId = 2,
             mutations = listOf(
                 PendingUserAddonMutation(
-                    addonId = "https://edited.example/manifest.json",
-                    manifestUrl = "https://edited.example/manifest.json",
+                    addonId = "https://edited.example.org/manifest.json",
+                    manifestUrl = "https://edited.example.org/manifest.json",
                     enabled = false,
                 ),
-                PendingUserAddonMutation(addonId = "https://removed.example/manifest.json"),
+                PendingUserAddonMutation(addonId = "https://removed.example.org/manifest.json"),
             ),
         )
         newOutbox().record(change)
@@ -34,17 +33,17 @@ class UserAddonSyncOutboxTest {
 
         val merged = applyPendingUserAddonMutations(
             remoteRows = listOf(
-                UserAddonSyncRecord("https://edited.example/manifest.json", "https://old.example/manifest.json"),
-                UserAddonSyncRecord("https://removed.example/manifest.json", "https://removed.example/manifest.json"),
-                UserAddonSyncRecord("https://keep.example/manifest.json", "https://keep.example/manifest.json"),
+                UserAddonSyncRecord("https://edited.example.org/manifest.json", "https://old.example.org/manifest.json"),
+                UserAddonSyncRecord("https://removed.example.org/manifest.json", "https://removed.example.org/manifest.json"),
+                UserAddonSyncRecord("https://keep.example.org/manifest.json", "https://keep.example.org/manifest.json"),
             ),
             mutations = change.mutations,
         )
         assertEquals(
-            listOf("https://edited.example/manifest.json", "https://keep.example/manifest.json"),
+            listOf("https://edited.example.org/manifest.json", "https://keep.example.org/manifest.json"),
             merged.map(UserAddonSyncRecord::addonId),
         )
-        assertEquals("https://edited.example/manifest.json", merged.first().manifestUrl)
+        assertEquals("https://edited.example.org/manifest.json", merged.first().manifestUrl)
         assertFalse(merged.first().enabled)
     }
 
@@ -59,10 +58,10 @@ class UserAddonSyncOutboxTest {
         val original = PendingUserAddonChange(
             "account-a",
             1,
-            listOf(PendingUserAddonMutation("https://one.example/manifest.json")),
+            listOf(PendingUserAddonMutation("https://one.example.org/manifest.json")),
         )
         val newer = original.copy(
-            mutations = listOf(PendingUserAddonMutation("https://two.example/manifest.json")),
+            mutations = listOf(PendingUserAddonMutation("https://two.example.org/manifest.json")),
         )
         val merged = original.copy(mutations = original.mutations + newer.mutations)
         outbox.record(original)

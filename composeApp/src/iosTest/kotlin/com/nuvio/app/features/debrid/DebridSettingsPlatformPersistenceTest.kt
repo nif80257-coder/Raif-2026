@@ -12,8 +12,7 @@ class DebridSettingsPlatformPersistenceTest {
     @Test
     fun providerApiKeyMigratesUpdatesAndDeletesInKeychain() {
         val providerId = "ios_test_storage_fixture"
-        val key = "debrid_${providerId}_api_key"
-        val scopedKey = ProfileScopedKey.of(key)
+        val scopedKey = ProfileScopedKey.of(DebridSettingsStorage.providerApiKeyKey(providerId))
         val defaults = NSUserDefaults.standardUserDefaults
         val originalLegacyValue = defaults.stringForKey(scopedKey)
         val originalSecret = SecretStore.read(scopedKey)
@@ -55,7 +54,7 @@ class DebridSettingsPlatformPersistenceTest {
     fun replacingSyncPayloadPreservesProviderSecretsMissingFromPayload() {
         val defaults = NSUserDefaults.standardUserDefaults
         val providerKeys = DebridProviders.all().map { provider ->
-            val scopedKey = ProfileScopedKey.of("debrid_${provider.id}_api_key")
+            val scopedKey = ProfileScopedKey.of(DebridSettingsStorage.providerApiKeyKey(provider.id))
             ProviderKeyState(
                 scopedKey = scopedKey,
                 originalLegacyValue = defaults.stringForKey(scopedKey),
