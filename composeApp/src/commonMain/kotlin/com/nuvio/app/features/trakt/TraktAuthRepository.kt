@@ -32,7 +32,7 @@ import kotlin.random.Random
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.StringResource
-import kotlinx.coroutines.runBlocking
+import com.nuvio.app.core.i18n.localizedUiText
 
 object TraktAuthRepository : TrackingAuthProvider {
     private const val BASE_URL = "https://api.trakt.tv"
@@ -120,7 +120,7 @@ object TraktAuthRepository : TrackingAuthProvider {
     fun onConnectRequested(profileId: Int = ProfileRepository.activeProfileId): String? {
         ensureLoaded(profileId)
         if (!hasRequiredCredentials()) {
-            publish(errorMessage = localizedString(Res.string.trakt_missing_credentials))
+            publish(errorMessage = localizedString(Res.string.trakt_missing_credentials, "Missing Trakt credentials"))
             return null
         }
 
@@ -131,7 +131,7 @@ object TraktAuthRepository : TrackingAuthProvider {
         )
         persist(profileId)
         publish(
-            statusMessage = localizedString(Res.string.trakt_complete_sign_in_browser),
+            statusMessage = localizedString(Res.string.trakt_complete_sign_in_browser, "Complete Trakt sign in in your browser"),
             errorMessage = null,
         )
 
@@ -246,7 +246,7 @@ object TraktAuthRepository : TrackingAuthProvider {
             persist(profileId)
             publish(
                 isLoading = false,
-                errorMessage = localizedString(Res.string.trakt_invalid_callback),
+                errorMessage = localizedString(Res.string.trakt_invalid_callback, "Invalid Trakt callback"),
             )
             return
         }
@@ -254,7 +254,7 @@ object TraktAuthRepository : TrackingAuthProvider {
         val errorCode = parsedUrl.parameters["error"]
         if (!errorCode.isNullOrBlank()) {
             val errorDescription = parsedUrl.parameters["error_description"]
-                ?: localizedString(Res.string.trakt_authorization_denied)
+                ?: localizedString(Res.string.trakt_authorization_denied, "Authorization denied")
             clearPendingAuthorization()
             persist(profileId)
             publish(
@@ -270,7 +270,7 @@ object TraktAuthRepository : TrackingAuthProvider {
             persist(profileId)
             publish(
                 isLoading = false,
-                errorMessage = localizedString(Res.string.trakt_missing_auth_code),
+                errorMessage = localizedString(Res.string.trakt_missing_auth_code, "Trakt did not return an authorization code"),
             )
             return
         }
@@ -282,7 +282,7 @@ object TraktAuthRepository : TrackingAuthProvider {
             persist(profileId)
             publish(
                 isLoading = false,
-                errorMessage = localizedString(Res.string.trakt_invalid_callback_state),
+                errorMessage = localizedString(Res.string.trakt_invalid_callback_state, "Invalid Trakt callback state"),
             )
             return
         }
@@ -314,7 +314,7 @@ object TraktAuthRepository : TrackingAuthProvider {
         if (response == null) {
             clearPendingAuthorization()
             persist(profileId)
-            publish(isLoading = false, errorMessage = localizedString(Res.string.trakt_sign_in_complete_failed))
+            publish(isLoading = false, errorMessage = localizedString(Res.string.trakt_sign_in_complete_failed, "Failed to complete Trakt sign in"))
             return
         }
 
@@ -325,7 +325,7 @@ object TraktAuthRepository : TrackingAuthProvider {
         if (parsed == null) {
             clearPendingAuthorization()
             persist(profileId)
-            publish(isLoading = false, errorMessage = localizedString(Res.string.trakt_invalid_token_response))
+            publish(isLoading = false, errorMessage = localizedString(Res.string.trakt_invalid_token_response, "Invalid Trakt token response"))
             return
         }
 
@@ -342,7 +342,7 @@ object TraktAuthRepository : TrackingAuthProvider {
         refreshUserSettings(profileId)
         publish(
             isLoading = false,
-            statusMessage = localizedString(Res.string.trakt_connected_status),
+            statusMessage = localizedString(Res.string.trakt_connected_status, "Connected to Trakt"),
             errorMessage = null,
         )
     }
@@ -375,7 +375,7 @@ object TraktAuthRepository : TrackingAuthProvider {
         persist(profileId)
         publish(
             isLoading = false,
-            statusMessage = localizedString(Res.string.trakt_disconnected_status),
+            statusMessage = localizedString(Res.string.trakt_disconnected_status, "Disconnected from Trakt"),
             errorMessage = null,
         )
     }
@@ -454,7 +454,10 @@ object TraktAuthRepository : TrackingAuthProvider {
         publish(
             isLoading = false,
             statusMessage = null,
-            errorMessage = localizedString(Res.string.trakt_authorization_expired_reconnect),
+            errorMessage = localizedString(
+                Res.string.trakt_authorization_expired_reconnect,
+                "Your Trakt authorization is no longer valid. Reconnect your Trakt account.",
+            ),
         )
     }
 
@@ -539,7 +542,8 @@ object TraktAuthRepository : TrackingAuthProvider {
         return nowSeconds >= (expiresAtSeconds - 60)
     }
 
-    private fun localizedString(resource: StringResource): String = runBlocking { getString(resource) }
+    private fun localizedString(resource: StringResource, fallback: String): String =
+        localizedUiText(fallback) { getString(resource) }
 }
 
 internal enum class TraktTokenRefreshResponseAction {

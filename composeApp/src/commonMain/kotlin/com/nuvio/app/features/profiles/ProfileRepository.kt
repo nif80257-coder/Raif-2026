@@ -51,7 +51,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
+import com.nuvio.app.core.i18n.localizedUiText
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -76,7 +76,8 @@ object ProfileRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val log = Logger.withTag("ProfileRepository")
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
-    private fun localizedString(resource: StringResource): String = runBlocking { getString(resource) }
+    private fun localizedString(resource: StringResource, fallback: String): String =
+        localizedUiText(fallback) { getString(resource) }
 
     private val _state = MutableStateFlow(ProfileState())
     val state: StateFlow<ProfileState> = _state.asStateFlow()
@@ -442,10 +443,10 @@ object ProfileRepository {
 
     private fun setPinLocally(profileIndex: Int, pin: String, currentPin: String?): PinVerifyResult {
         val profile = _state.value.profiles.firstOrNull { it.profileIndex == profileIndex }
-            ?: return PinVerifyResult(unlocked = false, message = localizedString(Res.string.profile_pin_set_failed))
+            ?: return PinVerifyResult(unlocked = false, message = localizedString(Res.string.profile_pin_set_failed, "Couldn't set PIN. Try again."))
         if (profile.pinEnabled) {
             val verified = currentPin?.let { verifyPinLocally(profileIndex, it) }
-                ?: return PinVerifyResult(unlocked = false, message = localizedString(Res.string.profile_pin_set_failed))
+                ?: return PinVerifyResult(unlocked = false, message = localizedString(Res.string.profile_pin_set_failed, "Couldn't set PIN. Try again."))
             if (!verified.unlocked) return verified
         }
         rememberVerifiedPin(profileIndex, pin)
@@ -455,10 +456,10 @@ object ProfileRepository {
 
     private fun clearPinLocally(profileIndex: Int, currentPin: String?): PinVerifyResult {
         val profile = _state.value.profiles.firstOrNull { it.profileIndex == profileIndex }
-            ?: return PinVerifyResult(unlocked = false, message = localizedString(Res.string.profile_pin_clear_failed))
+            ?: return PinVerifyResult(unlocked = false, message = localizedString(Res.string.profile_pin_clear_failed, "Couldn't remove PIN lock. Try again."))
         if (profile.pinEnabled) {
             val verified = currentPin?.let { verifyPinLocally(profileIndex, it) }
-                ?: return PinVerifyResult(unlocked = false, message = localizedString(Res.string.profile_pin_clear_failed))
+                ?: return PinVerifyResult(unlocked = false, message = localizedString(Res.string.profile_pin_clear_failed, "Couldn't remove PIN lock. Try again."))
             if (!verified.unlocked) return verified
         }
         ProfilePinCacheStorage.removePayload(profileIndex)
@@ -556,7 +557,10 @@ object ProfileRepository {
         if (payload.isEmpty()) {
             return PinVerifyResult(
                 unlocked = false,
-                message = localizedString(Res.string.profile_pin_offline_verification_requires_online),
+                message = localizedString(
+                    Res.string.profile_pin_offline_verification_requires_online,
+                    "This PIN can't be verified offline on this device yet. Connect once and unlock it online first.",
+                ),
             )
         }
 
@@ -564,7 +568,10 @@ object ProfileRepository {
             json.decodeFromString<CachedProfilePinPayload>(payload)
         }.getOrNull() ?: return PinVerifyResult(
             unlocked = false,
-            message = localizedString(Res.string.profile_pin_offline_verification_requires_online),
+            message = localizedString(
+                    Res.string.profile_pin_offline_verification_requires_online,
+                    "This PIN can't be verified offline on this device yet. Connect once and unlock it online first.",
+                ),
         )
 
         if (
@@ -575,7 +582,10 @@ object ProfileRepository {
             ProfilePinCacheStorage.removePayload(profileIndex)
             return PinVerifyResult(
                 unlocked = false,
-                message = localizedString(Res.string.profile_pin_changed_requires_refresh),
+                message = localizedString(
+                    Res.string.profile_pin_changed_requires_refresh,
+                    "This profile PIN changed. Connect once to refresh the lock on this device.",
+                ),
             )
         }
 
@@ -583,7 +593,7 @@ object ProfileRepository {
         return if (digest == cached.digest) {
             PinVerifyResult(unlocked = true)
         } else {
-            PinVerifyResult(unlocked = false, message = localizedString(Res.string.pin_incorrect))
+            PinVerifyResult(unlocked = false, message = localizedString(Res.string.pin_incorrect, "Incorrect PIN"))
         }
     }
 

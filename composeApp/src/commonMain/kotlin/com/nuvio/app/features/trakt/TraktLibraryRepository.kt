@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
+import com.nuvio.app.core.i18n.localizedUiText
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
@@ -604,10 +604,10 @@ object TraktLibraryRepository {
             followRedirects = true,
         )
         if (response.status !in 200..299) {
-            throw IllegalStateException(errorMessageForStatus(response.status, localizedString(Res.string.trakt_error_request_failed)))
+            throw IllegalStateException(errorMessageForStatus(response.status, localizedString(Res.string.trakt_error_request_failed, "Trakt request failed")))
         }
         if (response.body.isBlank()) {
-            throw IllegalStateException(localizedString(Res.string.trakt_error_empty_response))
+            throw IllegalStateException(localizedString(Res.string.trakt_error_empty_response, "Empty response body"))
         }
         return response
     }
@@ -628,7 +628,7 @@ object TraktLibraryRepository {
             followRedirects = true,
         )
         if (response.status !in 200..299) {
-            throw IllegalStateException(errorMessageForStatus(response.status, localizedString(Res.string.trakt_error_request_failed)))
+            throw IllegalStateException(errorMessageForStatus(response.status, localizedString(Res.string.trakt_error_request_failed, "Trakt request failed")))
         }
         return response
     }
@@ -653,7 +653,7 @@ object TraktLibraryRepository {
             headers = headers,
         )
         if (!isSuccessfulAddResponse(response.body)) {
-            throw IllegalStateException(errorMessageForStatus(response.status, localizedString(Res.string.trakt_error_add_watchlist_failed)))
+            throw IllegalStateException(errorMessageForStatus(response.status, localizedString(Res.string.trakt_error_add_watchlist_failed, "Failed to add to Trakt watchlist")))
         }
     }
 
@@ -674,7 +674,7 @@ object TraktLibraryRepository {
             headers = headers,
         )
         if (!isSuccessfulAddResponse(response.body)) {
-            throw IllegalStateException(errorMessageForStatus(response.status, localizedString(Res.string.trakt_error_add_list_failed)))
+            throw IllegalStateException(errorMessageForStatus(response.status, localizedString(Res.string.trakt_error_add_list_failed, "Failed to add to Trakt list")))
         }
     }
 
@@ -691,7 +691,7 @@ object TraktLibraryRepository {
         val type = normalizeType(item.type)
         val ids = resolveIds(item)
         if (!ids.hasAnyId()) {
-            throw IllegalStateException(localizedString(Res.string.trakt_error_missing_ids))
+            throw IllegalStateException(localizedString(Res.string.trakt_error_missing_ids, "Missing compatible Trakt IDs"))
         }
 
         val request = if (type == "movie") {
@@ -811,14 +811,15 @@ object TraktLibraryRepository {
         return addCount > 0 || existingCount > 0
     }
 
-    private fun localizedString(resource: StringResource): String = runBlocking { getString(resource) }
+    private fun localizedString(resource: StringResource, fallback: String): String =
+        localizedUiText(fallback) { getString(resource) }
 
     private fun errorMessageForStatus(status: Int, defaultMessage: String): String =
         when (status) {
-            401, 403 -> localizedString(Res.string.trakt_error_authorization_expired)
-            404 -> localizedString(Res.string.trakt_error_list_not_found)
-            420 -> localizedString(Res.string.trakt_error_list_limit_reached)
-            429 -> localizedString(Res.string.trakt_error_rate_limit_reached)
+            401, 403 -> localizedString(Res.string.trakt_error_authorization_expired, "Trakt authorization expired")
+            404 -> localizedString(Res.string.trakt_error_list_not_found, "Trakt list not found")
+            420 -> localizedString(Res.string.trakt_error_list_limit_reached, "Trakt list limit reached")
+            429 -> localizedString(Res.string.trakt_error_rate_limit_reached, "Trakt rate limit reached")
             else -> "$defaultMessage ($status)"
         }
 

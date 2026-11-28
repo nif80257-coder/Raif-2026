@@ -782,7 +782,7 @@ internal const val LOCAL_LIBRARY_LIST_KEY = "local"
 
 private val LibraryItem.isServerItem: Boolean
     get() = ServerItemRef.isServerId(id)
-private const val DEFAULT_LOCAL_LIBRARY_TAB_TITLE = "RAIF Library"
+private const val DEFAULT_LOCAL_LIBRARY_TAB_TITLE = "Řaif Library"
 private const val DEFAULT_LIBRARY_OTHER_TITLE = "Other"
 
 internal fun localLibraryListTab(): TrackingLibraryTab =
