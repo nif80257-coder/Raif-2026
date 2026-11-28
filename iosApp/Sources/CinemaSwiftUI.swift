@@ -1856,6 +1856,7 @@ struct HeroCarousel: View {
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("الشريحة \(dot + 1)")
                     }
                 }
                 .padding(.bottom, 12)
@@ -1870,6 +1871,12 @@ struct HeroCarousel: View {
             scheduleAdvance()
         }
         .task { scheduleAdvance() }
+        // A carousel that scrolled away keeps no timer behind it: the old one
+        // fired eight seconds later on a view nobody was looking at.
+        .onDisappear {
+            autoTimer?.invalidate()
+            autoTimer = nil
+        }
     }
 
     /// Slides the hero onward by itself, so the top of the home screen is never
@@ -4753,13 +4760,19 @@ struct PlayerScreen: View {
         player?.seekTo(Int64(position * 1000))
     }
 
+    /// One formatter for the whole screen: building a new one on every pass cost
+    /// more than the label it printed, and the label is redrawn twice a second.
+    private static let wallClock: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
+
     /// The wall clock time this file will end at, shown beside the remaining time.
     private var finishClock: String {
         guard duration > 0 else { return "--:--" }
         let end = Date().addingTimeInterval(max(0, duration - position))
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
-        return formatter.string(from: end)
+        return Self.wallClock.string(from: end)
     }
 
     private func clock(_ seconds: Double) -> String {
@@ -4843,9 +4856,15 @@ final class CinemaxPictureInPicture: NSObject, @preconcurrency AVPictureInPictur
         return view
     }
 
+    /// Lets go of the hidden layer, its view and the player it kept alive when
+    /// the screen closes: a layer left in the window held the film's buffers,
+    /// and its sound, for the rest of the session.
+    func finish() {
+        detach()
+    }
+
     /// Starts PiP, only when the viewer asked for it and it is possible now.
-    func start() {
-        guard let controller, controller.isPictureInPicturePossible else { return }
+    func start() {        guard let controller, controller.isPictureInPicturePossible else { return }
         controller.startPictureInPicture()
     }
 
@@ -5304,6 +5323,9 @@ struct SystemPlayerScreen: View {
         }
         .onDisappear {
             ticker?.invalidate()
+            // The system player kept a hidden layer in the window for Picture
+            // in Picture; left there, it held the film's player alive.
+            CinemaxPictureInPicture.shared.finish()
             UIApplication.shared.isIdleTimerDisabled = false
             OrientationManager.shared.setPlayerRotation(false)
             try? AVAudioSession.sharedInstance().setActive(
@@ -8580,6 +8602,14 @@ final class EventLog: ObservableObject {
     private let limit = 200
     private let key = "cinemax.eventLog.v1"
 
+    /// One formatter for the exported history: building one per line did the
+    /// same work two hundred times for one paragraph of text.
+    private static let stamp: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MM-dd HH:mm:ss"
+        return formatter
+    }()
+
     private init() {
         guard let data = UserDefaults.standard.data(forKey: key),
               let stored = try? JSONDecoder().decode([Entry].self, from: data) else { return }
@@ -8601,8 +8631,7 @@ final class EventLog: ObservableObject {
 
     /// The whole history as plain text, ready to be pasted into a message.
     var text: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MM-dd HH:mm:ss"
+        let formatter = Self.stamp
         return entries
             .map { "\(formatter.string(from: $0.at)) [\($0.tag)] \($0.text)" }
             .joined(separator: "\n")
@@ -19577,6 +19606,11 @@ final class DownloadManager: ObservableObject {
             if let path = existing.filePath {
                 try? FileManager.default.removeItem(atPath: path)
             }
+            // The subtitle of the old copy goes with it, so a second download
+            // of the same link never leaves two subtitle files behind.
+            if let subtitle = existing.subtitlePath {
+                try? FileManager.default.removeItem(atPath: subtitle)
+            }
         }
         jobs.removeAll { $0.id == urlString }
         jobs.insert(job, at: 0)
@@ -19669,6 +19703,11 @@ final class DownloadManager: ObservableObject {
         BackgroundTransfers.shared.cancel(jobKey: CinemaHash.stable(job.id))
         if let path = job.filePath {
             try? FileManager.default.removeItem(atPath: path)
+        }
+        // The subtitle was saved beside the film: removing the film must not
+        // leave its text behind on the device.
+        if let subtitle = job.subtitlePath {
+            try? FileManager.default.removeItem(atPath: subtitle)
         }
         try? FileManager.default.removeItem(at: partsDirectory(for: job.id))
         jobs.removeAll { $0.id == job.id }
@@ -20172,6 +20211,7 @@ struct DownloadsView: View {
                         }
                         .foregroundStyle(CinemaTheme.muted)
                     }
+                    .accessibilityLabel("عدد التنزيلات معًا")
                     Menu {
                         Button("الأحدث") { sort = "newest" }
                         Button("الأكبر حجمًا") { sort = "size" }
@@ -20181,6 +20221,7 @@ struct DownloadsView: View {
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(CinemaTheme.accent)
                     }
+                    .accessibilityLabel("ترتيب التنزيلات")
                     Menu {
                         Button {
                             Haptics.select()
@@ -20221,6 +20262,7 @@ struct DownloadsView: View {
                             .foregroundStyle(CinemaTheme.favourite)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("حذف كل التنزيلات")
                 }
                 .padding(.bottom, 2)
 
@@ -20335,6 +20377,7 @@ struct DownloadsView: View {
                                     .foregroundStyle(CinemaTheme.favourite)
                             }
                             .buttonStyle(.plain)
+                            .accessibilityLabel("حذف هذا التنزيل")
                         }
                     }
                     .padding(14)
