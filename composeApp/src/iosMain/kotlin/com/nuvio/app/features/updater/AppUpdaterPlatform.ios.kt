@@ -1,6 +1,6 @@
 package com.nuvio.app.features.updater
 
-import kotlinx.coroutines.runBlocking
+import com.nuvio.app.core.i18n.localizedUiText
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.updates_not_available
 import org.jetbrains.compose.resources.getString
@@ -32,5 +32,11 @@ actual object AppUpdaterPlatform {
     actual fun openUnknownSourcesSettings() = Unit
 
     actual fun installDownloadedApk(path: String): Result<Unit> =
-        Result.failure(IllegalStateException(runBlocking { getString(Res.string.updates_not_available) }))
+        Result.failure(
+            IllegalStateException(
+                localizedUiText("In-app updates are not available on this build.") {
+                    getString(Res.string.updates_not_available)
+                },
+            ),
+        )
 }

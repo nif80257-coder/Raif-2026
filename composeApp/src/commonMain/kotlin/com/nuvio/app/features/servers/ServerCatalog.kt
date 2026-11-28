@@ -1,5 +1,6 @@
 package com.nuvio.app.features.servers
 
+import com.nuvio.app.core.i18n.localizedUiText
 import com.nuvio.app.features.addons.AddonManifest
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.enabledAddons
@@ -9,7 +10,6 @@ import com.nuvio.app.features.catalog.CatalogTarget
 import com.nuvio.app.features.home.HomeCatalogDefinition
 import com.nuvio.app.features.home.HomeCatalogSection
 import com.nuvio.app.features.home.MetaPreview
-import kotlinx.coroutines.runBlocking
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.media_movies
 import nuvio.composeapp.generated.resources.media_series
@@ -100,7 +100,7 @@ internal object ServerCatalog {
                 ServerRepository.provider(connection)?.supports(ServerCapability.USER_STATE_READ) == true
         }
         if (connections.isEmpty()) return emptyList()
-        val rowName = runBlocking { getString(Res.string.servers_resume_row) }
+        val rowName = localizedUiText("Continue watching") { getString(Res.string.servers_resume_row) }
         return connections.map { connection ->
             val title = "${connection.name} · $rowName"
             HomeCatalogDefinition(

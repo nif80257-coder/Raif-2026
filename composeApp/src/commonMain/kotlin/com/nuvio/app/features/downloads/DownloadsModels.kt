@@ -1,9 +1,9 @@
 package com.nuvio.app.features.downloads
 
+import com.nuvio.app.core.i18n.localizedUiText
 import com.nuvio.app.features.player.SubtitleAddonRequest
 import com.nuvio.app.features.streams.StreamSubtitle
 import kotlinx.serialization.Serializable
-import kotlinx.coroutines.runBlocking
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.downloads_enqueue_missing_url
 import nuvio.composeapp.generated.resources.downloads_enqueue_replaced
@@ -102,12 +102,16 @@ enum class DownloadEnqueueResult {
     MissingUrl,
     UnsupportedFormat;
 
-    fun toastMessage(): String = runBlocking {
-        when (this@DownloadEnqueueResult) {
-            Started -> getString(Res.string.downloads_enqueue_started)
-            Replaced -> getString(Res.string.downloads_enqueue_replaced)
-            MissingUrl -> getString(Res.string.downloads_enqueue_missing_url)
-            UnsupportedFormat -> getString(Res.string.downloads_enqueue_unsupported_format)
+    fun toastMessage(): String = when (this) {
+        Started -> localizedUiText("Download started") { getString(Res.string.downloads_enqueue_started) }
+        Replaced -> localizedUiText("Replaced previous download") {
+            getString(Res.string.downloads_enqueue_replaced)
+        }
+        MissingUrl -> localizedUiText("No direct stream link available") {
+            getString(Res.string.downloads_enqueue_missing_url)
+        }
+        UnsupportedFormat -> localizedUiText("Unsupported stream format for downloads") {
+            getString(Res.string.downloads_enqueue_unsupported_format)
         }
     }
 }

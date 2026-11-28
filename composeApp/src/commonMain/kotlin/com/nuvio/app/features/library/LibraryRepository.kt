@@ -40,7 +40,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
+import com.nuvio.app.core.i18n.localizedUiText
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import nuvio.composeapp.generated.resources.Res
@@ -835,5 +835,4 @@ private fun localizedLibraryOtherTitle(): String =
     )
 
 private fun localizedStringOrDefault(resource: StringResource, fallback: String): String =
-    runCatching { runBlocking { getString(resource) } }
-        .getOrDefault(fallback)
+    localizedUiText(fallback) { getString(resource) }

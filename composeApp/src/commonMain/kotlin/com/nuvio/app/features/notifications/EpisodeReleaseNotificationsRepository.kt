@@ -2,6 +2,7 @@ package com.nuvio.app.features.notifications
 
 import co.touchlab.kermit.Logger
 import com.nuvio.app.core.concurrent.runCatchingCancellable
+import com.nuvio.app.core.i18n.localizedUiText
 import com.nuvio.app.core.deeplink.buildMetaDeepLinkUrl
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.details.MetaDetailsRepository
@@ -22,7 +23,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
@@ -305,7 +305,7 @@ object EpisodeReleaseNotificationsRepository {
             permissionGranted = granted,
             testTargetTitle = currentTestTarget()?.name,
             errorMessage = when {
-                _uiState.value.isEnabled && !granted -> runBlocking { getString(Res.string.settings_notifications_permission_disabled) }
+                _uiState.value.isEnabled && !granted -> notificationsDisabledMessage()
                 else -> _uiState.value.errorMessage
             },
         )
@@ -373,7 +373,7 @@ object EpisodeReleaseNotificationsRepository {
                     scheduledCount = 0,
                     testTargetTitle = currentTestTarget()?.name,
                     errorMessage = if (_uiState.value.isEnabled && !permissionGranted) {
-                        runBlocking { getString(Res.string.settings_notifications_permission_disabled) }
+                        notificationsDisabledMessage()
                     } else {
                         null
                     },
@@ -482,3 +482,12 @@ object EpisodeReleaseNotificationsRepository {
         }
     }
 }
+
+
+/** Published with the state, so the line is drawn at once instead of holding the frame for a read. */
+private fun notificationsDisabledMessage(): String =
+    localizedUiText(
+        "System notifications are disabled for Řaif. Enable them to receive alerts and test notifications.",
+    ) {
+        getString(Res.string.settings_notifications_permission_disabled)
+    }

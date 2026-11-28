@@ -1,5 +1,6 @@
 package com.nuvio.app.features.downloads
 
+import com.nuvio.app.core.i18n.localizedUiText
 import com.nuvio.app.features.player.SubtitleRequestExtras
 import com.nuvio.app.features.player.addonSubtitleRequests
 import com.nuvio.app.features.streams.StreamItem
@@ -7,7 +8,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -487,7 +487,9 @@ object DownloadsRepository {
                     } else {
                         current.copy(
                             status = DownloadStatus.Failed,
-                            errorMessage = message.ifBlank { runBlocking { getString(Res.string.download_failed) } },
+                            errorMessage = message.ifBlank {
+                                localizedUiText("Download failed") { getString(Res.string.download_failed) }
+                            },
                             updatedAtEpochMs = DownloadsClock.nowEpochMs(),
                         )
                     }

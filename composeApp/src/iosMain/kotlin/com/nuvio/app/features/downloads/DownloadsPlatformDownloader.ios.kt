@@ -1,5 +1,6 @@
 package com.nuvio.app.features.downloads
 
+import com.nuvio.app.core.i18n.localizedUiText
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.CPointer
 import kotlinx.cinterop.convert
@@ -10,7 +11,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.download_failed
 import nuvio.composeapp.generated.resources.downloads_error_finalize_file_failed
@@ -113,7 +113,11 @@ internal actual object DownloadsPlatformDownloader {
                 }
 
                 if (result.statusCode !in 200..299) {
-                    error(runBlocking { getString(Res.string.network_request_failed_http, result.statusCode) })
+                    error(
+                        localizedUiText("Request failed with HTTP ${result.statusCode}") {
+                            getString(Res.string.network_request_failed_http, result.statusCode)
+                        },
+                    )
                 }
 
                 val isPartialResume = attemptedRangeRequest && result.statusCode == 206 && resumeFromBytes > 0L
@@ -132,7 +136,11 @@ internal actual object DownloadsPlatformDownloader {
                     error = null,
                 )
                 if (!moved) {
-                    error(runBlocking { getString(Res.string.downloads_error_finalize_file_failed) })
+                    error(
+                        localizedUiText("Failed to finalize download file") {
+                            getString(Res.string.downloads_error_finalize_file_failed)
+                        },
+                    )
                 }
 
                 val localFileUri = NSURL.fileURLWithPath(destinationPath).absoluteString ?: "file://$destinationPath"
@@ -141,7 +149,11 @@ internal actual object DownloadsPlatformDownloader {
             } catch (_: CancellationException) {
                 handle.cancelNativeTask()
             } catch (error: Throwable) {
-                onFailure(error.message ?: runBlocking { getString(Res.string.download_failed) })
+                onFailure(
+                    error.message ?: localizedUiText("Download failed") {
+                        getString(Res.string.download_failed)
+                    },
+                )
             }
         }
 
@@ -282,7 +294,11 @@ private class IosDownloadDelegate(
             )
 
             outputFile = fopen(tempPath, if (isPartialResume) "ab" else "wb") ?: run {
-                fileError = IllegalStateException(runBlocking { getString(Res.string.downloads_error_open_partial_file_failed) })
+                fileError = IllegalStateException(
+                    localizedUiText("Failed to open partial download file") {
+                        getString(Res.string.downloads_error_open_partial_file_failed)
+                    },
+                )
                 null
             }
 
@@ -300,7 +316,11 @@ private class IosDownloadDelegate(
         if (fileError != null) return
 
         val file = outputFile ?: run {
-            fileError = IllegalStateException(runBlocking { getString(Res.string.downloads_error_partial_file_not_open) })
+            fileError = IllegalStateException(
+                localizedUiText("Partial download file is not open") {
+                    getString(Res.string.downloads_error_partial_file_not_open)
+                },
+            )
             return
         }
 
@@ -312,7 +332,11 @@ private class IosDownloadDelegate(
             file,
         ).toLong()
         if (wrote != bytesToWrite) {
-            fileError = IllegalStateException(runBlocking { getString(Res.string.downloads_error_write_partial_file_failed) })
+            fileError = IllegalStateException(
+                localizedUiText("Failed to write partial download file") {
+                    getString(Res.string.downloads_error_write_partial_file_failed)
+                },
+            )
             return
         }
         fflush(file)

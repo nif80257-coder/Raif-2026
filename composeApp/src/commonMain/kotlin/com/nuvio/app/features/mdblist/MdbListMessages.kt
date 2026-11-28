@@ -1,6 +1,6 @@
 package com.nuvio.app.features.mdblist
 
-import kotlinx.coroutines.runBlocking
+import com.nuvio.app.core.i18n.localizedUiText
 import org.jetbrains.compose.resources.getString
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.StringResource
@@ -29,5 +29,6 @@ internal fun Throwable.localizedMdbListMessage(): String = mdbListMessageResourc
 internal fun MdbListSyncError.localizedMdbListMessage(): String = messageResource().localizedMdbListMessage()
 
 private fun StringResource.localizedMdbListMessage(): String =
-    runCatching { runBlocking { getString(this@localizedMdbListMessage) } }
-        .getOrDefault("Could not sync with MDBList. Please try again.")
+    localizedUiText("Could not sync with MDBList. Please try again.") {
+        getString(this@localizedMdbListMessage)
+    }

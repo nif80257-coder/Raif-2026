@@ -64,7 +64,7 @@ import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
-import kotlinx.coroutines.runBlocking
+import com.nuvio.app.core.i18n.localizedUiText
 import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
 
@@ -396,7 +396,7 @@ private val ratingVisuals = listOf(
     ),
     RatingVisuals(
         source = PROVIDER_AUDIENCE,
-        displayName = runBlocking { getString(Res.string.rating_audience_score) },
+        displayName = localizedUiText("Audience Score") { getString(Res.string.rating_audience_score) },
         logo = Res.drawable.rating_audience_score,
         logoWidth = 16.dp,
         valueColor = Color(0xFFFA320A),
