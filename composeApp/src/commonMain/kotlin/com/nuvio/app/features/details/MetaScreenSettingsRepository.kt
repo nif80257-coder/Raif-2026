@@ -3,7 +3,7 @@ package com.nuvio.app.features.details
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.runBlocking
+import com.nuvio.app.core.i18n.localizedUiText
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
@@ -143,6 +143,9 @@ private data class MetaScreenSectionDefinition(
     val key: MetaScreenSectionKey,
     val titleRes: StringResource,
     val descriptionRes: StringResource,
+    /** English text the section is published with before its translation lands. */
+    val defaultTitle: String,
+    val defaultDescription: String,
 )
 
 object MetaScreenSettingsRepository {
@@ -156,51 +159,71 @@ object MetaScreenSettingsRepository {
             key = MetaScreenSectionKey.ACTIONS,
             titleRes = Res.string.meta_section_actions_title,
             descriptionRes = Res.string.meta_section_actions_description,
+            defaultTitle = "Actions",
+            defaultDescription = "Play and save controls.",
         ),
         MetaScreenSectionDefinition(
             key = MetaScreenSectionKey.OVERVIEW,
             titleRes = Res.string.meta_section_overview_title,
             descriptionRes = Res.string.meta_section_overview_description,
+            defaultTitle = "Overview",
+            defaultDescription = "Synopsis, ratings, genres, and core credits.",
         ),
         MetaScreenSectionDefinition(
             key = MetaScreenSectionKey.PRODUCTION,
             titleRes = Res.string.meta_section_production_title,
             descriptionRes = Res.string.meta_section_production_description,
+            defaultTitle = "Production",
+            defaultDescription = "Studios and networks.",
         ),
         MetaScreenSectionDefinition(
             key = MetaScreenSectionKey.CAST,
             titleRes = Res.string.settings_meta_cast,
             descriptionRes = Res.string.meta_section_cast_description,
+            defaultTitle = "Cast",
+            defaultDescription = "Principal cast list.",
         ),
         MetaScreenSectionDefinition(
             key = MetaScreenSectionKey.COMMENTS,
             titleRes = Res.string.settings_meta_comments,
             descriptionRes = Res.string.meta_section_comments_description,
+            defaultTitle = "Comments",
+            defaultDescription = "Trakt comments section.",
         ),
         MetaScreenSectionDefinition(
             key = MetaScreenSectionKey.TRAILERS,
             titleRes = Res.string.settings_meta_trailers,
             descriptionRes = Res.string.meta_section_trailers_description,
+            defaultTitle = "Trailers",
+            defaultDescription = "Trailer rail and playback shortcuts.",
         ),
         MetaScreenSectionDefinition(
             key = MetaScreenSectionKey.EPISODES,
             titleRes = Res.string.settings_meta_episodes,
             descriptionRes = Res.string.meta_section_episodes_description,
+            defaultTitle = "Episodes",
+            defaultDescription = "Seasons and episode list for series.",
         ),
         MetaScreenSectionDefinition(
             key = MetaScreenSectionKey.DETAILS,
             titleRes = Res.string.meta_section_details_title,
             descriptionRes = Res.string.meta_section_details_description,
+            defaultTitle = "Details",
+            defaultDescription = "Runtime, status, release, language, and related info.",
         ),
         MetaScreenSectionDefinition(
             key = MetaScreenSectionKey.COLLECTION,
             titleRes = Res.string.meta_section_collection_title,
             descriptionRes = Res.string.meta_section_collection_description,
+            defaultTitle = "Collection",
+            defaultDescription = "Related collection or franchise rail.",
         ),
         MetaScreenSectionDefinition(
             key = MetaScreenSectionKey.MORE_LIKE_THIS,
             titleRes = Res.string.meta_section_more_like_this_title,
             descriptionRes = Res.string.meta_section_more_like_this_description,
+            defaultTitle = "More Like This",
+            defaultDescription = "Recommendation rail.",
         ),
     )
 
@@ -217,8 +240,6 @@ object MetaScreenSettingsRepository {
     private var showOverallRatings: Boolean = true
     private var episodeRatingsVisibility: EpisodeRatingsVisibility = EpisodeRatingsVisibility.SHOW_ALL
     private var posterTransitionEnabled: Boolean = false
-    private fun localizedString(resource: StringResource): String = runBlocking { getString(resource) }
-
     fun ensureLoaded() {
         if (hasLoaded) return
         hasLoaded = true
@@ -460,8 +481,12 @@ object MetaScreenSettingsRepository {
                     val preference = preferences[definition.key]
                     MetaScreenSectionItem(
                         key = definition.key,
-                        title = localizedString(definition.titleRes),
-                        description = localizedString(definition.descriptionRes),
+                        title = localizedUiText(definition.defaultTitle) {
+                            getString(definition.titleRes)
+                        },
+                        description = localizedUiText(definition.defaultDescription) {
+                            getString(definition.descriptionRes)
+                        },
                         enabled = preference?.enabled ?: true,
                         order = preference?.order ?: 0,
                         tabGroup = preference?.tabGroup,

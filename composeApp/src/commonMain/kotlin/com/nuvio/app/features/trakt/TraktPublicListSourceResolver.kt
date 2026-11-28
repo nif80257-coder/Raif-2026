@@ -13,7 +13,7 @@ import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.home.PosterShape
 import io.ktor.http.encodeURLParameter
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
+import com.nuvio.app.core.i18n.localizedUiText
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -254,25 +254,41 @@ object TraktPublicListSourceResolver {
 
     private fun PublicTraktListSummaryDto.toPublicListResult(likeCount: Int? = null): TraktPublicListSearchResult? {
         val id = ids?.trakt ?: return null
-        return runBlocking {
-            val listTitle = name?.takeIf { it.isNotBlank() }
-                ?: getString(Res.string.collections_editor_trakt_fallback_title, id)
-            val owner = user?.username?.takeIf { it.isNotBlank() }
-            val stats = buildList {
-                itemCount?.let { add(getString(Res.string.collections_trakt_list_items_count, it)) }
-                (likeCount ?: likes)?.let { add(getString(Res.string.collections_trakt_list_likes_count, it)) }
+        val listTitle = name?.takeIf { it.isNotBlank() }
+            ?: localizedUiText("Trakt List $id") {
+                getString(Res.string.collections_editor_trakt_fallback_title, id)
             }
-            val subtitle = (listOfNotNull(owner) + stats).joinToString(" • ")
-                .ifBlank { getString(Res.string.collections_trakt_public_list) }
-            TraktPublicListSearchResult(
-                traktListId = id,
-                title = listTitle,
-                subtitle = subtitle,
-                coverImageUrl = images?.posters.firstTraktImageUrl(),
-                sortBy = sortBy,
-                sortHow = sortHow,
-            )
+        val owner = user?.username?.takeIf { it.isNotBlank() }
+        val stats = buildList {
+            itemCount?.let { count ->
+                add(
+                    localizedUiText("$count items") {
+                        getString(Res.string.collections_trakt_list_items_count, count)
+                    },
+                )
+            }
+            (likeCount ?: likes)?.let { count ->
+                add(
+                    localizedUiText("$count likes") {
+                        getString(Res.string.collections_trakt_list_likes_count, count)
+                    },
+                )
+            }
         }
+        val subtitle = (listOfNotNull(owner) + stats).joinToString(" • ")
+            .ifBlank {
+                localizedUiText("Trakt public list") {
+                    getString(Res.string.collections_trakt_public_list)
+                }
+            }
+        return TraktPublicListSearchResult(
+            traktListId = id,
+            title = listTitle,
+            subtitle = subtitle,
+            coverImageUrl = images?.posters.firstTraktImageUrl(),
+            sortBy = sortBy,
+            sortHow = sortHow,
+        )
     }
 
     private fun parseTraktListPath(input: String): String? {
@@ -313,11 +329,15 @@ object TraktPublicListSourceResolver {
             ?.trim()
             ?.toIntOrNull()
 
-    private fun errorMessageFor(code: Int, fallback: String): String = runBlocking {
-        when (code) {
-            401, 403, 404 -> getString(Res.string.collections_trakt_list_not_found_or_private)
-            429 -> getString(Res.string.collections_trakt_rate_limit_reached)
-            else -> getString(Res.string.collections_trakt_error_with_code, fallback, code)
+    private fun errorMessageFor(code: Int, fallback: String): String = when (code) {
+        401, 403, 404 -> localizedUiText("Trakt list not found or not public") {
+            getString(Res.string.collections_trakt_list_not_found_or_private)
+        }
+        429 -> localizedUiText("Trakt rate limit reached") {
+            getString(Res.string.collections_trakt_rate_limit_reached)
+        }
+        else -> localizedUiText("$fallback ($code)") {
+            getString(Res.string.collections_trakt_error_with_code, fallback, code)
         }
     }
 }
