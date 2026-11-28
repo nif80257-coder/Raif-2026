@@ -568,6 +568,14 @@ final class CinemaOnce: @unchecked Sendable {
         answered = true
         return true
     }
+
+    /// True once the call was answered, so a late partial update is dropped
+    /// instead of arriving after the last one.
+    var isAnswered: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return answered
+    }
 }
 
 /// Thin async wrapper over the Kotlin data layer. Everything the interface shows
@@ -721,7 +729,9 @@ final class CinemaAPI {
 
     func progress() async -> [ProgressItem] {
         await withCheckedContinuation { (continuation: CheckedContinuation<[ProgressItem], Never>) in
+            let once = CinemaOnce()
             bridge.loadProgress(onDone: { json in
+                guard once.claim() else { return }
                 let items = (try? self.decode([ProgressItem].self, json)) ?? []
                 continuation.resume(returning: items)
             })
@@ -730,7 +740,9 @@ final class CinemaAPI {
 
     func favorites() async -> [CinemaItem] {
         await withCheckedContinuation { (continuation: CheckedContinuation<[CinemaItem], Never>) in
+            let once = CinemaOnce()
             bridge.loadFavorites(onDone: { json in
+                guard once.claim() else { return }
                 let items = (try? self.decode([CinemaItem].self, json)) ?? []
                 continuation.resume(returning: items)
             })
@@ -741,7 +753,9 @@ final class CinemaAPI {
 
     func libraryCounts() async -> (progress: Int, favorites: Int) {
         await withCheckedContinuation { (continuation: CheckedContinuation<(Int, Int), Never>) in
+            let once = CinemaOnce()
             bridge.libraryCounts(onDone: { json in
+                guard once.claim() else { return }
                 let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
                 continuation.resume(returning: (
                     (object?["progress"] as? NSNumber)?.intValue ?? 0,
@@ -753,7 +767,9 @@ final class CinemaAPI {
 
     func clearProgress() async -> (progress: Int, favorites: Int) {
         await withCheckedContinuation { (continuation: CheckedContinuation<(Int, Int), Never>) in
+            let once = CinemaOnce()
             bridge.clearWatchProgress(onDone: { json in
+                guard once.claim() else { return }
                 let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
                 continuation.resume(returning: (
                     (object?["progress"] as? NSNumber)?.intValue ?? 0,
@@ -765,7 +781,9 @@ final class CinemaAPI {
 
     func clearFavorites() async -> (progress: Int, favorites: Int) {
         await withCheckedContinuation { (continuation: CheckedContinuation<(Int, Int), Never>) in
+            let once = CinemaOnce()
             bridge.clearFavorites(onDone: { json in
+                guard once.claim() else { return }
                 let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
                 continuation.resume(returning: (
                     (object?["progress"] as? NSNumber)?.intValue ?? 0,
@@ -777,7 +795,9 @@ final class CinemaAPI {
 
     func removeProgress(itemId: String, videoLabel: String?) async -> (progress: Int, favorites: Int) {
         await withCheckedContinuation { (continuation: CheckedContinuation<(Int, Int), Never>) in
+            let once = CinemaOnce()
             bridge.removeProgress(itemId: itemId, videoLabel: videoLabel, onDone: { json in
+                guard once.claim() else { return }
                 let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
                 continuation.resume(returning: (
                     (object?["progress"] as? NSNumber)?.intValue ?? 0,
@@ -789,7 +809,9 @@ final class CinemaAPI {
 
     func exportBackup() async -> String {
         await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+            let once = CinemaOnce()
             bridge.exportBackup(onDone: { text in
+                guard once.claim() else { return }
                 continuation.resume(returning: text)
             })
         }
@@ -797,9 +819,12 @@ final class CinemaAPI {
 
     func importBackup(_ raw: String) async throws -> String {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+            let once = CinemaOnce()
             bridge.importBackup(raw: raw, onDone: { summary in
+                guard once.claim() else { return }
                 continuation.resume(returning: summary)
             }, onError: { message in
+                guard once.claim() else { return }
                 continuation.resume(throwing: CinemaError(message: message))
             })
         }
@@ -808,7 +833,9 @@ final class CinemaAPI {
     /// How many episodes are marked watched and how many addons are installed.
     func extraCounts() async -> (watched: Int, addons: Int) {
         await withCheckedContinuation { (continuation: CheckedContinuation<(Int, Int), Never>) in
+            let once = CinemaOnce()
             bridge.extraCounts(onDone: { json in
+                guard once.claim() else { return }
                 let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
                 continuation.resume(returning: (
                     object?["watched"] as? Int ?? 0,
@@ -821,7 +848,9 @@ final class CinemaAPI {
     /// Moves an addon in the priority order and answers the new list.
     func moveAddon(url: String, delta: Int) async -> [InstalledAddonRow] {
         let payload = await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+            let once = CinemaOnce()
             bridge.moveAddon(url: url, delta: Int32(delta), onDone: { text in
+                guard once.claim() else { return }
                 continuation.resume(returning: text)
             })
         }
@@ -831,7 +860,9 @@ final class CinemaAPI {
     /// Titles TMDB lists as close to this one, for the bottom of the detail page.
     func similar(item: CinemaItem) async -> [CinemaItem] {
         let payload = await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+            let once = CinemaOnce()
             bridge.loadSimilar(itemId: item.id, type: item.type, name: item.name, onDone: { text in
+                guard once.claim() else { return }
                 continuation.resume(returning: text)
             })
         }
@@ -852,7 +883,9 @@ final class CinemaAPI {
 
     func resume(itemId: String, videoId: String?) async -> Int64 {
         await withCheckedContinuation { (continuation: CheckedContinuation<Int64, Never>) in
+            let once = CinemaOnce()
             bridge.resumeJson(itemId: itemId, videoId: videoId, onDone: { json in
+                guard once.claim() else { return }
                 let data = Data(json.utf8)
                 let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
                 let value = (object?["positionMillis"] as? NSNumber)?.int64Value ?? 0
@@ -870,6 +903,7 @@ final class CinemaAPI {
         genre: String?
     ) async throws -> CatalogPagePayload {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<CatalogPagePayload, Error>) in
+            let once = CinemaOnce()
             bridge.loadCatalogPage(
                 addonId: addonId,
                 catalogId: catalogId,
@@ -877,6 +911,7 @@ final class CinemaAPI {
                 skip: Int32(skip),
                 genre: genre,
                 onDone: { text in
+                    guard once.claim() else { return }
                     do {
                         continuation.resume(returning: try self.decode(CatalogPagePayload.self, text))
                     } catch {
@@ -884,6 +919,7 @@ final class CinemaAPI {
                     }
                 },
                 onError: { message in
+                    guard once.claim() else { return }
                     continuation.resume(throwing: CinemaError(message: message))
                 }
             )
@@ -901,20 +937,27 @@ final class CinemaAPI {
         onDone: @escaping (StreamsPayload) -> Void
     ) -> String {
         let token = UUID().uuidString
+        // The caller of this fetch is often waiting on one answer: a bridge that
+        // reports both a done and an error called it twice, and the second call
+        // resumed a continuation that was already answered.
+        let once = CinemaOnce()
         bridge.loadStreamsFast(
             itemId: id,
             type: type,
             token: token,
             onUpdate: { json in
+                guard !once.isAnswered else { return }
                 guard let payload = try? self.decode(StreamsPayload.self, json) else { return }
                 onUpdate(payload)
             },
             onDone: { json in
+                guard once.claim() else { return }
                 let payload = (try? self.decode(StreamsPayload.self, json))
                     ?? StreamsPayload(streams: [], failures: [])
                 onDone(payload)
             },
             onError: { message in
+                guard once.claim() else { return }
                 onDone(StreamsPayload(streams: [], failures: [message]))
             }
         )
@@ -943,7 +986,9 @@ final class CinemaAPI {
     /// Every subtitle the installed subtitle addons offer for this id.
     func subtitles(itemId: String, type: String) async -> [SubtitleChoice] {
         let payload = await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+            let once = CinemaOnce()
             bridge.loadSubtitles(itemId: itemId, type: type, onDone: { text in
+                guard once.claim() else { return }
                 continuation.resume(returning: text)
             })
         }
@@ -954,7 +999,9 @@ final class CinemaAPI {
 
     func nuvioRepositories() async -> [NuvioRepositoryRow] {
         let payload = await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+            let once = CinemaOnce()
             bridge.nuvioRepositories(onDone: { text in
+                guard once.claim() else { return }
                 continuation.resume(returning: text)
             })
         }
@@ -967,10 +1014,13 @@ final class CinemaAPI {
 
     func addNuvioRepository(_ url: String) async throws -> [NuvioRepositoryRow] {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[NuvioRepositoryRow], Error>) in
+            let once = CinemaOnce()
             bridge.addNuvioRepository(url: url, onDone: { text in
+                guard once.claim() else { return }
                 let rows = (try? JSONDecoder().decode([NuvioRepositoryRow].self, from: Data(text.utf8))) ?? []
                 continuation.resume(returning: rows)
             }, onError: { message in
+                guard once.claim() else { return }
                 continuation.resume(throwing: CinemaError(message: message))
             })
         }
@@ -978,7 +1028,9 @@ final class CinemaAPI {
 
     func removeNuvioRepository(_ url: String) async -> [NuvioRepositoryRow] {
         let payload = await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+            let once = CinemaOnce()
             bridge.removeNuvioRepository(url: url, onDone: { text in
+                guard once.claim() else { return }
                 continuation.resume(returning: text)
             })
         }
@@ -987,7 +1039,9 @@ final class CinemaAPI {
 
     func setNuvioProvider(_ key: String, enabled: Bool) async -> [NuvioRepositoryRow] {
         let payload = await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+            let once = CinemaOnce()
             bridge.setNuvioProvider(key: key, enabled: enabled, onDone: { text in
+                guard once.claim() else { return }
                 continuation.resume(returning: text)
             })
         }
@@ -996,7 +1050,9 @@ final class CinemaAPI {
 
     func installedAddons() async -> [InstalledAddonRow] {
         let rows: [InstalledAddonRow] = await withCheckedContinuation { (continuation: CheckedContinuation<[InstalledAddonRow], Never>) in
+            let once = CinemaOnce()
             bridge.installedAddons(onDone: { json in
+                guard once.claim() else { return }
                 continuation.resume(returning: (try? self.decode([InstalledAddonRow].self, json)) ?? [])
             })
         }
@@ -1008,7 +1064,9 @@ final class CinemaAPI {
 
     func suggestedAddons() async -> [SuggestedAddonRow] {
         await withCheckedContinuation { (continuation: CheckedContinuation<[SuggestedAddonRow], Never>) in
+            let once = CinemaOnce()
             bridge.suggestedAddons(onDone: { json in
+                guard once.claim() else { return }
                 continuation.resume(returning: (try? self.decode([SuggestedAddonRow].self, json)) ?? [])
             })
         }
@@ -1016,9 +1074,12 @@ final class CinemaAPI {
 
     func installAddon(_ url: String) async throws -> String {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+            let once = CinemaOnce()
             bridge.installAddon(url: url, onDone: { name in
+                guard once.claim() else { return }
                 continuation.resume(returning: name)
             }, onError: { message in
+                guard once.claim() else { return }
                 continuation.resume(throwing: CinemaError(message: message))
             })
         }
@@ -1032,7 +1093,9 @@ final class CinemaAPI {
 
     func installAllSuggested() async -> String {
         await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+            let once = CinemaOnce()
             bridge.installAllSuggested(onDone: { json in
+                guard once.claim() else { return }
                 continuation.resume(returning: json)
             })
         }
@@ -1057,9 +1120,12 @@ final class CinemaAPI {
 
     func updateAddon(_ url: String) async throws -> String {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+            let once = CinemaOnce()
             bridge.updateAddon(url: url, onDone: { summary in
+                guard once.claim() else { return }
                 continuation.resume(returning: summary)
             }, onError: { message in
+                guard once.claim() else { return }
                 continuation.resume(throwing: CinemaError(message: message))
             })
         }
@@ -1067,7 +1133,9 @@ final class CinemaAPI {
 
     func updateAllAddons() async -> Int {
         await withCheckedContinuation { (continuation: CheckedContinuation<Int, Never>) in
+            let once = CinemaOnce()
             bridge.updateAllAddons(onDone: { json in
+                guard once.claim() else { return }
                 let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
                 continuation.resume(returning: (object?["updated"] as? NSNumber)?.intValue ?? 0)
             })
@@ -1077,7 +1145,9 @@ final class CinemaAPI {
     /// How each source has been behaving: average answer time and failures in a row.
     func sourceHealth() async -> [SourceHealthRow] {
         await withCheckedContinuation { (continuation: CheckedContinuation<[SourceHealthRow], Never>) in
+            let once = CinemaOnce()
             bridge.sourceHealth(onDone: { json in
+                guard once.claim() else { return }
                 continuation.resume(returning: (try? self.decode([SourceHealthRow].self, json)) ?? [])
             })
         }
@@ -1090,7 +1160,9 @@ final class CinemaAPI {
     /// Each playable link's own record, as the points its place takes.
     func sourceLinkHealth() async -> [String: Int] {
         await withCheckedContinuation { (continuation: CheckedContinuation<[String: Int], Never>) in
+            let once = CinemaOnce()
             bridge.sourceLinkHealth(onDone: { json in
+                guard once.claim() else { return }
                 let rows = (try? JSONDecoder().decode([String: Int].self, from: Data(json.utf8))) ?? [:]
                 continuation.resume(returning: rows)
             })
@@ -1105,7 +1177,9 @@ final class CinemaAPI {
     /// Every installed addon with what it can answer and its catalogues.
     func addonProfiles() async -> [AddonProfile] {
         await withCheckedContinuation { (continuation: CheckedContinuation<[AddonProfile], Never>) in
+            let once = CinemaOnce()
             bridge.addonProfiles(onDone: { json in
+                guard once.claim() else { return }
                 continuation.resume(returning: (try? self.decode([AddonProfile].self, json)) ?? [])
             })
         }
@@ -1114,13 +1188,16 @@ final class CinemaAPI {
     /// Reads a manifest without installing it, so the link can be seen first.
     func previewAddon(_ url: String) async throws -> AddonPreview {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<AddonPreview, Error>) in
+            let once = CinemaOnce()
             bridge.previewAddon(url: url, onDone: { json in
+                guard once.claim() else { return }
                 if let preview = try? self.decode(AddonPreview.self, json) {
                     continuation.resume(returning: preview)
                 } else {
                     continuation.resume(throwing: CinemaError(message: "تعذر قراءة الإضافة"))
                 }
             }, onError: { message in
+                guard once.claim() else { return }
                 continuation.resume(throwing: CinemaError(message: message))
             })
         }
@@ -17209,6 +17286,15 @@ struct DataSettings: View {
                         }
                     }
                     .tint(CinemaTheme.accent)
+                    // Asking here, the moment it is turned on, is the only place
+                    // the prompt makes sense: without it the switch said «on»
+                    // while iOS dropped every alert in silence.
+                    .onChange(of: notifications) { value in
+                        guard value else { return }
+                        UNUserNotificationCenter.current().requestAuthorization(
+                            options: [.alert, .sound, .badge]
+                        ) { _, _ in }
+                    }
                     .padding(.vertical, 12)
 
                     Divider().overlay(CinemaTheme.hairline)
@@ -18342,8 +18428,12 @@ enum CinemaxPrefs {
     }
 
     /// The system's reduce-motion switch, mirrored in the app's own settings.
+    /// The system switch wins on its own: a viewer who turned motion off there
+    /// must not have to find the app's row as well, and until now the app kept
+    /// animating over a setting it never read.
     static var reduceMotion: Bool {
-        (UserDefaults.standard.object(forKey: "cinemax.reduceMotion") as? Bool) ?? false
+        UIAccessibility.isReduceMotionEnabled
+            || ((UserDefaults.standard.object(forKey: "cinemax.reduceMotion") as? Bool) ?? false)
     }
 
     /// Refetches the catalogues on every visit instead of once a minute.
@@ -18412,27 +18502,14 @@ enum CinemaxPrefs {
     }
 
     static func resetAll() {
-        for key in [
-            "cinemax.accent", "cinemax.oled", "cinemax.reduceMotion", "cinemax.autoplayNext",
-            "cinemax.design", posterWidthKey, "cinemax.defaultSpeed", "cinemax.notifications",
-            "cinemax.seekSeconds", "cinemax.autoHideControls", "cinemax.autoResume",
-            "cinemax.heroAuto", "cinemax.skipIntro", "cinemax.prefQuality",
-            "cinemax.playerEngine", "cinemax.subtitleLang", "cinemax.onboarded",
-            "cinemax.subtitleSize", "cinemax.subtitleAuto", "cinemax.hwdec",
-            "cinemax.mpvFast", "cinemax.cacheMB", "cinemax.allowRotation",
-            "cinemax.subCp1256", "cinemax.librarySort", "cinemax.searchKind",
-            "cinemax.showContinue", "cinemax.maxShelves", "cinemax.hiddenShelves",
-            "cinemax.homeFilter", "cinemax.sourcesCollapsed",
-            "cinemax.appLock", "cinemax.autoSkipIntro", "cinemax.searchSort",
-            "cinemax.rowOrder", "cinemax.volume", "cinemax.aspect", "cinemax.zoom",
-            "cinemax.subPos", "cinemax.subColor", "cinemax.subBack", "cinemax.showHero", "cinemax.autoRefresh",
-            "cinemax.playerHints", "cinemax.lists.v1", "cinemax.corner",
-            "cinemax.hapticsLevel", "cinemax.sourcesCompact", "cinemax.prefetchNext",
-            "cinemax.eventLog.v1",
-            "cinemax.lastAddonCheck", "cinemax.lastAddonAlive", "cinemax.lastAddonTotal",
-            "cinemax.lastQuality", "cinemax.lastLanguage",
-            historyKey, lastRefreshKey
-        ] {
+        // Every key the interface owns is cleared by its prefix: the hand-written
+        // list kept leaving the newest settings behind — the subtitle colour, the
+        // per-title speed, the pinned sources and the filter each title keeps.
+        // The two keys that are not settings stay: the films on the device and
+        // the marker that the free set was already cleaned.
+        let keep: Set<String> = ["cinemax.downloads.v1", "cinemax.free.v1"]
+        for key in UserDefaults.standard.dictionaryRepresentation().keys
+        where key.hasPrefix("cinemax.") && !keep.contains(key) {
             UserDefaults.standard.removeObject(forKey: key)
         }
     }
